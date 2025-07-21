@@ -252,7 +252,55 @@ def load_schedules():
         else:
             logging.warning(f'Schedule {sch_id} mit Zeit {time_str} übersprungen (ungültig)')
 load_schedules()
+
 threading.Thread(target=run_scheduler, daemon=True).start()
+
+# --- Bluetooth-Hilfsfunktionen ---
+def is_bt_connected():
+    """Prüft, ob ein Bluetooth-Gerät verbunden ist."""
+    try:
+        sinks = subprocess.getoutput("pactl list short sinks | grep bluez")
+        return bool(sinks.strip())
+    except Exception as e:
+        logging.error(f'Fehler beim Prüfen der Bluetooth-Verbindung: {e}')
+        return False
+
+
+def resume_bt_audio():
+    """Stellt den Bluetooth-Sink wieder als Standard ein."""
+    try:
+        sink_lines = subprocess.getoutput("pactl list short sinks | grep bluez").splitlines()
+        if not sink_lines:
+            logging.info('Kein Bluetooth-Sink zum Resume gefunden')
+            return
+        bt_sink = sink_lines[0].split()[1]
+        set_sink(bt_sink)
+        logging.info(f'Bluetooth-Sink {bt_sink} wieder aktiv')
+    except Exception as e:
+        logging.error(f'Fehler beim Aktivieren des Bluetooth-Sinks: {e}')
+
+
+def load_loopback():
+    """Aktiviert PulseAudio-Loopback von der Bluetooth-Quelle zum DAC."""
+    try:
+        modules = subprocess.getoutput('pactl list short modules').splitlines()
+        for mod in modules:
+            if 'module-loopback' in mod and DAC_SINK in mod:
+                logging.info('Loopback bereits aktiv')
+                return
+        sources = subprocess.getoutput('pactl list short sources | grep bluez').splitlines()
+        if not sources:
+            logging.info('Kein Bluetooth-Source für Loopback gefunden')
+            return
+        bt_source = sources[0].split()[1]
+        subprocess.call([
+            'pactl', 'load-module', 'module-loopback',
+            f'source={bt_source}', f'sink={DAC_SINK}', 'latency_msec=30'
+        ])
+        logging.info(f'Loopback geladen: {bt_source} -> {DAC_SINK}')
+    except Exception as e:
+        logging.error(f'Fehler beim Laden des Loopback-Moduls: {e}')
+
 
 # --- Bluetooth Audio Monitor (A2DP-Sink Erkennung & Verstärkersteuerung) ---
 def is_bt_audio_active():
