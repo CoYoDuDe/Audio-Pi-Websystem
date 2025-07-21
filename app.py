@@ -569,12 +569,19 @@ def wlan_scan():
 def wlan_connect():
     ssid = request.form['ssid']
     password = request.form['password']
-    config = f'network={{\nssid="{ssid}"\npsk="{password}"\n}}'
-    config_bytes = config.encode()
-    p = subprocess.Popen(['sudo', 'tee', '-a', '/etc/wpa_supplicant/wpa_supplicant.conf'], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    p.communicate(config_bytes)
-    subprocess.call(['sudo', 'wpa_cli', '-i', 'wlan0', 'reconfigure'])
-    flash('Versuche, mit WLAN zu verbinden')
+    ssid_escaped = ssid.replace('"', '\\"')
+    password_escaped = password.replace('"', '\\"')
+    try:
+        net_id = subprocess.check_output(['sudo', 'wpa_cli', '-i', 'wlan0', 'add_network']).decode().strip()
+        subprocess.check_call(['sudo', 'wpa_cli', '-i', 'wlan0', 'set_network', net_id, 'ssid', f'"{ssid_escaped}"'])
+        subprocess.check_call(['sudo', 'wpa_cli', '-i', 'wlan0', 'set_network', net_id, 'psk', f'"{password_escaped}"'])
+        subprocess.check_call(['sudo', 'wpa_cli', '-i', 'wlan0', 'enable_network', net_id])
+        subprocess.check_call(['sudo', 'wpa_cli', '-i', 'wlan0', 'save_config'])
+        subprocess.check_call(['sudo', 'wpa_cli', '-i', 'wlan0', 'reconfigure'])
+        flash('Versuche, mit WLAN zu verbinden')
+    except subprocess.CalledProcessError as e:
+        logging.error(f'Fehler beim WLAN-Verbindungsaufbau: {e}')
+        flash('Fehler beim WLAN-Verbindungsaufbau')
     return redirect(url_for('index'))
 
 @app.route('/volume', methods=['POST'])
