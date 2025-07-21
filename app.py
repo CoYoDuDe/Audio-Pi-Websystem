@@ -13,11 +13,16 @@ import lgpio as GPIO
 import pygame
 from pydub import AudioSegment
 import smbus
+import secrets
 import logging
 import re
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY")
+secret_key = os.environ.get("FLASK_SECRET_KEY")
+if secret_key is None:
+    secret_key = secrets.token_urlsafe(32)
+    logging.warning("FLASK_SECRET_KEY nicht gesetzt, verwende zufälligen Schlüssel")
+app.secret_key = secret_key
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
