@@ -52,6 +52,9 @@ gpio_handle = GPIO.gpiochip_open(4)  # Pi 5 = Chip 4
 logging.info("GPIO initialisiert für Verstärker (OUTPUT/HIGH = an, LOW = aus)")
 amplifier_claimed = False
 
+# Track pause status manually since pygame lacks a get_paused() helper
+is_paused = False
+
 # Pygame Audio
 pygame.mixer.init()
 
@@ -227,6 +230,7 @@ play_lock = threading.Lock()
 
 # Wiedergabe Funktion
 def play_item(item_id, item_type, delay, is_schedule=False):
+    global is_paused
     with play_lock:
         if pygame.mixer.music.get_busy():
             logging.info(
@@ -250,6 +254,7 @@ def play_item(item_id, item_type, delay, is_schedule=False):
                 normalized.export(temp_path, format="wav")
                 pygame.mixer.music.load(temp_path)
                 pygame.mixer.music.play()
+                is_paused = False
                 while pygame.mixer.music.get_busy():
                     time.sleep(1)
                 os.remove(temp_path)
@@ -267,6 +272,7 @@ def play_item(item_id, item_type, delay, is_schedule=False):
                     normalized.export(temp_path, format="wav")
                     pygame.mixer.music.load(temp_path)
                     pygame.mixer.music.play()
+                    is_paused = False
                     while pygame.mixer.music.get_busy():
                         time.sleep(1)
                     os.remove(temp_path)
@@ -610,8 +616,9 @@ def play_now(item_type, item_id):
 @app.route("/toggle_pause")
 @login_required
 def toggle_pause():
-    if pygame.mixer.music.get_busy():
-        if pygame.mixer.music.get_paused():
+    global is_paused
+    if pygame.mixer.music.get_busy() or is_paused:
+        if is_paused:
             pygame.mixer.music.unpause()
             logging.info("Wiedergabe fortgesetzt")
         else:
@@ -624,6 +631,8 @@ def toggle_pause():
 @login_required
 def stop_playback():
     pygame.mixer.music.stop()
+    global is_paused
+    is_paused = False
     if not is_bt_connected():
         deactivate_amplifier()
     logging.info("Wiedergabe gestoppt")
