@@ -1,0 +1,13 @@
+[Unit]
+Description=Audio Pi Websystem
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/Audio-Pi-Websystem
+ExecStartPre=/bin/sleep 10
+ExecStart=/usr/bin/python3 /opt/Audio-Pi-Websystem/app.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
