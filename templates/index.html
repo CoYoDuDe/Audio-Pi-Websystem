@@ -101,6 +101,7 @@
         <select name="repeat">
             <option value="daily">Täglich</option>
             <option value="monthly">Monatlich</option>
+            <option value="once">Nur einmal</option>
         </select>
         <input type="number" name="delay" value="5" min="0" max="60" style="width:50px;"> Sek. Verzögerung
         <button type="submit">Hinzufügen</button>
@@ -109,6 +110,7 @@
         {% for schedule in schedules %}
         <li>
             {{ schedule[1] }} ({{ schedule[5] }}) - {{ schedule[2] }} ({{ schedule[3] }}) +{{ schedule[4] }}s
+            {% if schedule[6] and schedule[3] == 'once' %}- ausgeführt{% endif %}
             <a href="{{ url_for('delete_schedule', sch_id=schedule[0]) }}">Entfernen</a>
         </li>
         {% endfor %}
