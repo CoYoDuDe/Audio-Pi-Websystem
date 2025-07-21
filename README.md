@@ -37,7 +37,7 @@ python3 app.py
 
 ### Automatischer Start (systemd)
 
-Die Beispieldatei `audio-pi.service` ermöglicht den automatischen Start als systemd-Dienst. 
+Die Beispieldatei `audio-pi.service` ermöglicht den automatischen Start als systemd-Dienst.
 Durch die Zeile `ExecStartPre=/bin/sleep 10` wartet der Dienst nach dem Booten zehn Sekunden, bevor `app.py` ausgeführt wird.
 
 Zum Aktivieren kopieren Sie die Datei z.B. nach `/etc/systemd/system/` und laden die Unit neu:
@@ -45,3 +45,7 @@ Zum Aktivieren kopieren Sie die Datei z.B. nach `/etc/systemd/system/` und laden
 sudo systemctl daemon-reload
 sudo systemctl enable --now audio-pi.service
 ```
+
+## Datenbank-Initialisierung
+
+Bei der ersten Ausführung legt die Anwendung automatisch die SQLite-Datenbank `audio.db` an und erzeugt die benötigten Tabellen sowie einen Standard-Benutzer (`admin` / `password`). Es ist daher nicht notwendig, eine vorgefüllte Datenbank mitzuliefern. Wenn `audio.db` nicht existiert, wird sie beim Start erstellt.
