@@ -14,8 +14,8 @@ sudo apt install -y python3 python3-pip python3-venv
 # Dev-Packages (für pydub/pygame etc.)
 sudo apt install -y libasound2-dev libpulse-dev libportaudio2 ffmpeg libffi-dev libjpeg-dev libbluetooth-dev
 
-# Flask, smbus, pygame, pydub, lgpio, schedule, flask_login
-pip3 install Flask Flask-Login smbus pygame pydub lgpio schedule
+# Python-Abhängigkeiten installieren
+pip3 install -r requirements.txt
 
 # I²C für RTC aktivieren
 sudo raspi-config nonint do_i2c 0
