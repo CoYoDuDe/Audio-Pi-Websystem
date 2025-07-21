@@ -4,8 +4,8 @@ import subprocess
 import threading
 import schedule
 import sqlite3
-from datetime import datetime, timedelta
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from datetime import datetime
+from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -13,11 +13,16 @@ import lgpio as GPIO
 import pygame
 from pydub import AudioSegment
 import smbus
+import secrets
 import logging
 import re
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY")
+secret_key = os.environ.get("FLASK_SECRET_KEY")
+if secret_key is None:
+    secret_key = secrets.token_urlsafe(32)
+    logging.warning("FLASK_SECRET_KEY nicht gesetzt, verwende zufälligen Schlüssel")
+app.secret_key = secret_key
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
@@ -564,12 +569,19 @@ def wlan_scan():
 def wlan_connect():
     ssid = request.form['ssid']
     password = request.form['password']
-    config = f'network={{\nssid="{ssid}"\npsk="{password}"\n}}'
-    config_bytes = config.encode()
-    p = subprocess.Popen(['sudo', 'tee', '-a', '/etc/wpa_supplicant/wpa_supplicant.conf'], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    p.communicate(config_bytes)
-    subprocess.call(['sudo', 'wpa_cli', '-i', 'wlan0', 'reconfigure'])
-    flash('Versuche, mit WLAN zu verbinden')
+    ssid_escaped = ssid.replace('"', '\\"')
+    password_escaped = password.replace('"', '\\"')
+    try:
+        net_id = subprocess.check_output(['sudo', 'wpa_cli', '-i', 'wlan0', 'add_network']).decode().strip()
+        subprocess.check_call(['sudo', 'wpa_cli', '-i', 'wlan0', 'set_network', net_id, 'ssid', f'"{ssid_escaped}"'])
+        subprocess.check_call(['sudo', 'wpa_cli', '-i', 'wlan0', 'set_network', net_id, 'psk', f'"{password_escaped}"'])
+        subprocess.check_call(['sudo', 'wpa_cli', '-i', 'wlan0', 'enable_network', net_id])
+        subprocess.check_call(['sudo', 'wpa_cli', '-i', 'wlan0', 'save_config'])
+        subprocess.check_call(['sudo', 'wpa_cli', '-i', 'wlan0', 'reconfigure'])
+        flash('Versuche, mit WLAN zu verbinden')
+    except subprocess.CalledProcessError as e:
+        logging.error(f'Fehler beim WLAN-Verbindungsaufbau: {e}')
+        flash('Fehler beim WLAN-Verbindungsaufbau')
     return redirect(url_for('index'))
 
 @app.route('/volume', methods=['POST'])
@@ -661,5 +673,4 @@ threading.Thread(target=bluetooth_auto_accept, daemon=True).start()
 
 if __name__ == '__main__':
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    debug_mode = os.environ.get('FLASK_DEBUG', '0') == '1'
-    app.run(host='0.0.0.0', port=8080, debug=debug_mode)
+    app.run(host='0.0.0.0', port=8080, debug=True)
