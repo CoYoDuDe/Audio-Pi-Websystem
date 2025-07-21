@@ -28,7 +28,7 @@ fi
 
 # PulseAudio Setup für Pi (z.B. HiFiBerry DAC)
 sudo apt install -y pulseaudio pulseaudio-utils
-sudo usermod -aG pulse,pulse-access,audio $USER
+sudo usermod -aG pulse,pulse-access,audio "$USER"
 
 # Bluetooth Audio Setup – Nur SINK (kein Agent)
 sudo apt install -y pulseaudio-module-bluetooth bluez-tools bluez
