@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Audio Pi Control</title>
+    <link rel="stylesheet" href="https://cdn.simplecss.org/simple.min.css">
+</head>
+<body>
+    <h2>Audio Pi Websteuerung</h2>
+    <a href="{{ url_for('logout') }}">Logout</a> |
+    <a href="{{ url_for('logs') }}">Logs</a> |
+    <a href="{{ url_for('change_password') }}">Passwort ändern</a>
+    <hr>
+
+    <h3>Status</h3>
+    <ul>
+        <li>Aktuell: {{ 'Wiedergabe läuft' if status['playing'] else 'Wiedergabe gestoppt' }}</li>
+        <li>Bluetooth: {{ status['bluetooth_status'] }}</li>
+        <li>WLAN: {{ status['wlan_status'] }}</li>
+        <li>Endstufe: {{ status['amplifier_status'] }}</li>
+        <li>Lautstärke: {{ status['current_volume'] }}</li>
+        <li>Time: {{ status['current_time'] }}</li>
+    </ul>
+    <form action="{{ url_for('set_volume') }}" method="POST" style="display:inline;">
+        <input type="number" min="0" max="100" name="volume" placeholder="Lautstärke (%)">
+        <button type="submit">Setzen</button>
+    </form>
+    <form action="{{ url_for('activate_amp') }}" method="GET" style="display:inline;">
+        <button type="submit">Endstufe an</button>
+    </form>
+    <form action="{{ url_for('deactivate_amp') }}" method="GET" style="display:inline;">
+        <button type="submit">Endstufe aus</button>
+    </form>
+    <form action="{{ url_for('toggle_pause') }}" method="GET" style="display:inline;">
+        <button type="submit">Pause/Resume</button>
+    </form>
+    <form action="{{ url_for('stop_playback') }}" method="GET" style="display:inline;">
+        <button type="submit">Stopp</button>
+    </form>
+    <hr>
+    <h3>Datei-Upload</h3>
+    <form action="{{ url_for('upload') }}" method="POST" enctype="multipart/form-data">
+        <input type="file" name="file" required>
+        <button type="submit">Upload</button>
+    </form>
+
+    <h3>Audio-Dateien</h3>
+    <ul>
+        {% for file in files %}
+        <li>
+            {{ file[1] }}
+            <a href="{{ url_for('play_now', item_type='file', item_id=file[0]) }}">Play</a>
+            <a href="{{ url_for('delete', file_id=file[0]) }}">Löschen</a>
+        </li>
+        {% endfor %}
+    </ul>
+
+    <h3>Playlists</h3>
+    <form action="{{ url_for('create_playlist') }}" method="POST">
+        <input type="text" name="name" placeholder="Playlist-Name" required>
+        <button type="submit">Erstellen</button>
+    </form>
+    <ul>
+        {% for playlist in playlists %}
+        <li>
+            {{ playlist[1] }}
+            <a href="{{ url_for('play_now', item_type='playlist', item_id=playlist[0]) }}">Play</a>
+            <a href="{{ url_for('delete_playlist', playlist_id=playlist[0]) }}">Löschen</a>
+            <form action="{{ url_for('add_to_playlist') }}" method="POST" style="display:inline;">
+                <select name="file_id">
+                    {% for file in files %}
+                    <option value="{{ file[0] }}">{{ file[1] }}</option>
+                    {% endfor %}
+                </select>
+                <input type="hidden" name="playlist_id" value="{{ playlist[0] }}">
+                <button type="submit">Hinzufügen</button>
+            </form>
+        </li>
+        {% endfor %}
+    </ul>
+
+    <h3>Zeitpläne</h3>
+    <form action="{{ url_for('add_schedule') }}" method="POST">
+        <select name="item_type">
+            <option value="file">Datei</option>
+            <option value="playlist">Playlist</option>
+        </select>
+        <select name="file_id">
+            <option value="">-- Datei wählen --</option>
+            {% for file in files %}
+            <option value="{{ file[0] }}">{{ file[1] }}</option>
+            {% endfor %}
+        </select>
+        <select name="playlist_id">
+            <option value="">-- Playlist wählen --</option>
+            {% for playlist in playlists %}
+            <option value="{{ playlist[0] }}">{{ playlist[1] }}</option>
+            {% endfor %}
+        </select>
+        <input type="datetime-local" name="time" required>
+        <select name="repeat">
+            <option value="daily">Täglich</option>
+            <option value="monthly">Monatlich</option>
+        </select>
+        <input type="number" name="delay" value="5" min="0" max="60" style="width:50px;"> Sek. Verzögerung
+        <button type="submit">Hinzufügen</button>
+    </form>
+    <ul>
+        {% for schedule in schedules %}
+        <li>
+            {{ schedule[1] }} ({{ schedule[5] }}) - {{ schedule[2] }} ({{ schedule[3] }}) +{{ schedule[4] }}s
+            <a href="{{ url_for('delete_schedule', sch_id=schedule[0]) }}">Entfernen</a>
+        </li>
+        {% endfor %}
+    </ul>
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <ul>
+        {% for message in messages %}
+          <li style="color:green">{{ message }}</li>
+        {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+</body>
+</html>

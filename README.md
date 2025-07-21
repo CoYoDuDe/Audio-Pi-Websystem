@@ -23,4 +23,4 @@ Audio-Pi-Control ist ein vollständiges Steuer- und Audiomanagement-System für 
 
 **1. System installieren**
 ```bash
-sudo bash install.sh# Audio-Pi-Websystem
+sudo bash install.sh
