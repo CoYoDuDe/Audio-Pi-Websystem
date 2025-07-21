@@ -28,7 +28,8 @@ sudo bash install.sh
 ```
 
 **2. Anwendung starten**
-Setzen Sie vor dem Start die Umgebungsvariable `FLASK_SECRET_KEY`:
+Die Anwendung bricht sofort ab, wenn `FLASK_SECRET_KEY` nicht gesetzt ist.
+Setzen Sie die Umgebungsvariable vor dem Start:
 
 ```bash
 export FLASK_SECRET_KEY="ein_sicherer_schluessel"
