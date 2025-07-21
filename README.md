@@ -24,3 +24,12 @@ Audio-Pi-Control ist ein vollständiges Steuer- und Audiomanagement-System für 
 **1. System installieren**
 ```bash
 sudo bash install.sh
+```
+
+**2. Anwendung starten**
+Setzen Sie vor dem Start die Umgebungsvariable `FLASK_SECRET_KEY`:
+
+```bash
+export FLASK_SECRET_KEY="ein_sicherer_schluessel"
+python3 app.py
+```
