@@ -227,25 +227,10 @@ def load_schedules():
         repeat = sch[4]
         if validate_time(time_str):
             # Zeit korrekt, einplanen:
-            next_run = datetime.combine(datetime.now().date(), datetime.strptime(time_str, "%H:%M:%S").time())
-            if next_run < datetime.now():
-                if repeat == "daily":
-                    next_run += timedelta(days=1)
-                elif repeat == "monthly":
-                    year, month = datetime.now().year, datetime.now().month + 1
-                    if month > 12:
-                        year += 1
-                        month = 1
-                    next_run = datetime(year, month, 1, next_run.hour, next_run.minute, next_run.second)
-            delay = (next_run - datetime.now()).total_seconds()
-            def delayed_job(sch_id=sch_id):
-                threading.Timer(delay, lambda: schedule_job(sch_id)).start()
-            if delay > 0:
-                delayed_job()
             if repeat == 'daily':
                 schedule.every().day.at(time_str).do(schedule_job, sch_id)
             elif repeat == 'monthly':
-                def monthly_job():
+                def monthly_job(sch_id=sch_id):
                     if datetime.now().day == 1:
                         schedule_job(sch_id)
                 schedule.every().day.at(time_str).do(monthly_job)
