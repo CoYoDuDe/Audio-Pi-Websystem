@@ -241,6 +241,19 @@ def schedule_job(schedule_id):
         conn.commit()
         load_schedules()
 
+def skip_past_once_schedules():
+    """Markiert abgelaufene Einmal-Zeitpläne als ausgeführt."""
+    now = datetime.now()
+    cursor.execute("SELECT id, time FROM schedules WHERE repeat='once' AND executed=0")
+    for sch_id, sch_time in cursor.fetchall():
+        try:
+            run_time = datetime.strptime(sch_time, '%Y-%m-%d %H:%M:%S')
+            if run_time < now:
+                cursor.execute("UPDATE schedules SET executed=1 WHERE id=?", (sch_id,))
+        except ValueError:
+            logging.warning(f'Skippe Schedule {sch_id} mit ungültiger Zeit {sch_time}')
+    conn.commit()
+
 def load_schedules():
     schedule.clear()
     cursor.execute("SELECT * FROM schedules")
@@ -263,6 +276,7 @@ def load_schedules():
                 schedule.every().day.at(time_str).do(monthly_job)
         else:
             logging.warning(f'Schedule {sch_id} mit Zeit {time_str} übersprungen (ungültig)')
+skip_past_once_schedules()
 load_schedules()
 
 threading.Thread(target=run_scheduler, daemon=True).start()
