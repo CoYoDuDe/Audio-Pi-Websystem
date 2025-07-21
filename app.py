@@ -87,7 +87,11 @@ conn = sqlite3.connect(DB_FILE, check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('''CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, password TEXT)''')
 cursor.execute('''CREATE TABLE IF NOT EXISTS audio_files (id INTEGER PRIMARY KEY, filename TEXT)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS schedules (id INTEGER PRIMARY KEY, item_id INTEGER, item_type TEXT, time TEXT, repeat TEXT, delay INTEGER)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS schedules (id INTEGER PRIMARY KEY, item_id INTEGER, item_type TEXT, time TEXT, repeat TEXT, delay INTEGER, executed INTEGER DEFAULT 0)''')
+try:
+    cursor.execute("ALTER TABLE schedules ADD COLUMN executed INTEGER DEFAULT 0")
+except sqlite3.OperationalError:
+    pass
 cursor.execute('''CREATE TABLE IF NOT EXISTS playlists (id INTEGER PRIMARY KEY, name TEXT)''')
 cursor.execute('''CREATE TABLE IF NOT EXISTS playlist_files (playlist_id INTEGER, file_id INTEGER)''')
 if not cursor.execute("SELECT * FROM users").fetchone():
@@ -208,6 +212,15 @@ def play_item(item_id, item_type, delay, is_schedule=False):
 def run_scheduler():
     while True:
         schedule.run_pending()
+        now = datetime.now()
+        cursor.execute("SELECT id, time FROM schedules WHERE repeat='once' AND executed=0")
+        for sch_id, sch_time in cursor.fetchall():
+            try:
+                run_time = datetime.strptime(sch_time, '%Y-%m-%d %H:%M:%S')
+                if now >= run_time:
+                    schedule_job(sch_id)
+            except ValueError:
+                logging.warning(f'Schedule {sch_id} hat ungültiges Datum {sch_time}')
         time.sleep(1)
 
 def schedule_job(schedule_id):
@@ -216,7 +229,12 @@ def schedule_job(schedule_id):
     item_id = sch[1]
     item_type = sch[2]
     delay = sch[5]
+    repeat = sch[4]
     play_item(item_id, item_type, delay, is_schedule=True)
+    if repeat == 'once':
+        cursor.execute("UPDATE schedules SET executed=1 WHERE id=?", (schedule_id,))
+        conn.commit()
+        load_schedules()
 
 def load_schedules():
     schedule.clear()
@@ -225,8 +243,12 @@ def load_schedules():
         sch_id = sch[0]
         time_str = sch[3]
         repeat = sch[4]
+        executed = sch[6]
+        if repeat == 'once':
+            continue  # wird separat geprüft
+        if executed:
+            continue
         if validate_time(time_str):
-            # Zeit korrekt, einplanen:
             if repeat == 'daily':
                 schedule.every().day.at(time_str).do(schedule_job, sch_id)
             elif repeat == 'monthly':
@@ -360,7 +382,7 @@ def index():
     files = cursor.fetchall()
     cursor.execute("SELECT * FROM playlists")
     playlists = cursor.fetchall()
-    cursor.execute("SELECT s.id, CASE WHEN s.item_type='file' THEN f.filename ELSE p.name END as name, s.time, s.repeat, s.delay, s.item_type FROM schedules s LEFT JOIN audio_files f ON s.item_id = f.id AND s.item_type='file' LEFT JOIN playlists p ON s.item_id = p.id AND s.item_type='playlist'")
+    cursor.execute("SELECT s.id, CASE WHEN s.item_type='file' THEN f.filename ELSE p.name END as name, s.time, s.repeat, s.delay, s.item_type, s.executed FROM schedules s LEFT JOIN audio_files f ON s.item_id = f.id AND s.item_type='file' LEFT JOIN playlists p ON s.item_id = p.id AND s.item_type='playlist'")
     schedules = cursor.fetchall()
     wlan_ssid = subprocess.getoutput('iwgetid wlan0 -r').strip() or 'Nicht verbunden'
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -490,16 +512,19 @@ def deactivate_amp():
 @login_required
 def add_schedule():
     item_type = request.form['item_type']
-    time_str = request.form['time']  # Erwarte Format YYYY-MM-DDTHH:MM:SS
+    time_str = request.form['time']  # Erwarte Format YYYY-MM-DDTHH:MM
     repeat = request.form['repeat']
     delay = int(request.form['delay'])
 
     try:
         dt = datetime.fromisoformat(time_str.replace('Z', '+00:00'))
-        time_only = dt.strftime('%H:%M:%S')
-        if not validate_time(time_only):
-            flash('Ungültiges Zeitformat')
-            return redirect(url_for('index'))
+        if repeat == 'once':
+            time_only = dt.strftime('%Y-%m-%d %H:%M:%S')
+        else:
+            time_only = dt.strftime('%H:%M:%S')
+            if not validate_time(time_only):
+                flash('Ungültiges Zeitformat')
+                return redirect(url_for('index'))
     except ValueError:
         flash('Ungültiges Datums-/Zeitformat')
         return redirect(url_for('index'))
@@ -512,7 +537,7 @@ def add_schedule():
         flash('Ungültiger Typ ausgewählt')
         return redirect(url_for('index'))
 
-    cursor.execute("INSERT INTO schedules (item_id, item_type, time, repeat, delay) VALUES (?, ?, ?, ?, ?)",
+    cursor.execute("INSERT INTO schedules (item_id, item_type, time, repeat, delay, executed) VALUES (?, ?, ?, ?, ?, 0)",
                    (item_id, item_type, time_only, repeat, delay))
     conn.commit()
     load_schedules()
