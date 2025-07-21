@@ -17,7 +17,7 @@ import logging
 import re
 
 app = Flask(__name__)
-app.secret_key = 'super_secret_key'  # Bitte in Produktion anpassen!
+app.secret_key = os.environ.get("FLASK_SECRET_KEY")
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
