@@ -50,6 +50,12 @@ chmod 666 app.log
 # DB anlegen falls nicht da (Initialisierung passiert beim ersten Start)
 [ -f audio.db ] || touch audio.db
 
+# systemd-Dienst einrichten
+sudo cp audio-pi.service /etc/systemd/system/
+sudo sed -i "s|/opt/Audio-Pi-Websystem|$(pwd)|g" /etc/systemd/system/audio-pi.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now audio-pi.service
+
 # Hinweis für Bluetooth-SINK Setup
 echo ""
 echo "Hinweis: Bluetooth-SINK wird automatisch mit PulseAudio bereitgestellt."
