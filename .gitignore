@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
 uploads/
+audio.db
 *.db
 app.log
