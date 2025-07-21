@@ -6,6 +6,7 @@ After=network.target
 Type=simple
 WorkingDirectory=/opt/Audio-Pi-Websystem
 ExecStartPre=/bin/sleep 10
+Environment=FLASK_DEBUG=0
 ExecStart=/usr/bin/python3 /opt/Audio-Pi-Websystem/app.py
 Restart=on-failure
 
