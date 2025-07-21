@@ -496,7 +496,6 @@ def toggle_pause():
 @app.route('/stop_playback')
 @login_required
 def stop_playback():
-    global amplifier_active_for_bt
     pygame.mixer.music.stop()
     if not is_bt_connected():
         deactivate_amplifier()
