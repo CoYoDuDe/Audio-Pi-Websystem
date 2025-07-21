@@ -16,6 +16,7 @@ Audio-Pi-Control ist ein vollständiges Steuer- und Audiomanagement-System für 
 - **Protokollierung & Logs**
 - **Passwort-Management**
 - **Alle Daten in SQLite-DB**
+- Einmalige Zeitpläne, deren Zeitpunkt bereits vergangen ist, werden beim Start automatisch übersprungen.
 
 ---
 
