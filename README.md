@@ -24,3 +24,11 @@ Audio-Pi-Control ist ein vollständiges Steuer- und Audiomanagement-System für 
 **1. System installieren**
 ```bash
 sudo bash install.sh
+```
+
+**2. Anwendung starten**
+```bash
+python3 app.py
+```
+
+Rufe anschließend im Browser `http://<Pi-IP>:5000` auf und melde dich mit deinem Benutzer an.
