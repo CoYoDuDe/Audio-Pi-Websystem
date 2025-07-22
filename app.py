@@ -5,7 +5,15 @@ import threading
 import schedule
 import sqlite3
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import (
+    Flask,
+    render_template,
+    request,
+    redirect,
+    url_for,
+    flash,
+    has_request_context,
+)
 from flask_login import (
     LoginManager,
     UserMixin,
@@ -255,8 +263,21 @@ def play_item(item_id, item_type, delay, is_schedule=False):
                 cursor.execute(
                     "SELECT filename FROM audio_files WHERE id=?", (item_id,)
                 )
-                filename = cursor.fetchone()[0]
+                row = cursor.fetchone()
+                if not row:
+                    logging.warning(f"Audio-Datei-ID {item_id} nicht gefunden")
+                    return
+                filename = row[0]
                 file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+                if not os.path.exists(file_path):
+                    logging.warning(f"Datei fehlt: {file_path}")
+                    if not is_schedule:
+                        try:
+                            if has_request_context():
+                                flash("Audio-Datei nicht gefunden")
+                        except Exception:
+                            pass
+                    return
                 sound = AudioSegment.from_file(file_path)
                 normalized = sound.normalize(headroom=0.1)
                 normalized.export(temp_path, format="wav")
@@ -273,6 +294,15 @@ def play_item(item_id, item_type, delay, is_schedule=False):
                 files = cursor.fetchall()
                 for filename in files:
                     file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename[0])
+                    if not os.path.exists(file_path):
+                        logging.warning(f"Datei fehlt: {file_path}")
+                        if not is_schedule:
+                            try:
+                                if has_request_context():
+                                    flash("Audio-Datei nicht gefunden")
+                            except Exception:
+                                pass
+                        continue
                     sound = AudioSegment.from_file(file_path)
                     normalized = sound.normalize(headroom=0.1)
                     normalized.export(temp_path, format="wav")
