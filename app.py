@@ -244,6 +244,20 @@ def validate_time(time_str):
         return False
 
 
+def parse_once_datetime(time_str):
+    """Parst einen 'once'-Zeitstempel mit verschiedenen Formaten."""
+    try:
+        return datetime.fromisoformat(time_str.replace("Z", "+00:00"))
+    except ValueError:
+        pass
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(time_str, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"Ungültige Zeitangabe: {time_str}")
+
+
 # PulseAudio
 def get_current_sink():
     return subprocess.getoutput("pactl get-default-sink")
@@ -403,7 +417,7 @@ def skip_past_once_schedules():
     cursor.execute("SELECT id, time FROM schedules WHERE repeat='once' AND executed=0")
     for sch_id, sch_time in cursor.fetchall():
         try:
-            run_time = datetime.strptime(sch_time, "%Y-%m-%d %H:%M:%S")
+            run_time = parse_once_datetime(sch_time)
             if run_time < now + timedelta(seconds=1):
                 cursor.execute("UPDATE schedules SET executed=1 WHERE id=?", (sch_id,))
                 logging.info(f"Skippe überfälligen 'once' Schedule {sch_id}")
@@ -427,7 +441,7 @@ def load_schedules():
         misfire_grace_time = 1
         try:
             if repeat == "once":
-                run_time = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
+                run_time = parse_once_datetime(time_str)
                 trigger = DateTrigger(run_date=run_time)
             elif repeat == "daily":
                 h, m, s = time_str.split(":")
@@ -787,7 +801,7 @@ def add_schedule():
     delay = int(request.form["delay"])
 
     try:
-        dt = datetime.fromisoformat(time_str.replace("Z", "+00:00"))
+        dt = parse_once_datetime(time_str) if repeat == "once" else datetime.fromisoformat(time_str.replace("Z", "+00:00"))
         if repeat == "once":
             time_only = dt.strftime("%Y-%m-%d %H:%M:%S")
         else:
@@ -1002,4 +1016,8 @@ if not TESTING:
 if __name__ == "__main__":
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     debug = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true", "yes")
-    app.run(host="0.0.0.0", port=8080, debug=debug)
+    try:
+        app.run(host="0.0.0.0", port=8080, debug=debug)
+    finally:
+        if scheduler:
+            scheduler.shutdown()
