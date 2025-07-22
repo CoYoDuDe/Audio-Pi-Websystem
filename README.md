@@ -28,8 +28,10 @@ sudo bash install.sh
 ```
 
 **2. Anwendung starten**
-Die Anwendung bricht sofort ab, wenn `FLASK_SECRET_KEY` nicht gesetzt ist.
-Setzen Sie die Umgebungsvariable vor dem Start:
+Die Anwendung bricht sofort ab, wenn `FLASK_SECRET_KEY` nicht gesetzt ist. Nach
+dem Setzen der Variable genügt ein einfacher Aufruf. Seit dem behobenen
+Startproblem laufen Scheduler, Bluetooth-Monitor und Co. automatisch an – es
+ist kein zusätzlicher Funktionsaufruf mehr nötig.
 
 ```bash
 export FLASK_SECRET_KEY="ein_sicherer_schluessel"
