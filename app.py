@@ -628,9 +628,11 @@ def toggle_pause():
     if pygame.mixer.music.get_busy() or is_paused:
         if is_paused:
             pygame.mixer.music.unpause()
+            is_paused = False
             logging.info("Wiedergabe fortgesetzt")
         else:
             pygame.mixer.music.pause()
+            is_paused = True
             logging.info("Wiedergabe pausiert")
     return redirect(url_for("index"))
 
