@@ -7,6 +7,7 @@ Type=simple
 WorkingDirectory=/opt/Audio-Pi-Websystem
 ExecStartPre=/bin/sleep 10
 Environment=FLASK_DEBUG=0
+Environment=FLASK_SECRET_KEY=
 ExecStart=/usr/bin/python3 /opt/Audio-Pi-Websystem/app.py
 Restart=on-failure
 
