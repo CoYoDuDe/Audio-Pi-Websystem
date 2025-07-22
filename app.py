@@ -86,7 +86,16 @@ if not TESTING:
     load_initial_volume()
 
 # RTC (Echtzeituhr) Setup
-bus = smbus.SMBus(1) if not TESTING else None
+class RTCUnavailableError(Exception):
+    """RTC I²C-Bus konnte nicht initialisiert werden."""
+
+
+try:
+    bus = smbus.SMBus(1) if not TESTING else None
+except (FileNotFoundError, OSError) as e:
+    logging.warning(f"RTC SMBus nicht verfügbar: {e}")
+    bus = None
+
 RTC_ADDRESS = 0x51
 
 
@@ -99,6 +108,8 @@ def dec_to_bcd(val):
 
 
 def read_rtc():
+    if bus is None:
+        raise RTCUnavailableError("RTC-Bus nicht initialisiert")
     data = bus.read_i2c_block_data(RTC_ADDRESS, 0x04, 7)
     second = bcd_to_dec(data[0] & 0x7F)
     minute = bcd_to_dec(data[1] & 0x7F)
@@ -112,6 +123,8 @@ def read_rtc():
 
 
 def set_rtc(dt):
+    if bus is None:
+        raise RTCUnavailableError("RTC-Bus nicht initialisiert")
     second = dec_to_bcd(dt.second)
     minute = dec_to_bcd(dt.minute)
     hour = dec_to_bcd(dt.hour)
@@ -130,8 +143,8 @@ def sync_rtc_to_system():
         rtc_time = read_rtc()
         subprocess.call(["sudo", "date", "-s", rtc_time.strftime("%Y-%m-%d %H:%M:%S")])
         logging.info("RTC auf Systemzeit synchronisiert")
-    except ValueError:
-        logging.warning("Ungültige RTC-Zeit, überspringe Sync. /set_time nutzen!")
+    except (ValueError, OSError, RTCUnavailableError) as e:
+        logging.warning(f"RTC-Sync übersprungen: {e}")
 
 
 if not TESTING:
