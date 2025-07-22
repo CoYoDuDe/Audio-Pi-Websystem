@@ -792,6 +792,8 @@ def set_volume():
     vol = request.form["volume"]
     try:
         int_vol = int(vol)
+        if not 0 <= int_vol <= 100:
+            raise ValueError
         pygame.mixer.music.set_volume(int_vol / 100.0)
         current_sink = get_current_sink()
         subprocess.call(["pactl", "set-sink-volume", current_sink, f"{int_vol}%"])
