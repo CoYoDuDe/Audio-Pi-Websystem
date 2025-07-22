@@ -563,8 +563,14 @@ def upload():
 @login_required
 def delete(file_id):
     cursor.execute("SELECT filename FROM audio_files WHERE id=?", (file_id,))
-    filename = cursor.fetchone()[0]
-    os.remove(os.path.join(app.config["UPLOAD_FOLDER"], filename))
+    row = cursor.fetchone()
+    if not row:
+        flash("Datei nicht gefunden")
+        return redirect(url_for("index"))
+    filename = row[0]
+    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    if os.path.exists(file_path):
+        os.remove(file_path)
     cursor.execute("DELETE FROM audio_files WHERE id=?", (file_id,))
     cursor.execute("DELETE FROM playlist_files WHERE file_id=?", (file_id,))
     cursor.execute(
