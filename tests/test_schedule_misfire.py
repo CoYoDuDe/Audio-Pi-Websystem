@@ -12,7 +12,7 @@ class ScheduleMisfireTests(unittest.TestCase):
         def job():
             executed.append(True)
 
-        with freeze_time("2024-01-01 09:00:00"):
+        with freeze_time("2024-01-01 09:00:00", tick=True):
             scheduler = BackgroundScheduler()
             scheduler.add_job(
                 job,
