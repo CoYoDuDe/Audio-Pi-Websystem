@@ -27,7 +27,11 @@ Audio-Pi-Control ist ein vollständiges Steuer- und Audiomanagement-System für 
 sudo bash install.sh
 ```
 
-**2. Anwendung starten**
+**2. Virtuelle Umgebung aktivieren**
+```bash
+source venv/bin/activate
+```
+**3. Anwendung starten**
 Die Anwendung bricht sofort ab, wenn `FLASK_SECRET_KEY` nicht gesetzt ist. Nach
 dem Setzen der Variable genügt ein einfacher Aufruf. Seit dem behobenen
 Startproblem laufen Scheduler, Bluetooth-Monitor und Co. automatisch an – es
@@ -35,7 +39,7 @@ ist kein zusätzlicher Funktionsaufruf mehr nötig.
 
 ```bash
 export FLASK_SECRET_KEY="ein_sicherer_schluessel"
-python3 app.py
+python app.py
 ```
 
 ### Automatischer Start (systemd)
@@ -55,9 +59,10 @@ Bei der ersten Ausführung legt die Anwendung automatisch die SQLite-Datenbank `
 
 ## Tests
 
-Für die Unittests werden die Abhängigkeiten aus beiden Requirements-Dateien benötigt. Installieren Sie diese vor dem Ausführen der Tests:
+Für die Unittests werden die Abhängigkeiten aus beiden Requirements-Dateien benötigt. Aktivieren Sie zunächst die virtuelle Umgebung und installieren Sie dann die Requirements:
 
 ```bash
+source venv/bin/activate
 pip install -r requirements.txt
 pip install -r requirements-dev.txt
 pytest
