@@ -906,8 +906,8 @@ def set_time():
             subprocess.call(["sudo", "date", "-s", dt.strftime("%Y-%m-%d %H:%M:%S")])
             set_rtc(dt)
             flash("Datum und Uhrzeit gesetzt")
-        except ValueError:
-            flash("Ungültiges Datums-/Zeitformat")
+        except (ValueError, RTCUnavailableError):
+            flash("Ungültiges Datums-/Zeitformat oder RTC nicht verfügbar")
         return redirect(url_for("index"))
     return render_template("set_time.html")
 
