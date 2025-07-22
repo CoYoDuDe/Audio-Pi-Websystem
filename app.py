@@ -4,6 +4,7 @@ import subprocess
 import threading
 import schedule
 import sqlite3
+import tempfile
 from datetime import datetime
 from flask import (
     Flask,
@@ -257,7 +258,9 @@ def play_item(item_id, item_type, delay, is_schedule=False):
         activate_amplifier()
         time.sleep(delay)
         logging.info(f"Starte Wiedergabe für {item_type} {item_id}")
-        temp_path = "/tmp/normalized_audio.wav"
+        tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        temp_path = tmp_file.name
+        tmp_file.close()
         try:
             if item_type == "file":
                 cursor.execute(
