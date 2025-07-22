@@ -18,6 +18,7 @@
         <li>Bluetooth: {{ status['bluetooth_status'] }}</li>
         <li>WLAN: {{ status['wlan_status'] }}</li>
         <li>Endstufe: {{ status['amplifier_status'] }}</li>
+        <li>Relais-Umkehr: {{ 'Ja' if status['relay_invert'] else 'Nein' }}</li>
         <li>Lautstärke: {{ status['current_volume'] }}</li>
         <li>Time: {{ status['current_time'] }}</li>
     </ul>
@@ -30,6 +31,13 @@
     </form>
     <form action="{{ url_for('deactivate_amp') }}" method="POST" style="display:inline;">
         <button type="submit">Endstufe aus</button>
+    </form>
+    <form action="{{ url_for('set_relay_invert') }}" method="POST" style="display:inline;">
+        <label>
+            <input type="checkbox" name="invert" value="1" {% if status['relay_invert'] %}checked{% endif %}>
+            Relay umkehren
+        </label>
+        <button type="submit">Speichern</button>
     </form>
     <form action="{{ url_for('toggle_pause') }}" method="POST" style="display:inline;">
         <button type="submit">Pause/Resume</button>
