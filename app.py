@@ -38,6 +38,7 @@ login_manager.login_view = "login"
 UPLOAD_FOLDER = "uploads"
 ALLOWED_EXTENSIONS = {"wav", "mp3"}
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 DB_FILE = "audio.db"
 GPIO_PIN_ENDSTUFE = 17
 VERZOEGERUNG_SEC = 5
