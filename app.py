@@ -897,5 +897,4 @@ if not TESTING:
 
 if __name__ == "__main__":
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    startup()
     app.run(host="0.0.0.0", port=8080, debug=True)
