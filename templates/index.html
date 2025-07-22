@@ -25,16 +25,16 @@
         <input type="number" min="0" max="100" name="volume" placeholder="Lautstärke (%)">
         <button type="submit">Setzen</button>
     </form>
-    <form action="{{ url_for('activate_amp') }}" method="GET" style="display:inline;">
+    <form action="{{ url_for('activate_amp') }}" method="POST" style="display:inline;">
         <button type="submit">Endstufe an</button>
     </form>
-    <form action="{{ url_for('deactivate_amp') }}" method="GET" style="display:inline;">
+    <form action="{{ url_for('deactivate_amp') }}" method="POST" style="display:inline;">
         <button type="submit">Endstufe aus</button>
     </form>
-    <form action="{{ url_for('toggle_pause') }}" method="GET" style="display:inline;">
+    <form action="{{ url_for('toggle_pause') }}" method="POST" style="display:inline;">
         <button type="submit">Pause/Resume</button>
     </form>
-    <form action="{{ url_for('stop_playback') }}" method="GET" style="display:inline;">
+    <form action="{{ url_for('stop_playback') }}" method="POST" style="display:inline;">
         <button type="submit">Stopp</button>
     </form>
     <hr>
@@ -50,7 +50,9 @@
         <li>
             {{ file[1] }}
             <a href="{{ url_for('play_now', item_type='file', item_id=file[0]) }}">Play</a>
-            <a href="{{ url_for('delete', file_id=file[0]) }}">Löschen</a>
+            <form action="{{ url_for('delete', file_id=file[0]) }}" method="POST" style="display:inline;">
+                <button type="submit">Löschen</button>
+            </form>
         </li>
         {% endfor %}
     </ul>
@@ -65,7 +67,9 @@
         <li>
             {{ playlist[1] }}
             <a href="{{ url_for('play_now', item_type='playlist', item_id=playlist[0]) }}">Play</a>
-            <a href="{{ url_for('delete_playlist', playlist_id=playlist[0]) }}">Löschen</a>
+            <form action="{{ url_for('delete_playlist', playlist_id=playlist[0]) }}" method="POST" style="display:inline;">
+                <button type="submit">Löschen</button>
+            </form>
             <form action="{{ url_for('add_to_playlist') }}" method="POST" style="display:inline;">
                 <select name="file_id">
                     {% for file in files %}
@@ -111,7 +115,9 @@
         <li>
             {{ schedule[1] }} ({{ schedule[5] }}) - {{ schedule[2] }} ({{ schedule[3] }}) +{{ schedule[4] }}s
             {% if schedule[6] and schedule[3] == 'once' %}- ausgeführt{% endif %}
-            <a href="{{ url_for('delete_schedule', sch_id=schedule[0]) }}">Entfernen</a>
+            <form action="{{ url_for('delete_schedule', sch_id=schedule[0]) }}" method="POST" style="display:inline;">
+                <button type="submit">Entfernen</button>
+            </form>
         </li>
         {% endfor %}
     </ul>

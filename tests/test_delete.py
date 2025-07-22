@@ -71,7 +71,7 @@ class DeleteTests(unittest.TestCase):
         with patch("app.flash") as flash_mock, patch("app.redirect") as red_mock, patch(
             "app.url_for", return_value="/"
         ), patch("flask_login.utils._get_user", return_value=type("U", (), {"is_authenticated": True})()):
-            with app.app.test_request_context("/delete/123"):
+            with app.app.test_request_context("/delete/123", method="POST"):
                 app.delete(123)
 
         flash_mock.assert_called_with("Datei nicht gefunden")

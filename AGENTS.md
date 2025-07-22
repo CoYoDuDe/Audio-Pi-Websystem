@@ -58,11 +58,11 @@ Dieses Repository verwandelt den Raspberry Pi in ein lokales Steuer- und Audiosy
 | /login, /logout                  | GET/POST| Login, Logout                   | ✖            |
 | /upload                          | POST    | Audiodatei hochladen            | ✔            |
 | /play_now/<typ>/<id>             | GET     | Datei/Playlist sofort abspielen | ✔            |
-| /schedule, /delete_schedule      | POST/GET| Zeitplan setzen/löschen         | ✔            |
+| /schedule, /delete_schedule      | POST    | Zeitplan setzen/löschen         | ✔            |
 | /create_playlist, /add_to_playlist | POST  | Playlists verwalten             | ✔            |
-| /delete_playlist/<id>            | GET     | Playlist löschen                | ✔            |
-| /toggle_pause, /stop_playback    | GET     | Wiedergabe steuern              | ✔            |
-| /activate_amp, /deactivate_amp   | GET     | Endstufe schalten               | ✔            |
+| /delete_playlist/<id>            | POST    | Playlist löschen                | ✔            |
+| /toggle_pause, /stop_playback    | POST    | Wiedergabe steuern              | ✔            |
+| /activate_amp, /deactivate_amp   | POST    | Endstufe schalten               | ✔            |
 | /volume                          | POST    | Lautstärke setzen               | ✔            |
 | /logs                            | GET     | Logfile anzeigen                | ✔            |
 | /wlan_scan, /wlan_connect        | GET/POST| WLAN-Management                 | ✔            |

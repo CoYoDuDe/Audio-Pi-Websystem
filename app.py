@@ -561,7 +561,7 @@ def upload():
     return redirect(url_for("index"))
 
 
-@app.route("/delete/<int:file_id>")
+@app.route("/delete/<int:file_id>", methods=["POST"])
 @login_required
 def delete(file_id):
     cursor.execute("SELECT filename FROM audio_files WHERE id=?", (file_id,))
@@ -607,7 +607,7 @@ def add_to_playlist():
     return redirect(url_for("index"))
 
 
-@app.route("/delete_playlist/<int:playlist_id>")
+@app.route("/delete_playlist/<int:playlist_id>", methods=["POST"])
 @login_required
 def delete_playlist(playlist_id):
     cursor.execute("DELETE FROM playlists WHERE id=?", (playlist_id,))
@@ -629,7 +629,7 @@ def play_now(item_type, item_id):
     return redirect(url_for("index"))
 
 
-@app.route("/toggle_pause")
+@app.route("/toggle_pause", methods=["POST"])
 @login_required
 def toggle_pause():
     global is_paused
@@ -645,7 +645,7 @@ def toggle_pause():
     return redirect(url_for("index"))
 
 
-@app.route("/stop_playback")
+@app.route("/stop_playback", methods=["POST"])
 @login_required
 def stop_playback():
     pygame.mixer.music.stop()
@@ -661,7 +661,7 @@ def stop_playback():
     return redirect(url_for("index"))
 
 
-@app.route("/activate_amp")
+@app.route("/activate_amp", methods=["POST"])
 @login_required
 def activate_amp():
     try:
@@ -672,7 +672,7 @@ def activate_amp():
     return redirect(url_for("index"))
 
 
-@app.route("/deactivate_amp")
+@app.route("/deactivate_amp", methods=["POST"])
 @login_required
 def deactivate_amp():
     try:
@@ -722,7 +722,7 @@ def add_schedule():
     return redirect(url_for("index"))
 
 
-@app.route("/delete_schedule/<int:sch_id>")
+@app.route("/delete_schedule/<int:sch_id>", methods=["POST"])
 @login_required
 def delete_schedule(sch_id):
     cursor.execute("DELETE FROM schedules WHERE id=?", (sch_id,))
