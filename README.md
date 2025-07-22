@@ -9,6 +9,7 @@ Audio-Pi-Control ist ein vollständiges Steuer- und Audiomanagement-System für 
 - **Audio-Wiedergabe per Zeitplan** (Einzeldateien & Playlists)
 - **Bluetooth als Audio-Sink** (Handy → Pi → Verstärker)
 - **Endstufe/GPIO automatisch schalten** (bei Musik oder BT-Audio)
+- **Relais-Logik invertierbar über Web-UI**
 - **RTC-Steuerung & Systemzeit**
 - **WLAN-Scan, Verbindungsaufbau, AP-Fallback** (SSIDs und Passwörter dürfen Anführungszeichen und Backslashes enthalten)
 - **Web-Interface (Flask, passwortgeschützt)**
@@ -26,6 +27,8 @@ Audio-Pi-Control ist ein vollständiges Steuer- und Audiomanagement-System für 
 ```bash
 sudo bash install.sh
 ```
+Während der Installation fragt das Skript nach einem Wert für `FLASK_SECRET_KEY`
+und richtet den systemd-Dienst direkt ein.
 
 **2. Virtuelle Umgebung aktivieren**
 ```bash
@@ -44,10 +47,13 @@ python app.py
 
 ### Automatischer Start (systemd)
 
-Die Beispieldatei `audio-pi.service` ermöglicht den automatischen Start als systemd-Dienst.
-Durch die Zeile `ExecStartPre=/bin/sleep 10` wartet der Dienst nach dem Booten zehn Sekunden, bevor `app.py` ausgeführt wird.
+`install.sh` kopiert und konfiguriert `audio-pi.service` automatisch. Die
+Service-Datei nutzt den Python-Interpreter aus der virtuellen Umgebung und
+startet das Programm mit PulseAudio-Zugriff (entweder über `User=pi` oder mit
+`PULSE_RUNTIME_PATH`). Durch `ExecStartPre=/bin/sleep 10` wartet der Dienst nach
+dem Booten zehn Sekunden, bevor `app.py` ausgeführt wird.
 
-Zum Aktivieren kopieren Sie die Datei z.B. nach `/etc/systemd/system/` und laden die Unit neu:
+Sollte die Unit manuell neu geladen werden müssen, genügt:
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now audio-pi.service

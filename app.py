@@ -172,12 +172,39 @@ cursor.execute(
 cursor.execute(
     """CREATE TABLE IF NOT EXISTS playlist_files (playlist_id INTEGER, file_id INTEGER)"""
 )
+cursor.execute(
+    """CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)"""
+)
 if not cursor.execute("SELECT * FROM users").fetchone():
     cursor.execute(
         "INSERT INTO users (username, password) VALUES (?, ?)",
         ("admin", generate_password_hash("password")),
     )
 conn.commit()
+
+
+def get_setting(key, default=None):
+    row = cursor.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return row[0] if row else default
+
+
+def set_setting(key, value):
+    cursor.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+        (key, value),
+    )
+    conn.commit()
+
+
+RELAY_INVERT = get_setting("relay_invert", "0") == "1"
+AMP_ON_LEVEL = 0 if RELAY_INVERT else 1
+AMP_OFF_LEVEL = 1 if RELAY_INVERT else 0
+
+
+def update_amp_levels():
+    global AMP_ON_LEVEL, AMP_OFF_LEVEL
+    AMP_ON_LEVEL = 0 if RELAY_INVERT else 1
+    AMP_OFF_LEVEL = 1 if RELAY_INVERT else 0
 
 
 class User(UserMixin):
@@ -222,17 +249,19 @@ def activate_amplifier():
     global amplifier_claimed
     if not amplifier_claimed:
         try:
-            GPIO.gpio_claim_output(gpio_handle, GPIO_PIN_ENDSTUFE, lFlags=0, level=0)
+            GPIO.gpio_claim_output(
+                gpio_handle, GPIO_PIN_ENDSTUFE, lFlags=0, level=AMP_OFF_LEVEL
+            )
             amplifier_claimed = True
-            GPIO.gpio_write(gpio_handle, GPIO_PIN_ENDSTUFE, 1)
-            logging.info("Endstufe EIN (lgpio HIGH)")
+            GPIO.gpio_write(gpio_handle, GPIO_PIN_ENDSTUFE, AMP_ON_LEVEL)
+            logging.info("Endstufe EIN")
         except GPIO.error as e:
             if "GPIO busy" in str(e):
                 logging.warning("GPIO bereits belegt, überspringe claim")
             else:
                 raise e
     else:
-        GPIO.gpio_write(gpio_handle, GPIO_PIN_ENDSTUFE, 1)
+        GPIO.gpio_write(gpio_handle, GPIO_PIN_ENDSTUFE, AMP_ON_LEVEL)
         logging.info("Endstufe EIN (bereits belegt)")
 
 
@@ -240,10 +269,10 @@ def deactivate_amplifier():
     global amplifier_claimed
     if amplifier_claimed:
         try:
-            GPIO.gpio_write(gpio_handle, GPIO_PIN_ENDSTUFE, 0)
+            GPIO.gpio_write(gpio_handle, GPIO_PIN_ENDSTUFE, AMP_OFF_LEVEL)
             GPIO.gpio_free(gpio_handle, GPIO_PIN_ENDSTUFE)
             amplifier_claimed = False
-            logging.info("Endstufe AUS (lgpio LOW)")
+            logging.info("Endstufe AUS")
         except GPIO.error as e:
             if "GPIO busy" in str(e):
                 logging.warning("GPIO busy beim deaktivieren, ignoriere")
@@ -580,6 +609,7 @@ def index():
         "current_sink": get_current_sink(),
         "current_time": current_time,
         "amplifier_status": "An" if amplifier_claimed else "Aus",
+        "relay_invert": RELAY_INVERT,
         "current_volume": current_volume,
     }
     return render_template(
@@ -726,6 +756,17 @@ def deactivate_amp():
         flash("Endstufe deaktiviert")
     except GPIO.error as e:
         flash(f"Fehler beim Deaktivieren der Endstufe: {str(e)}")
+    return redirect(url_for("index"))
+
+
+@app.route("/set_relay_invert", methods=["POST"])
+@login_required
+def set_relay_invert():
+    global RELAY_INVERT
+    RELAY_INVERT = "invert" in request.form
+    set_setting("relay_invert", "1" if RELAY_INVERT else "0")
+    update_amp_levels()
+    flash("Relais-Logik invertiert" if RELAY_INVERT else "Relais-Logik normal")
     return redirect(url_for("index"))
 
 

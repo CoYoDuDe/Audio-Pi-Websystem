@@ -22,6 +22,10 @@ sudo apt install -y libasound2-dev libpulse-dev libportaudio2 ffmpeg libffi-dev 
 # Python-Abhängigkeiten installieren
 pip install -r requirements.txt
 
+# Benutzer nach Secret fragen und in Profil speichern
+read -rp "FLASK_SECRET_KEY: " SECRET
+echo "export FLASK_SECRET_KEY=\"$SECRET\"" >> ~/.profile
+
 # I²C für RTC aktivieren
 sudo raspi-config nonint do_i2c 0
 echo "i2c-dev" | sudo tee -a /etc/modules
@@ -58,6 +62,7 @@ chmod 666 app.log
 # systemd-Dienst einrichten
 sudo cp audio-pi.service /etc/systemd/system/
 sudo sed -i "s|/opt/Audio-Pi-Websystem|$(pwd)|g" /etc/systemd/system/audio-pi.service
+sudo sed -i "s|FLASK_SECRET_KEY=|FLASK_SECRET_KEY=$SECRET|" /etc/systemd/system/audio-pi.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now audio-pi.service
 

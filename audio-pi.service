@@ -4,13 +4,13 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/Audio-Pi-Websystem
+WorkingDirectory=/home/pi/Audio-Pi-Websystem
 ExecStartPre=/bin/sleep 10
 Environment=FLASK_DEBUG=0
 Environment=FLASK_SECRET_KEY=
 User=pi
 Group=audio
-ExecStart=/opt/Audio-Pi-Websystem/venv/bin/python /opt/Audio-Pi-Websystem/app.py
+ExecStart=/home/pi/Audio-Pi-Websystem/venv/bin/python /home/pi/Audio-Pi-Websystem/app.py
 Restart=on-failure
 
 [Install]
