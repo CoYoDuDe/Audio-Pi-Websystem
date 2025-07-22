@@ -40,6 +40,7 @@ sys.modules["schedule"] = types.SimpleNamespace(
 )
 
 os.environ["FLASK_SECRET_KEY"] = "test"
+os.environ["TESTING"] = "1"
 
 # Use in-memory SQLite during tests
 _original_connect = sqlite3.connect
