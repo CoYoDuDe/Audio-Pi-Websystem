@@ -77,6 +77,21 @@ class VolumeTests(unittest.TestCase):
 
         flash_mock.assert_called_with("Ungültiger Lautstärke-Wert")
 
+    def test_volume_negative_value(self):
+        with patch("app.flash") as flash_mock, patch("app.redirect"), patch(
+            "app.url_for", return_value="/"
+        ), patch(
+            "flask_login.utils._get_user", return_value=type("U", (), {"is_authenticated": True})()
+        ):
+            with app.app.test_request_context(
+                "/volume",
+                method="POST",
+                data={"volume": "-1"},
+            ):
+                app.set_volume()
+
+        flash_mock.assert_called_with("Ungültiger Lautstärke-Wert")
+
 
 if __name__ == "__main__":
     unittest.main()
