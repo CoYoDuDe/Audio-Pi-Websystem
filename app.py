@@ -465,9 +465,6 @@ def bt_audio_monitor():
         time.sleep(3)
 
 
-threading.Thread(target=bt_audio_monitor, daemon=True).start()
-
-
 # AP-Modus
 def has_network():
     return "default" in subprocess.getoutput("ip route")
@@ -486,9 +483,6 @@ def disable_ap():
     subprocess.call(["sudo", "systemctl", "stop", "hostapd"])
     subprocess.call(["sudo", "systemctl", "stop", "dnsmasq"])
     logging.info("AP-Modus deaktiviert")
-
-
-setup_ap()
 
 
 # ---- Flask Web-UI ----
@@ -903,4 +897,5 @@ if not TESTING:
 
 if __name__ == "__main__":
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    startup()
     app.run(host="0.0.0.0", port=8080, debug=True)
