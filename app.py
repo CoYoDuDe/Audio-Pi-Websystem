@@ -774,8 +774,9 @@ def wlan_scan():
 def wlan_connect():
     ssid = request.form["ssid"]
     password = request.form["password"]
-    ssid_escaped = ssid.replace('"', '\\"')
-    password_escaped = password.replace('"', '\\"')
+    # Escape special characters so wpa_cli parses them correctly
+    ssid_escaped = ssid.encode("unicode_escape").decode()
+    password_escaped = password.encode("unicode_escape").decode()
     try:
         net_id = (
             subprocess.check_output(["sudo", "wpa_cli", "-i", "wlan0", "add_network"])
