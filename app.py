@@ -520,6 +520,7 @@ def index():
     )
     status = {
         "playing": pygame.mixer.music.get_busy(),
+        "bluetooth_status": "Verbunden" if is_bt_connected() else "Nicht verbunden",
         "wlan_status": wlan_ssid,
         "current_sink": get_current_sink(),
         "current_time": current_time,
