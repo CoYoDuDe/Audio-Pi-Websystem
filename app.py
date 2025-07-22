@@ -812,8 +812,11 @@ def set_volume():
 @app.route("/logs")
 @login_required
 def logs():
-    with open("app.log", "r") as f:
-        logs = f.read()
+    try:
+        with open("app.log", "r") as f:
+            logs = f.read()
+    except FileNotFoundError:
+        logs = "Keine Logdatei vorhanden"
     return render_template("logs.html", logs=logs)
 
 
