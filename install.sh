@@ -11,11 +11,16 @@ sudo apt upgrade -y
 # Python-Basics & PIP
 sudo apt install -y python3 python3-pip python3-venv
 
+# Virtuelle Umgebung einrichten
+python3 -m venv venv
+source venv/bin/activate
+
+
 # Dev-Packages (für pydub/pygame etc.)
 sudo apt install -y libasound2-dev libpulse-dev libportaudio2 ffmpeg libffi-dev libjpeg-dev libbluetooth-dev
 
 # Python-Abhängigkeiten installieren
-pip3 install -r requirements.txt
+pip install -r requirements.txt
 
 # I²C für RTC aktivieren
 sudo raspi-config nonint do_i2c 0
@@ -66,7 +71,7 @@ echo "Wenn RTC/I2C/Overlay neu eingerichtet wurden: Bitte RASPBERRY PI NEU START
 
 echo ""
 echo "Setup abgeschlossen! Starte mit:"
-echo "python3 app.py"
+echo "source venv/bin/activate && python app.py"
 echo ""
 echo "Öffne im Browser: http://<RaspberryPi-IP>:8080"
 echo ""
