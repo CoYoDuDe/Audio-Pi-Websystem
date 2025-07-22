@@ -62,3 +62,7 @@ pytest
 ```
 
 Die Tests lassen sich danach mit `pytest` starten.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
