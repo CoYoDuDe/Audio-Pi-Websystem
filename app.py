@@ -302,13 +302,19 @@ def run_scheduler():
 def schedule_job(schedule_id):
     cursor.execute("SELECT * FROM schedules WHERE id=?", (schedule_id,))
     sch = cursor.fetchone()
+    if sch is None:
+        logging.warning(f"Schedule {schedule_id} nicht gefunden")
+        return
     item_id = sch[1]
     item_type = sch[2]
     delay = sch[5]
     repeat = sch[4]
     play_item(item_id, item_type, delay, is_schedule=True)
     if repeat == "once":
-        cursor.execute("UPDATE schedules SET executed=1 WHERE id=?", (schedule_id,))
+        cursor.execute(
+            "UPDATE schedules SET executed=1 WHERE id=?",
+            (schedule_id,),
+        )
         conn.commit()
         load_schedules()
 

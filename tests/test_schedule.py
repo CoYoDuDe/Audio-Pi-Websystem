@@ -119,6 +119,15 @@ class ScheduleOnceTests(unittest.TestCase):
         app.cursor.execute("SELECT executed FROM schedules WHERE id=?", (sch_id,))
         self.assertEqual(app.cursor.fetchone()[0], 1)
 
+    def test_schedule_job_missing_schedule(self):
+        with patch.object(app, "play_item") as play_mock, patch.object(
+            app.logging,
+            "warning",
+        ) as warn_mock:
+            app.schedule_job(9999)
+            play_mock.assert_not_called()
+            warn_mock.assert_called()
+
 
 if __name__ == "__main__":
     unittest.main()
