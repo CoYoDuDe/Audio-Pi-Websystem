@@ -58,7 +58,8 @@ with patch("subprocess.getoutput", return_value="volume: 50%"), patch(
 
 class WlanConnectTest(unittest.TestCase):
     def test_password_with_special_chars(self):
-        special_password = 'pa$$"w0rd!'
+        special_password = 'pa$$"w0rd\\path'
+        special_ssid = 'Test"Net\\1'
         with patch("app.subprocess.check_output", return_value=b"0") as out_mock, patch(
             "app.subprocess.check_call"
         ) as call_mock, patch("app.flash"), patch("app.redirect"), patch(
@@ -70,14 +71,15 @@ class WlanConnectTest(unittest.TestCase):
             with app.app.test_request_context(
                 "/wlan_connect",
                 method="POST",
-                data={"ssid": "TestNet", "password": special_password},
+                data={"ssid": special_ssid, "password": special_password},
             ):
                 app.wlan_connect()
 
-        escaped = special_password.replace('"', '\\"')
+        escaped_pw = special_password.encode("unicode_escape").decode()
+        escaped_ssid = special_ssid.encode("unicode_escape").decode()
         out_mock.assert_called_with(["sudo", "wpa_cli", "-i", "wlan0", "add_network"])
         call_mock.assert_any_call(
-            ["sudo", "wpa_cli", "-i", "wlan0", "set_network", "0", "ssid", '"TestNet"']
+            ["sudo", "wpa_cli", "-i", "wlan0", "set_network", "0", "ssid", f'"{escaped_ssid}"']
         )
         call_mock.assert_any_call(
             [
@@ -88,7 +90,7 @@ class WlanConnectTest(unittest.TestCase):
                 "set_network",
                 "0",
                 "psk",
-                f'"{escaped}"',
+                f'"{escaped_pw}"',
             ]
         )
 

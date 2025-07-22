@@ -10,7 +10,7 @@ Audio-Pi-Control ist ein vollständiges Steuer- und Audiomanagement-System für 
 - **Bluetooth als Audio-Sink** (Handy → Pi → Verstärker)
 - **Endstufe/GPIO automatisch schalten** (bei Musik oder BT-Audio)
 - **RTC-Steuerung & Systemzeit**
-- **WLAN-Scan, Verbindungsaufbau, AP-Fallback**
+- **WLAN-Scan, Verbindungsaufbau, AP-Fallback** (SSIDs und Passwörter dürfen Anführungszeichen und Backslashes enthalten)
 - **Web-Interface (Flask, passwortgeschützt)**
 - **Audio-Upload, Playlist-Verwaltung**
 - **Protokollierung & Logs**
