@@ -39,6 +39,7 @@ sys.modules["schedule"] = types.SimpleNamespace(
 )
 
 os.environ["FLASK_SECRET_KEY"] = "test"
+os.environ["TESTING"] = "1"
 
 
 def dummy_popen(*args, **kwargs):

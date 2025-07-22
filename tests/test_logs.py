@@ -40,7 +40,6 @@ sys.modules["schedule"] = types.SimpleNamespace(
 )
 
 os.environ["FLASK_SECRET_KEY"] = "test"
-os.environ["TESTING"] = "1"
 
 # Use in-memory SQLite during tests
 _original_connect = sqlite3.connect
@@ -62,20 +61,22 @@ with patch("sqlite3.connect", side_effect=connect_memory), patch(
     importlib.reload(app)
 
 
-class DeleteTests(unittest.TestCase):
-    def setUp(self):
-        app.cursor.execute("DELETE FROM audio_files")
-        app.conn.commit()
+class LogsTests(unittest.TestCase):
+    def test_missing_logfile(self):
+        def fake_open(path, mode="r", *args, **kwargs):
+            if path == "app.log":
+                raise FileNotFoundError
+            return open_orig(path, mode, *args, **kwargs)
 
-    def test_delete_missing_file(self):
-        with patch("app.flash") as flash_mock, patch("app.redirect") as red_mock, patch(
-            "app.url_for", return_value="/"
-        ), patch("flask_login.utils._get_user", return_value=type("U", (), {"is_authenticated": True})()):
-            with app.app.test_request_context("/delete/123"):
-                app.delete(123)
-
-        flash_mock.assert_called_with("Datei nicht gefunden")
-        red_mock.assert_called_with("/")
+        open_orig = open
+        with patch("builtins.open", side_effect=fake_open):
+            with patch(
+                "flask_login.utils._get_user",
+                return_value=type("U", (), {"is_authenticated": True})(),
+            ):
+                with app.app.test_client() as client:
+                    resp = client.get("/logs")
+        self.assertIn("Keine Logdatei vorhanden", resp.get_data(as_text=True))
 
 
 if __name__ == "__main__":

@@ -30,6 +30,7 @@ if not secret_key:
     logging.error("FLASK_SECRET_KEY nicht gesetzt. Bitte Umgebungsvariable setzen.")
     sys.exit(1)
 app.secret_key = secret_key
+TESTING = os.getenv("TESTING")
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
@@ -37,6 +38,7 @@ login_manager.login_view = "login"
 UPLOAD_FOLDER = "uploads"
 ALLOWED_EXTENSIONS = {"wav", "mp3"}
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 DB_FILE = "audio.db"
 GPIO_PIN_ENDSTUFE = 17
 VERZOEGERUNG_SEC = 5
@@ -48,30 +50,34 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
-gpio_handle = GPIO.gpiochip_open(4)  # Pi 5 = Chip 4
-logging.info("GPIO initialisiert für Verstärker (OUTPUT/HIGH = an, LOW = aus)")
+if not TESTING:
+    gpio_handle = GPIO.gpiochip_open(4)  # Pi 5 = Chip 4
+    logging.info("GPIO initialisiert für Verstärker (OUTPUT/HIGH = an, LOW = aus)")
+else:
+    gpio_handle = None
 amplifier_claimed = False
 
 # Track pause status manually since pygame lacks a get_paused() helper
 is_paused = False
 
-# Pygame Audio
-pygame.mixer.init()
+# Pygame Audio und Lautstärke nur initialisieren, wenn nicht im Test
+if not TESTING:
+    pygame.mixer.init()
 
 
-def load_initial_volume():
-    output = subprocess.getoutput("pactl get-sink-volume @DEFAULT_SINK@")
-    match = re.search(r"(\d+)%", output)
-    if match:
-        initial_vol = int(match.group(1))
-        pygame.mixer.music.set_volume(initial_vol / 100.0)
-        logging.info(f"Initiale Lautstärke geladen: {initial_vol}%")
+    def load_initial_volume():
+        output = subprocess.getoutput("pactl get-sink-volume @DEFAULT_SINK@")
+        match = re.search(r"(\d+)%", output)
+        if match:
+            initial_vol = int(match.group(1))
+            pygame.mixer.music.set_volume(initial_vol / 100.0)
+            logging.info(f"Initiale Lautstärke geladen: {initial_vol}%")
 
 
-load_initial_volume()
+    load_initial_volume()
 
 # RTC (Echtzeituhr) Setup
-bus = smbus.SMBus(1)
+bus = smbus.SMBus(1) if not TESTING else None
 RTC_ADDRESS = 0x51
 
 
@@ -119,7 +125,8 @@ def sync_rtc_to_system():
         logging.warning("Ungültige RTC-Zeit, überspringe Sync. /set_time nutzen!")
 
 
-sync_rtc_to_system()
+if not TESTING:
+    sync_rtc_to_system()
 
 # DB Setup
 conn = sqlite3.connect(DB_FILE, check_same_thread=False)
@@ -223,7 +230,8 @@ def deactivate_amplifier():
 
 
 # Endstufe beim Start aus
-deactivate_amplifier()
+if not TESTING:
+    deactivate_amplifier()
 
 play_lock = threading.Lock()
 
@@ -362,8 +370,10 @@ def load_schedules():
             )
 
 
-skip_past_once_schedules()
-load_schedules()
+if not TESTING:
+    skip_past_once_schedules()
+    load_schedules()
+    threading.Thread(target=run_scheduler, daemon=True).start()
 
 
 # --- Bluetooth-Hilfsfunktionen ---
@@ -804,8 +814,11 @@ def set_volume():
 @app.route("/logs")
 @login_required
 def logs():
-    with open("app.log", "r") as f:
-        logs = f.read()
+    try:
+        with open("app.log", "r") as f:
+            logs = f.read()
+    except FileNotFoundError:
+        logs = "Keine Logdatei vorhanden"
     return render_template("logs.html", logs=logs)
 
 
@@ -879,13 +892,8 @@ def bluetooth_auto_accept():
     logging.info(f"Bluetooth auto-accept setup: {stdout} {stderr}")
 
 
-def startup():
-    """Start background threads and configure Bluetooth/AP."""
-    threading.Thread(target=run_scheduler, daemon=True).start()
-    threading.Thread(target=bt_audio_monitor, daemon=True).start()
-    setup_ap()
+if not TESTING:
     threading.Thread(target=bluetooth_auto_accept, daemon=True).start()
-
 
 if __name__ == "__main__":
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)

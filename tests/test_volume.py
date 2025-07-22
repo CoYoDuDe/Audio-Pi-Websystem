@@ -40,6 +40,7 @@ sys.modules["schedule"] = types.SimpleNamespace(
 )
 
 os.environ["FLASK_SECRET_KEY"] = "test"
+os.environ["TESTING"] = "1"
 
 # Use in-memory SQLite during tests
 _original_connect = sqlite3.connect
@@ -72,6 +73,21 @@ class VolumeTests(unittest.TestCase):
                 "/volume",
                 method="POST",
                 data={"volume": "150"},
+            ):
+                app.set_volume()
+
+        flash_mock.assert_called_with("Ungültiger Lautstärke-Wert")
+
+    def test_volume_negative_value(self):
+        with patch("app.flash") as flash_mock, patch("app.redirect"), patch(
+            "app.url_for", return_value="/"
+        ), patch(
+            "flask_login.utils._get_user", return_value=type("U", (), {"is_authenticated": True})()
+        ):
+            with app.app.test_request_context(
+                "/volume",
+                method="POST",
+                data={"volume": "-1"},
             ):
                 app.set_volume()
 
