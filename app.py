@@ -241,6 +241,7 @@ def play_item(item_id, item_type, delay, is_schedule=False):
         activate_amplifier()
         time.sleep(delay)
         logging.info(f"Starte Wiedergabe für {item_type} {item_id}")
+        temp_path = "/tmp/normalized_audio.wav"
         try:
             if item_type == "file":
                 cursor.execute(
@@ -250,14 +251,12 @@ def play_item(item_id, item_type, delay, is_schedule=False):
                 file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
                 sound = AudioSegment.from_file(file_path)
                 normalized = sound.normalize(headroom=0.1)
-                temp_path = "/tmp/normalized_audio.wav"
                 normalized.export(temp_path, format="wav")
                 pygame.mixer.music.load(temp_path)
                 pygame.mixer.music.play()
                 is_paused = False
                 while pygame.mixer.music.get_busy():
                     time.sleep(1)
-                os.remove(temp_path)
             elif item_type == "playlist":
                 cursor.execute(
                     "SELECT f.filename FROM playlist_files pf JOIN audio_files f ON pf.file_id = f.id WHERE pf.playlist_id=?",
@@ -268,15 +267,17 @@ def play_item(item_id, item_type, delay, is_schedule=False):
                     file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename[0])
                     sound = AudioSegment.from_file(file_path)
                     normalized = sound.normalize(headroom=0.1)
-                    temp_path = "/tmp/normalized_audio.wav"
                     normalized.export(temp_path, format="wav")
                     pygame.mixer.music.load(temp_path)
                     pygame.mixer.music.play()
                     is_paused = False
                     while pygame.mixer.music.get_busy():
                         time.sleep(1)
-                    os.remove(temp_path)
         finally:
+            try:
+                os.remove(temp_path)
+            except FileNotFoundError:
+                pass
             deactivate_amplifier()
             logging.info("Wiedergabe beendet")
 
