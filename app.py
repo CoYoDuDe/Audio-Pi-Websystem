@@ -758,6 +758,10 @@ def add_schedule():
         flash("Ungültiger Typ ausgewählt")
         return redirect(url_for("index"))
 
+    if not item_id:
+        flash("Kein Element gewählt")
+        return redirect(url_for("index"))
+
     cursor.execute(
         "INSERT INTO schedules (item_id, item_type, time, repeat, delay, executed) VALUES (?, ?, ?, ?, ?, 0)",
         (item_id, item_type, time_only, repeat, delay),
