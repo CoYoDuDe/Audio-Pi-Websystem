@@ -828,6 +828,9 @@ def change_password():
     if request.method == "POST":
         old_pass = request.form["old_password"]
         new_pass = request.form["new_password"]
+        if not new_pass or len(new_pass) < 4:
+            flash("Neues Passwort zu kurz")
+            return render_template("change_password.html")
         cursor.execute("SELECT password FROM users WHERE id=?", (current_user.id,))
         hashed = cursor.fetchone()[0]
         if check_password_hash(hashed, old_pass):

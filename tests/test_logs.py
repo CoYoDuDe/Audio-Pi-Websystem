@@ -78,6 +78,25 @@ class LogsTests(unittest.TestCase):
                     resp = client.get("/logs")
         self.assertIn("Keine Logdatei vorhanden", resp.get_data(as_text=True))
 
+    def test_change_password_empty(self):
+        app.cursor.execute("SELECT password FROM users WHERE id=?", (1,))
+        before = app.cursor.fetchone()[0]
+        with patch("app.flash") as flash_mock, patch(
+            "flask_login.utils._get_user",
+            return_value=type("U", (), {"is_authenticated": True, "id": 1})(),
+        ), patch("app.render_template", return_value="form"):
+            with app.app.test_request_context(
+                "/change_password",
+                method="POST",
+                data={"old_password": "password", "new_password": ""},
+            ):
+                app.change_password()
+
+        flash_mock.assert_called_with("Neues Passwort zu kurz")
+        app.cursor.execute("SELECT password FROM users WHERE id=?", (1,))
+        after = app.cursor.fetchone()[0]
+        self.assertEqual(before, after)
+
 
 if __name__ == "__main__":
     unittest.main()
