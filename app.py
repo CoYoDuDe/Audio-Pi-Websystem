@@ -948,6 +948,7 @@ def bluetooth_auto_accept():
 
 if not TESTING:
     threading.Thread(target=bluetooth_auto_accept, daemon=True).start()
+    threading.Thread(target=bt_audio_monitor, daemon=True).start()
 
 if __name__ == "__main__":
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
