@@ -2,10 +2,17 @@ import os
 import time
 import subprocess
 import threading
-import schedule
+if isinstance(threading.Thread, type):
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.date import DateTrigger
+else:
+    BackgroundScheduler = None
+    CronTrigger = None
+    DateTrigger = None
 import sqlite3
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import (
     Flask,
     render_template,
@@ -181,6 +188,9 @@ if not cursor.execute("SELECT * FROM users").fetchone():
         ("admin", generate_password_hash("password")),
     )
 conn.commit()
+
+# Scheduler
+scheduler = BackgroundScheduler() if BackgroundScheduler else None
 
 
 def get_setting(key, default=None):
@@ -366,22 +376,6 @@ def play_item(item_id, item_type, delay, is_schedule=False):
 
 
 # Scheduler-Logik
-def run_scheduler():
-    while True:
-        schedule.run_pending()
-        now = datetime.now()
-        cursor.execute(
-            "SELECT id, time FROM schedules WHERE repeat='once' AND executed=0"
-        )
-        for sch_id, sch_time in cursor.fetchall():
-            try:
-                run_time = datetime.strptime(sch_time, "%Y-%m-%d %H:%M:%S")
-                if now >= run_time:
-                    schedule_job(sch_id)
-            except ValueError:
-                logging.warning(f"Schedule {sch_id} hat ungültiges Datum {sch_time}")
-        time.sleep(1)
-
 
 def schedule_job(schedule_id):
     cursor.execute("SELECT * FROM schedules WHERE id=?", (schedule_id,))
@@ -404,51 +398,65 @@ def schedule_job(schedule_id):
 
 
 def skip_past_once_schedules():
-    """Markiert abgelaufene Einmal-Zeitpläne als ausgeführt."""
+    """Markiert abgelaufene Einmal-Zeitpläne als ausgeführt (Grace-Zeit)."""
     now = datetime.now()
     cursor.execute("SELECT id, time FROM schedules WHERE repeat='once' AND executed=0")
     for sch_id, sch_time in cursor.fetchall():
         try:
             run_time = datetime.strptime(sch_time, "%Y-%m-%d %H:%M:%S")
-            if run_time < now:
+            if run_time < now + timedelta(seconds=1):
                 cursor.execute("UPDATE schedules SET executed=1 WHERE id=?", (sch_id,))
+                logging.info(f"Skippe überfälligen 'once' Schedule {sch_id}")
         except ValueError:
             logging.warning(f"Skippe Schedule {sch_id} mit ungültiger Zeit {sch_time}")
     conn.commit()
 
 
 def load_schedules():
-    schedule.clear()
+    if scheduler is None:
+        return
+    scheduler.remove_all_jobs()
     cursor.execute("SELECT * FROM schedules")
     for sch in cursor.fetchall():
         sch_id = sch[0]
         time_str = sch[3]
         repeat = sch[4]
         executed = sch[6]
-        if repeat == "once":
-            continue  # wird separat geprüft
         if executed:
             continue
-        if validate_time(time_str):
-            if repeat == "daily":
-                schedule.every().day.at(time_str).do(schedule_job, sch_id)
+        misfire_grace_time = 1
+        try:
+            if repeat == "once":
+                run_time = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
+                trigger = DateTrigger(run_date=run_time)
+            elif repeat == "daily":
+                h, m, s = time_str.split(":")
+                trigger = CronTrigger(hour=h, minute=m, second=s)
             elif repeat == "monthly":
-
-                def monthly_job(sch_id=sch_id):
-                    if datetime.now().day == 1:
-                        schedule_job(sch_id)
-
-                schedule.every().day.at(time_str).do(monthly_job)
-        else:
-            logging.warning(
-                f"Schedule {sch_id} mit Zeit {time_str} übersprungen (ungültig)"
+                h, m, s = time_str.split(":")
+                trigger = CronTrigger(day=1, hour=h, minute=m, second=s)
+            else:
+                logging.warning(f"Unbekannter Repeat-Typ {repeat} für Schedule {sch_id}")
+                continue
+            scheduler.add_job(
+                schedule_job,
+                trigger,
+                args=[sch_id],
+                misfire_grace_time=misfire_grace_time,
+                id=str(sch_id),
             )
+            logging.info(
+                f"Geplanter Job {sch_id}: Repeat={repeat}, Time={time_str}, Misfire-Grace={misfire_grace_time}"
+            )
+        except ValueError:
+            logging.warning(f"Ungültige Zeit {time_str} für Schedule {sch_id}")
 
 
 if not TESTING:
     skip_past_once_schedules()
     load_schedules()
-    threading.Thread(target=run_scheduler, daemon=True).start()
+    if scheduler is not None:
+        scheduler.start()
 
 
 # --- Bluetooth-Hilfsfunktionen ---
