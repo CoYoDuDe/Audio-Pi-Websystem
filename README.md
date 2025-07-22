@@ -50,3 +50,13 @@ sudo systemctl enable --now audio-pi.service
 ## Datenbank-Initialisierung
 
 Bei der ersten Ausführung legt die Anwendung automatisch die SQLite-Datenbank `audio.db` an und erzeugt die benötigten Tabellen sowie einen Standard-Benutzer (`admin` / `password`). Es ist daher nicht notwendig, eine vorgefüllte Datenbank mitzuliefern. Wenn `audio.db` nicht existiert, wird sie beim Start erstellt.
+
+## Tests
+
+F\xC3\xBCr die Unittests wird ein separates Requirements-File bereitgestellt. Installieren Sie die Abh\xC3\xA4ngigkeiten vor dem Ausf\xC3\xBChren der Tests:
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+Die Tests lassen sich danach mit `pytest` starten.
