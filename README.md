@@ -53,10 +53,12 @@ Bei der ersten Ausführung legt die Anwendung automatisch die SQLite-Datenbank `
 
 ## Tests
 
-F\xC3\xBCr die Unittests wird ein separates Requirements-File bereitgestellt. Installieren Sie die Abh\xC3\xA4ngigkeiten vor dem Ausf\xC3\xBChren der Tests:
+Für die Unittests werden die Abhängigkeiten aus beiden Requirements-Dateien benötigt. Installieren Sie diese vor dem Ausführen der Tests:
 
 ```bash
+pip install -r requirements.txt
 pip install -r requirements-dev.txt
+pytest
 ```
 
 Die Tests lassen sich danach mit `pytest` starten.
