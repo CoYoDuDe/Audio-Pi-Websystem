@@ -982,6 +982,18 @@ def sync_time_from_internet():
     return redirect(url_for("index"))
 
 
+@app.route("/update", methods=["POST"])
+@login_required
+def update():
+    try:
+        subprocess.check_call(["git", "pull"])
+        flash("Update erfolgreich")
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Update fehlgeschlagen: {e}")
+        flash("Update fehlgeschlagen")
+    return redirect(url_for("index"))
+
+
 def bluetooth_auto_accept():
     p = subprocess.Popen(
         ["sudo", "bluetoothctl"],
