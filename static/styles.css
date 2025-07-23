@@ -1,0 +1,14 @@
+nav {
+    margin-bottom: 1em;
+}
+nav a,
+nav form {
+    margin-right: 1em;
+}
+.flashes {
+    list-style: none;
+    padding: 0;
+    color: green;
+}
+
+pre { background: #eee; padding: 1em; }

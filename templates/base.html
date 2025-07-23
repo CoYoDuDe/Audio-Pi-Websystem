@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Audio Pi{% endblock %}</title>
+    <link rel="stylesheet" href="https://cdn.simplecss.org/simple.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <nav>
+        <a href="{{ url_for('index') }}">Home</a>
+        <a href="{{ url_for('logs') }}">Logs</a>
+        <a href="{{ url_for('change_password') }}">Passwort ändern</a>
+        <a href="{{ url_for('set_time') }}">Zeit/Datum</a>
+        <form action="{{ url_for('update') }}" method="post" style="display:inline">
+            <button type="submit">Update</button>
+        </form>
+        <a href="{{ url_for('logout') }}">Logout</a>
+    </nav>
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <ul class="flashes">
+        {% for message in messages %}
+          <li>{{ message }}</li>
+        {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+</body>
+</html>
