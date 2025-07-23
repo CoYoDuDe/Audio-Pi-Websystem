@@ -35,14 +35,18 @@ class RtcMissingTests(unittest.TestCase):
                 raise FileNotFoundError('missing bus')
             sys.modules['smbus'] = types.SimpleNamespace(SMBus=raise_fnf)
             started = []
-            class DummyThread:
+            import threading as _threading
+
+            class DummyThread(_threading.Thread):
                 def __init__(self, *a, **k):
+                    super().__init__(*a, **k)
                     self.started = False
+
                 def start(self):
                     self.started = True
                     started.append(True)
-            import threading
-            threading.Thread = lambda *a, **k: DummyThread()
+
+            _threading.Thread = DummyThread
             import app
             print('started', bool(started))
             print('bus_is_none', app.bus is None)

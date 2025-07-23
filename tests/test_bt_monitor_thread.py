@@ -36,13 +36,17 @@ class BtMonitorThreadTests(unittest.TestCase):
                 raise FileNotFoundError('missing bus')
             sys.modules['smbus'] = types.SimpleNamespace(SMBus=raise_fnf)
             started = []
-            class DummyThread:
+            import threading as _threading
+
+            class DummyThread(_threading.Thread):
                 def __init__(self, target=None, *a, **k):
-                    self.target = target
+                    self._target_name = target.__name__ if target else None
+                    super().__init__(target=target, *a, **k)
+
                 def start(self):
-                    started.append(self.target.__name__)
-            import threading
-            threading.Thread = lambda *a, **k: DummyThread(*a, **k)
+                    started.append(self._target_name)
+
+            _threading.Thread = DummyThread
             import app
             print('targets', started)
             """
