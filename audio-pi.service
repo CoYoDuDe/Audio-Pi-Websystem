@@ -8,6 +8,7 @@ WorkingDirectory=/opt/Audio-Pi-Websystem
 ExecStartPre=/bin/sleep 10
 Environment=FLASK_DEBUG=0
 Environment=FLASK_SECRET_KEY=
+Environment=XDG_RUNTIME_DIR=/run/user/1000
 User=pi
 Group=audio
 ExecStart=/opt/Audio-Pi-Websystem/venv/bin/python /opt/Audio-Pi-Websystem/app.py
