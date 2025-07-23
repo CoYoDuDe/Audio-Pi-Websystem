@@ -78,6 +78,12 @@ pytest
 
 Die Tests lassen sich danach mit `pytest` starten.
 
+## Update aus dem Git-Repository
+
+Im Web-Interface gibt es einen **Update**-Button. Nach dem Login kann damit ein
+`git pull` ausgeführt werden, um lokale Änderungen aus dem Repository zu holen.
+Ein Hinweis informiert über Erfolg oder Fehler.
+
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
