@@ -18,6 +18,8 @@ Audio-Pi-Control ist ein vollständiges Steuer- und Audiomanagement-System für 
 - **Passwort-Management**
 - **Alle Daten in SQLite-DB**
 - Einmalige Zeitpläne, deren Zeitpunkt bereits vergangen ist, werden beim Start automatisch übersprungen.
+- Zeitpläne laufen nun über **APScheduler**; dank `misfire_grace_time` werden nach dem Start keine verpassten Jobs mehr nachgeholt.
+- `parse_once_datetime` verarbeitet einmalige Zeitangaben in verschiedenen Formaten.
 
 ---
 
