@@ -788,6 +788,7 @@ def set_relay_invert():
 @login_required
 def add_schedule():
     item_type = request.form["item_type"]
+    item_id = request.form["item_id"]
     time_str = request.form["time"]  # Erwarte Format YYYY-MM-DDTHH:MM
     repeat = request.form["repeat"]
     delay = int(request.form["delay"])
@@ -805,11 +806,7 @@ def add_schedule():
         flash("Ungültiges Datums-/Zeitformat")
         return redirect(url_for("index"))
 
-    if item_type == "file":
-        item_id = request.form["file_id"]
-    elif item_type == "playlist":
-        item_id = request.form["playlist_id"]
-    else:
+    if item_type not in ("file", "playlist"):
         flash("Ungültiger Typ ausgewählt")
         return redirect(url_for("index"))
 
