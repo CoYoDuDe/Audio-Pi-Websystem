@@ -45,7 +45,7 @@ TESTING = os.getenv("TESTING")
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
-# Konfiguration
+# Konfiguratsion
 UPLOAD_FOLDER = "uploads"
 ALLOWED_EXTENSIONS = {"wav", "mp3"}
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
@@ -55,7 +55,7 @@ GPIO_PIN_ENDSTUFE = 17
 VERZOEGERUNG_SEC = 5
 DAC_SINK = "alsa_output.platform-soc_107c000000_sound.stereo-fallback"
 
-# Logging
+# Logga
 logging.basicConfig(
     filename="app.log",
     level=logging.INFO,
@@ -68,10 +68,10 @@ else:
     gpio_handle = None
 amplifier_claimed = False
 
-# Track pause status manually since pygame lacks a get_paused() helper
+# Pause-Status selber merke, weil's bei pygame koi get_paused() gibt
 is_paused = False
 
-# Pygame Audio und Lautstärke nur initialisieren, wenn nicht im Test
+# Pygame-Audio ond Lautstärk nur starte, wenn mr net im Test sind
 if not TESTING:
     pygame.mixer.init()
 
@@ -87,9 +87,9 @@ if not TESTING:
 
     load_initial_volume()
 
-# RTC (Echtzeituhr) Setup
+# RTC (Echtzeituhr) Ei'richte
 class RTCUnavailableError(Exception):
-    """RTC I²C-Bus konnte nicht initialisiert werden."""
+    """RTC I²C-Bus hot sich net initialisiere lasse."""
 
 
 try:
@@ -152,7 +152,7 @@ def sync_rtc_to_system():
 if not TESTING:
     sync_rtc_to_system()
 
-# DB Setup
+# DB-Eirichte
 conn = sqlite3.connect(DB_FILE, check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute(
@@ -184,7 +184,7 @@ if not cursor.execute("SELECT * FROM users").fetchone():
     )
 conn.commit()
 
-# Scheduler
+# Scheddüler
 scheduler = BackgroundScheduler()
 
 
@@ -240,7 +240,7 @@ def validate_time(time_str):
 
 
 def parse_once_datetime(time_str):
-    """Parst einen 'once'-Zeitstempel mit verschiedenen Formaten."""
+    """Parst en 'once'-Zeitstempel in verschidene Formate."""
     try:
         return datetime.fromisoformat(time_str.replace("Z", "+00:00"))
     except ValueError:
@@ -263,7 +263,7 @@ def set_sink(sink_name):
     logging.info(f"Switch zu Sink: {sink_name}")
 
 
-# GPIO für Endstufe
+# GPIO für d'Endstuf
 def activate_amplifier():
     global amplifier_claimed
     if not amplifier_claimed:
@@ -299,14 +299,14 @@ def deactivate_amplifier():
                 raise e
 
 
-# Endstufe beim Start aus
+# Endstuf beim Start aus
 if not TESTING:
     deactivate_amplifier()
 
 play_lock = threading.Lock()
 
 
-# Wiedergabe Funktion
+# Wiedergab-Funktion
 def play_item(item_id, item_type, delay, is_schedule=False):
     global is_paused
     with play_lock:
@@ -338,7 +338,7 @@ def play_item(item_id, item_type, delay, is_schedule=False):
                     if not is_schedule:
                         try:
                             if has_request_context():
-                                flash("Audio-Datei nicht gefunden")
+                                flash("Audiodatei net g'fundet")
                         except Exception:
                             pass
                     return
@@ -363,7 +363,7 @@ def play_item(item_id, item_type, delay, is_schedule=False):
                         if not is_schedule:
                             try:
                                 if has_request_context():
-                                    flash("Audio-Datei nicht gefunden")
+                                    flash("Audiodatei net g'fundet")
                             except Exception:
                                 pass
                         continue
@@ -384,7 +384,7 @@ def play_item(item_id, item_type, delay, is_schedule=False):
             logging.info("Wiedergabe beendet")
 
 
-# Scheduler-Logik
+# Scheddüler-Logik
 
 def schedule_job(schedule_id):
     cursor.execute("SELECT * FROM schedules WHERE id=?", (schedule_id,))
@@ -407,7 +407,7 @@ def schedule_job(schedule_id):
 
 
 def skip_past_once_schedules():
-    """Markiert abgelaufene Einmal-Zeitpläne als ausgeführt (Grace-Zeit)."""
+    """Markiert abglaufene Einmal-Zeitplän als erledigt (Grace-Zeit)."""
     now = datetime.now()
     cursor.execute("SELECT id, time FROM schedules WHERE repeat='once' AND executed=0")
     for sch_id, sch_time in cursor.fetchall():
@@ -465,9 +465,9 @@ if not TESTING:
     scheduler.start()
 
 
-# --- Bluetooth-Hilfsfunktionen ---
+# --- Bluetooth-Hilfafunktionen ---
 def is_bt_connected():
-    """Prüft, ob ein Bluetooth-Gerät verbunden ist."""
+    """Guckt, ob a Bluetooth-Gerät dranhängt."""
     try:
         sinks = subprocess.getoutput("pactl list short sinks | grep bluez")
         return bool(sinks.strip())
@@ -477,7 +477,7 @@ def is_bt_connected():
 
 
 def resume_bt_audio():
-    """Stellt den Bluetooth-Sink wieder als Standard ein."""
+    """Stellt dr Bluetooth-Sink wieder als Standard ei."""
     try:
         sink_lines = subprocess.getoutput(
             "pactl list short sinks | grep bluez"
@@ -493,7 +493,7 @@ def resume_bt_audio():
 
 
 def load_loopback():
-    """Aktiviert PulseAudio-Loopback von der Bluetooth-Quelle zum DAC."""
+    """Schaltet PulseAudio-Loopback vo dr Bluetooth-Quelle zum DAC ei."""
     try:
         modules = subprocess.getoutput("pactl list short modules").splitlines()
         for mod in modules:
@@ -524,13 +524,13 @@ def load_loopback():
 
 # --- Bluetooth Audio Monitor (A2DP-Sink Erkennung & Verstärkersteuerung) ---
 def is_bt_audio_active():
-    # Prüft, ob ein Bluetooth-Audio-Stream anliegt (A2DP)
+    # Guckt, ob a Bluetooth-Audio-Stream lauft (A2DP)
     sinks = subprocess.getoutput("pactl list short sinks | grep bluez").splitlines()
     if not sinks:
         return False
     for sink in sinks:
         sink_name = sink.split()[1]
-        # Gibt es einen aktiven Stream auf diesem Sink?
+        # Isch auf dem Sink grad a Stream aktiv?
         inputs = subprocess.getoutput(
             f"pactl list short sink-inputs | grep {sink_name}"
         )
@@ -586,7 +586,7 @@ def login():
             user = User(user_data[0], username)
             login_user(user)
             return redirect(url_for("index"))
-        flash("Falsche Anmeldedaten")
+        flash("Falschi Anmeldedàta")
     return render_template("login.html")
 
 
@@ -639,7 +639,7 @@ def index():
 @login_required
 def upload():
     if "file" not in request.files:
-        flash("Keine Datei ausgewählt")
+        flash("Koi Datei ausgwehlt")
         return redirect(request.url)
     file = request.files["file"]
     if file and allowed_file(file.filename):
@@ -647,7 +647,7 @@ def upload():
         file.save(os.path.join(app.config["UPLOAD_FOLDER"], filename))
         cursor.execute("INSERT INTO audio_files (filename) VALUES (?)", (filename,))
         conn.commit()
-        flash("Datei hochgeladen")
+        flash("Datei nei g'lade")
     return redirect(url_for("index"))
 
 
@@ -657,7 +657,7 @@ def delete(file_id):
     cursor.execute("SELECT filename FROM audio_files WHERE id=?", (file_id,))
     row = cursor.fetchone()
     if not row:
-        flash("Datei nicht gefunden")
+        flash("Datei net g'fundet")
         return redirect(url_for("index"))
     filename = row[0]
     file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
@@ -669,7 +669,7 @@ def delete(file_id):
         "DELETE FROM schedules WHERE item_id=? AND item_type='file'", (file_id,)
     )
     conn.commit()
-    flash("Datei gelöscht")
+    flash("Datei g'löscht")
     return redirect(url_for("index"))
 
 
@@ -679,7 +679,7 @@ def create_playlist():
     name = request.form["name"]
     cursor.execute("INSERT INTO playlists (name) VALUES (?)", (name,))
     conn.commit()
-    flash("Playlist erstellt")
+    flash("Playlist olegt")
     return redirect(url_for("index"))
 
 
@@ -693,7 +693,7 @@ def add_to_playlist():
         (playlist_id, file_id),
     )
     conn.commit()
-    flash("Datei zur Playlist hinzugefügt")
+    flash("Datei zur Playlist dazu'gschdellt")
     return redirect(url_for("index"))
 
 
@@ -706,7 +706,7 @@ def delete_playlist(playlist_id):
         "DELETE FROM schedules WHERE item_id=? AND item_type='playlist'", (playlist_id,)
     )
     conn.commit()
-    flash("Playlist gelöscht")
+    flash("Playlist g'löscht")
     return redirect(url_for("index"))
 
 
@@ -715,7 +715,7 @@ def delete_playlist(playlist_id):
 def play_now(item_type, item_id):
     delay = VERZOEGERUNG_SEC
     threading.Thread(target=play_item, args=(item_id, item_type, delay, False)).start()
-    flash("Abspielen gestartet")
+    flash("Abspiele gstartet")
     return redirect(url_for("index"))
 
 
@@ -747,7 +747,7 @@ def stop_playback():
     if is_bt_connected():
         resume_bt_audio()
         load_loopback()
-    flash("Wiedergabe gestoppt")
+    flash("Wiedergab gstoppt")
     return redirect(url_for("index"))
 
 
@@ -756,9 +756,9 @@ def stop_playback():
 def activate_amp():
     try:
         activate_amplifier()
-        flash("Endstufe aktiviert")
+        flash("Endstuf aktiviert")
     except GPIO.error as e:
-        flash(f"Fehler beim Aktivieren der Endstufe: {str(e)}")
+        flash(f"Fehler bim Endstuf-einschalta: {str(e)}")
     return redirect(url_for("index"))
 
 
@@ -767,9 +767,9 @@ def activate_amp():
 def deactivate_amp():
     try:
         deactivate_amplifier()
-        flash("Endstufe deaktiviert")
+        flash("Endstuf deaktiviert")
     except GPIO.error as e:
-        flash(f"Fehler beim Deaktivieren der Endstufe: {str(e)}")
+        flash(f"Fehler bim Endstuf-ausschalta: {str(e)}")
     return redirect(url_for("index"))
 
 
@@ -780,7 +780,7 @@ def set_relay_invert():
     RELAY_INVERT = "invert" in request.form
     set_setting("relay_invert", "1" if RELAY_INVERT else "0")
     update_amp_levels()
-    flash("Relais-Logik invertiert" if RELAY_INVERT else "Relais-Logik normal")
+    flash("Relais-Logik umg'dreht" if RELAY_INVERT else "Relais-Logik normal")
     return redirect(url_for("index"))
 
 
@@ -788,7 +788,7 @@ def set_relay_invert():
 @login_required
 def add_schedule():
     item_type = request.form["item_type"]
-    time_str = request.form["time"]  # Erwarte Format YYYY-MM-DDTHH:MM
+    time_str = request.form["time"]  # Erwarta Format YYYY-MM-DDTHH:MM
     repeat = request.form["repeat"]
     delay = int(request.form["delay"])
 
@@ -799,10 +799,10 @@ def add_schedule():
         else:
             time_only = dt.strftime("%H:%M:%S")
             if not validate_time(time_only):
-                flash("Ungültiges Zeitformat")
+                flash("Falschs Zeitformat")
                 return redirect(url_for("index"))
     except ValueError:
-        flash("Ungültiges Datums-/Zeitformat")
+        flash("Falschs Datums-/Zeitformat")
         return redirect(url_for("index"))
 
     if item_type == "file":
@@ -810,11 +810,11 @@ def add_schedule():
     elif item_type == "playlist":
         item_id = request.form["playlist_id"]
     else:
-        flash("Ungültiger Typ ausgewählt")
+        flash("Falscher Typ gwählt")
         return redirect(url_for("index"))
 
     if not item_id:
-        flash("Kein Element gewählt")
+        flash("Kei Element gwählt")
         return redirect(url_for("index"))
 
     cursor.execute(
@@ -823,7 +823,7 @@ def add_schedule():
     )
     conn.commit()
     load_schedules()
-    flash("Zeitplan hinzugefügt")
+    flash("Zeitplan dazu g'macht")
     return redirect(url_for("index"))
 
 
@@ -833,7 +833,7 @@ def delete_schedule(sch_id):
     cursor.execute("DELETE FROM schedules WHERE id=?", (sch_id,))
     conn.commit()
     load_schedules()
-    flash("Zeitplan gelöscht")
+    flash("Zeitplan g'löscht")
     return redirect(url_for("index"))
 
 
@@ -849,7 +849,7 @@ def wlan_scan():
 def wlan_connect():
     ssid = request.form["ssid"]
     password = request.form["password"]
-    # Escape special characters so wpa_cli parses them correctly
+    # Sonderzeiche escapet, damit's wpa_cli au kapiert
     ssid_escaped = ssid.encode("unicode_escape").decode()
     password_escaped = password.encode("unicode_escape").decode()
     try:
@@ -887,10 +887,10 @@ def wlan_connect():
         )
         subprocess.check_call(["sudo", "wpa_cli", "-i", "wlan0", "save_config"])
         subprocess.check_call(["sudo", "wpa_cli", "-i", "wlan0", "reconfigure"])
-        flash("Versuche, mit WLAN zu verbinden")
+        flash("Probier, mit WLAN z'verbinde")
     except subprocess.CalledProcessError as e:
         logging.error(f"Fehler beim WLAN-Verbindungsaufbau: {e}")
-        flash("Fehler beim WLAN-Verbindungsaufbau")
+        flash("Fehler bim WLAN-Verbinda")
     return redirect(url_for("index"))
 
 
@@ -908,12 +908,12 @@ def set_volume():
         subprocess.call(["amixer", "sset", "Master", f"{int_vol}%"])
         subprocess.call(["sudo", "alsactl", "store"])
         logging.info(f"Lautstärke auf {int_vol}% gesetzt (persistent)")
-        flash("Lautstärke persistent gesetzt")
+        flash("Lautstärk dauerhaft gsetzt")
     except ValueError:
-        flash("Ungültiger Lautstärke-Wert")
+        flash("Falscher Lautstärkewert")
     except Exception as e:
         logging.error(f"Fehler beim Setzen der Lautstärke: {e}")
-        flash("Fehler beim Setzen der Lautstärke")
+        flash("Fehler bim Lautstärke-setza")
     return redirect(url_for("index"))
 
 
@@ -924,7 +924,7 @@ def logs():
         with open("app.log", "r") as f:
             logs = f.read()
     except FileNotFoundError:
-        logs = "Keine Logdatei vorhanden"
+        logs = "Koi Logdatei do"
     return render_template("logs.html", logs=logs)
 
 
@@ -935,7 +935,7 @@ def change_password():
         old_pass = request.form["old_password"]
         new_pass = request.form["new_password"]
         if not new_pass or len(new_pass) < 4:
-            flash("Neues Passwort zu kurz")
+            flash("Neis Passwort z kurz")
             return render_template("change_password.html")
         cursor.execute("SELECT password FROM users WHERE id=?", (current_user.id,))
         hashed = cursor.fetchone()[0]
@@ -945,9 +945,9 @@ def change_password():
                 "UPDATE users SET password=? WHERE id=?", (new_hashed, current_user.id)
             )
             conn.commit()
-            flash("Passwort geändert")
+            flash("Passwort gändert")
         else:
-            flash("Falsches altes Passwort")
+            flash("Falschs altes Passwort")
     return render_template("change_password.html")
 
 
@@ -960,9 +960,9 @@ def set_time():
             dt = datetime.fromisoformat(time_str.replace("Z", "+00:00"))
             subprocess.call(["sudo", "date", "-s", dt.strftime("%Y-%m-%d %H:%M:%S")])
             set_rtc(dt)
-            flash("Datum und Uhrzeit gesetzt")
+            flash("Datum ond Uhrzeit gsetzt")
         except (ValueError, RTCUnavailableError):
-            flash("Ungültiges Datums-/Zeitformat oder RTC nicht verfügbar")
+            flash("Falschs Datums-/Zeitformat oder RTC net verfügbar")
         return redirect(url_for("index"))
     return render_template("set_time.html")
 
@@ -975,10 +975,10 @@ def sync_time_from_internet():
         subprocess.call(["sudo", "ntpdate", "pool.ntp.org"])
         subprocess.call(["sudo", "systemctl", "start", "systemd-timesyncd"])
         set_rtc(datetime.now())
-        flash("Zeit vom Internet synchronisiert")
+        flash("Zeit vom Internet g'synchronisiert")
     except Exception as e:
         logging.error(f"Fehler bei Zeit-Sync: {e}")
-        flash("Fehler bei der Synchronisation")
+        flash("Fehler bi dr Synchronisation")
     return redirect(url_for("index"))
 
 
@@ -987,10 +987,10 @@ def sync_time_from_internet():
 def update():
     try:
         subprocess.check_call(["git", "pull"])
-        flash("Update erfolgreich")
+        flash("Update erfolgriich")
     except subprocess.CalledProcessError as e:
         logging.error(f"Update fehlgeschlagen: {e}")
-        flash("Update fehlgeschlagen")
+        flash("Update fehlgschlage")
     return redirect(url_for("index"))
 
 

@@ -71,7 +71,7 @@ class LogsTests(unittest.TestCase):
             ):
                 with app.app.test_client() as client:
                     resp = client.get("/logs")
-        self.assertIn("Keine Logdatei vorhanden", resp.get_data(as_text=True))
+        self.assertIn("Koi Logdatei do", resp.get_data(as_text=True))
 
     def test_change_password_empty(self):
         app.cursor.execute("SELECT password FROM users WHERE id=?", (1,))
@@ -87,7 +87,7 @@ class LogsTests(unittest.TestCase):
             ):
                 app.change_password()
 
-        flash_mock.assert_called_with("Neues Passwort zu kurz")
+        flash_mock.assert_called_with("Neis Passwort z kurz")
         app.cursor.execute("SELECT password FROM users WHERE id=?", (1,))
         after = app.cursor.fetchone()[0]
         self.assertEqual(before, after)

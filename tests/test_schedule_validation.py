@@ -93,7 +93,7 @@ class ScheduleValidationTests(unittest.TestCase):
             ):
                 app.add_schedule()
 
-        flash_mock.assert_called_with("Kein Element gewählt")
+        flash_mock.assert_called_with("Kei Element gwählt")
         red_mock.assert_called_with("/")
         app.cursor.execute("SELECT COUNT(*) FROM schedules")
         self.assertEqual(app.cursor.fetchone()[0], 0)

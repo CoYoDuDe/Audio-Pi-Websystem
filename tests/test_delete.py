@@ -69,7 +69,7 @@ class DeleteTests(unittest.TestCase):
             with app.app.test_request_context("/delete/123", method="POST"):
                 app.delete(123)
 
-        flash_mock.assert_called_with("Datei nicht gefunden")
+        flash_mock.assert_called_with("Datei net g'fundet")
         red_mock.assert_called_with("/")
 
 

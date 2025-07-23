@@ -71,7 +71,7 @@ class VolumeTests(unittest.TestCase):
             ):
                 app.set_volume()
 
-        flash_mock.assert_called_with("Ungültiger Lautstärke-Wert")
+        flash_mock.assert_called_with("Falscher Lautstärkewert")
 
     def test_volume_negative_value(self):
         with patch("app.flash") as flash_mock, patch("app.redirect"), patch(
@@ -86,7 +86,7 @@ class VolumeTests(unittest.TestCase):
             ):
                 app.set_volume()
 
-        flash_mock.assert_called_with("Ungültiger Lautstärke-Wert")
+        flash_mock.assert_called_with("Falscher Lautstärkewert")
 
 
 if __name__ == "__main__":

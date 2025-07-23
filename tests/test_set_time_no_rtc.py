@@ -71,7 +71,7 @@ class SetTimeNoRtcTests(unittest.TestCase):
                 app.bus = None
                 app.set_time()
         flash_mock.assert_called_with(
-            "Ungültiges Datums-/Zeitformat oder RTC nicht verfügbar"
+            "Falschs Datums-/Zeitformat oder RTC net verfügbar"
         )
 
 

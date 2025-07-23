@@ -1,63 +1,63 @@
 {% extends 'base.html' %}
-{% block title %}Audio Pi Control{% endblock %}
+{% block title %}Audio Pi Steierong{% endblock %}
 {% block content %}
-<h2>Audio Pi Websteuerung</h2>
+<h2>Audio Pi Web-Steierong</h2>
 
 <section id="status">
     <h3>Status</h3>
     <ul>
-        <li>Aktuell: {{ 'Wiedergabe läuft' if status['playing'] else 'Wiedergabe gestoppt' }}</li>
+        <li>Grad: {{ 'Wiedergab lauft' if status['playing'] else 'Wiedergab gstoppt' }}</li>
         <li>Bluetooth: {{ status['bluetooth_status'] }}</li>
         <li>WLAN: {{ status['wlan_status'] }}</li>
         <li>Endstufe: {{ status['amplifier_status'] }}</li>
-        <li>Relais-Umkehr: {{ 'Ja' if status['relay_invert'] else 'Nein' }}</li>
-        <li>Lautstärke: {{ status['current_volume'] }}</li>
-        <li>Time: {{ status['current_time'] }}</li>
+        <li>Relais-Umkehr: {{ 'Jo' if status['relay_invert'] else 'Nai' }}</li>
+        <li>Lautstärk: {{ status['current_volume'] }}</li>
+        <li>Zeit: {{ status['current_time'] }}</li>
     </ul>
 </section>
 
 <section id="playback">
-    <h3>Playback Steuerung</h3>
+    <h3>Abspiel-Steierong</h3>
     <form action="{{ url_for('set_volume') }}" method="POST" style="display:inline;">
-        <input type="number" min="0" max="100" name="volume" placeholder="Lautstärke (%)">
-        <button type="submit" class="btn">Setzen</button>
+        <input type="number" min="0" max="100" name="volume" placeholder="Lautstärk (%)">
+        <button type="submit" class="btn">Setza</button>
     </form>
     <form action="{{ url_for('activate_amp') }}" method="POST" style="display:inline;">
-        <button type="submit" class="btn">Endstufe an</button>
+        <button type="submit" class="btn">Endstuf an</button>
     </form>
     <form action="{{ url_for('deactivate_amp') }}" method="POST" style="display:inline;">
-        <button type="submit" class="btn">Endstufe aus</button>
+        <button type="submit" class="btn">Endstuf aus</button>
     </form>
     <form action="{{ url_for('set_relay_invert') }}" method="POST" style="display:inline;">
         <label>
             <input type="checkbox" name="invert" value="1" {% if status['relay_invert'] %}checked{% endif %}>
-            Relay umkehren
+            Relais umdreha
         </label>
-        <button type="submit" class="btn">Speichern</button>
+        <button type="submit" class="btn">Speichra</button>
     </form>
     <form action="{{ url_for('toggle_pause') }}" method="POST" style="display:inline;">
-        <button type="submit" class="btn">Pause/Resume</button>
+        <button type="submit" class="btn">Pause/Weiter</button>
     </form>
     <form action="{{ url_for('stop_playback') }}" method="POST" style="display:inline;">
-        <button type="submit" class="btn">Stopp</button>
+        <button type="submit" class="btn">Stop</button>
     </form>
 </section>
 
 <section id="files">
-    <h3>Datei-Upload</h3>
+    <h3>Datei nei lade</h3>
     <form action="{{ url_for('upload') }}" method="POST" enctype="multipart/form-data">
         <input type="file" name="file" required>
-        <button type="submit" class="btn">Upload</button>
+        <button type="submit" class="btn">Nei lade</button>
     </form>
 
-    <h3>Audio-Dateien</h3>
+    <h3>Audio-Dateie</h3>
     <ul>
         {% for file in files %}
         <li>
             {{ file[1] }}
             <a href="{{ url_for('play_now', item_type='file', item_id=file[0]) }}">Play</a>
             <form action="{{ url_for('delete', file_id=file[0]) }}" method="POST" style="display:inline;">
-                <button type="submit" class="btn">Löschen</button>
+                <button type="submit" class="btn">Löscha</button>
             </form>
         </li>
         {% endfor %}
@@ -67,8 +67,8 @@
 <section id="playlists">
     <h3>Playlists</h3>
     <form action="{{ url_for('create_playlist') }}" method="POST">
-        <input type="text" name="name" placeholder="Playlist-Name" required>
-        <button type="submit" class="btn">Erstellen</button>
+        <input type="text" name="name" placeholder="Playlist-Nom" required>
+        <button type="submit" class="btn">A'lege</button>
     </form>
     <ul>
         {% for playlist in playlists %}
@@ -76,7 +76,7 @@
             {{ playlist[1] }}
             <a href="{{ url_for('play_now', item_type='playlist', item_id=playlist[0]) }}">Play</a>
             <form action="{{ url_for('delete_playlist', playlist_id=playlist[0]) }}" method="POST" style="display:inline;">
-                <button type="submit" class="btn">Löschen</button>
+                <button type="submit" class="btn">Löscha</button>
             </form>
             <form action="{{ url_for('add_to_playlist') }}" method="POST" style="display:inline;">
                 <select name="file_id">
@@ -85,7 +85,7 @@
                     {% endfor %}
                 </select>
                 <input type="hidden" name="playlist_id" value="{{ playlist[0] }}">
-                <button type="submit" class="btn">Hinzufügen</button>
+                <button type="submit" class="btn">Dazu doa</button>
             </form>
         </li>
         {% endfor %}
@@ -93,7 +93,7 @@
 </section>
 
 <section id="schedules">
-    <h3>Zeitpläne</h3>
+    <h3>Zeitplän</h3>
     <form action="{{ url_for('add_schedule') }}" method="POST">
         <select name="item_type">
             <option value="file">Datei</option>
@@ -115,10 +115,10 @@
         <select name="repeat">
             <option value="daily">Täglich</option>
             <option value="monthly">Monatlich</option>
-            <option value="once">Nur einmal</option>
+            <option value="once">Bloß einmal</option>
         </select>
         <input type="number" name="delay" value="5" min="0" max="60" style="width:50px;"> Sek. Verzögerung
-        <button type="submit" class="btn">Hinzufügen</button>
+        <button type="submit" class="btn">Dazu doa</button>
     </form>
     <ul>
         {% for schedule in schedules %}
@@ -126,7 +126,7 @@
             {{ schedule[1] }} ({{ schedule[5] }}) - {{ schedule[2] }} ({{ schedule[3] }}) +{{ schedule[4] }}s
             {% if schedule[6] and schedule[3] == 'once' %}- ausgeführt{% endif %}
             <form action="{{ url_for('delete_schedule', sch_id=schedule[0]) }}" method="POST" style="display:inline;">
-                <button type="submit" class="btn">Entfernen</button>
+                <button type="submit" class="btn">Entferna</button>
             </form>
         </li>
         {% endfor %}

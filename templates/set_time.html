@@ -1,11 +1,11 @@
 {% extends 'base.html' %}
-{% block title %}Zeit/Datum setzen{% endblock %}
+{% block title %}Zeit/Datum setza{% endblock %}
 {% block content %}
-<h2>Datum und Uhrzeit setzen</h2>
+<h2>Datum ond Uhrzeit setza</h2>
 <form method="POST">
     <label>Datum/Uhrzeit:</label>
     <input type="datetime-local" name="datetime" required>
-    <button type="submit" class="btn">Setzen</button>
+    <button type="submit" class="btn">Setza</button>
 </form>
-<a href="{{ url_for('index') }}">Zurück</a>
+<a href="{{ url_for('index') }}">Zruck</a>
 {% endblock %}

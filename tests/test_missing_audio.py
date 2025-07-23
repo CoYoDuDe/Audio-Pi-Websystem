@@ -108,7 +108,7 @@ class MissingAudioTests(unittest.TestCase):
         from_mock.assert_not_called()
         load_mock.assert_not_called()
         play_mock.assert_not_called()
-        flash_mock.assert_called_with("Audio-Datei nicht gefunden")
+        flash_mock.assert_called_with("Audiodatei net g'fundet")
 
 
 if __name__ == "__main__":
