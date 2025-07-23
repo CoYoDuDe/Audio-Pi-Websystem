@@ -1,26 +1,11 @@
-<!DOCTYPE html>
-<html lang="de">
-<head>
-    <meta charset="UTF-8">
-    <title>Zeit/Datum setzen</title>
-    <link rel="stylesheet" href="https://cdn.simplecss.org/simple.min.css">
-</head>
-<body>
-    <h2>Datum und Uhrzeit setzen</h2>
-    <form method="POST">
-        <label>Datum/Uhrzeit:</label>
-        <input type="datetime-local" name="datetime" required>
-        <button type="submit">Setzen</button>
-    </form>
-    <a href="{{ url_for('index') }}">Zurück</a>
-    {% with messages = get_flashed_messages() %}
-      {% if messages %}
-        <ul>
-        {% for message in messages %}
-          <li style="color:green">{{ message }}</li>
-        {% endfor %}
-        </ul>
-      {% endif %}
-    {% endwith %}
-</body>
-</html>
+{% extends 'base.html' %}
+{% block title %}Zeit/Datum setzen{% endblock %}
+{% block content %}
+<h2>Datum und Uhrzeit setzen</h2>
+<form method="POST">
+    <label>Datum/Uhrzeit:</label>
+    <input type="datetime-local" name="datetime" required>
+    <button type="submit">Setzen</button>
+</form>
+<a href="{{ url_for('index') }}">Zurück</a>
+{% endblock %}
