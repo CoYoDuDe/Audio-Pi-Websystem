@@ -2,14 +2,9 @@ import os
 import time
 import subprocess
 import threading
-if isinstance(threading.Thread, type):
-    from apscheduler.schedulers.background import BackgroundScheduler
-    from apscheduler.triggers.cron import CronTrigger
-    from apscheduler.triggers.date import DateTrigger
-else:
-    BackgroundScheduler = None
-    CronTrigger = None
-    DateTrigger = None
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 import sqlite3
 import tempfile
 from datetime import datetime, timedelta
@@ -190,7 +185,7 @@ if not cursor.execute("SELECT * FROM users").fetchone():
 conn.commit()
 
 # Scheduler
-scheduler = BackgroundScheduler() if BackgroundScheduler else None
+scheduler = BackgroundScheduler()
 
 
 def get_setting(key, default=None):
@@ -427,8 +422,6 @@ def skip_past_once_schedules():
 
 
 def load_schedules():
-    if scheduler is None:
-        return
     scheduler.remove_all_jobs()
     cursor.execute("SELECT * FROM schedules")
     for sch in cursor.fetchall():
@@ -469,8 +462,7 @@ def load_schedules():
 if not TESTING:
     skip_past_once_schedules()
     load_schedules()
-    if scheduler is not None:
-        scheduler.start()
+    scheduler.start()
 
 
 # --- Bluetooth-Hilfsfunktionen ---
@@ -1019,5 +1011,4 @@ if __name__ == "__main__":
     try:
         app.run(host="0.0.0.0", port=8080, debug=debug)
     finally:
-        if scheduler:
-            scheduler.shutdown()
+        scheduler.shutdown()
