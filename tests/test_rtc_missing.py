@@ -26,11 +26,6 @@ class RtcMissingTests(unittest.TestCase):
                 )
             )
             sys.modules['pydub'] = types.SimpleNamespace(AudioSegment=types.SimpleNamespace())
-            sys.modules['schedule'] = types.SimpleNamespace(
-                every=lambda *a, **k: types.SimpleNamespace(do=lambda *a, **k: None),
-                run_pending=lambda *a, **k: None,
-                clear=lambda *a, **k: None,
-            )
             def raise_fnf(*a, **k):
                 raise FileNotFoundError('missing bus')
             sys.modules['smbus'] = types.SimpleNamespace(SMBus=raise_fnf)
