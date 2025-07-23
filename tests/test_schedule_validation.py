@@ -84,8 +84,7 @@ class ScheduleValidationTests(unittest.TestCase):
                 method="POST",
                 data={
                     "item_type": "file",
-                    "file_id": "",
-                    "playlist_id": "",
+                    "item_id": "",
                     "time": "2024-01-01T10:00",
                     "repeat": "once",
                     "delay": "0",
