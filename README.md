@@ -53,7 +53,9 @@ python app.py
 Service-Datei nutzt den Python-Interpreter aus der virtuellen Umgebung und
 startet das Programm mit PulseAudio-Zugriff (entweder über `User=pi` oder mit
 `PULSE_RUNTIME_PATH`). Durch `ExecStartPre=/bin/sleep 10` wartet der Dienst nach
-dem Booten zehn Sekunden, bevor `app.py` ausgeführt wird.
+dem Booten zehn Sekunden, bevor `app.py` ausgeführt wird. Zusätzlich setzt die
+Service-Datei `XDG_RUNTIME_DIR=/run/user/1000`, damit PulseAudio auch ohne
+laufende Sitzung funktioniert.
 
 Sollte die Unit manuell neu geladen werden müssen, genügt:
 ```bash
