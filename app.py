@@ -991,6 +991,39 @@ def update():
     return redirect(url_for("index"))
 
 
+def enable_bluetooth():
+    subprocess.check_call(["sudo", "bluetoothctl", "power", "on"])
+    bluetooth_auto_accept()
+
+
+def disable_bluetooth():
+    subprocess.check_call(["sudo", "bluetoothctl", "power", "off"])
+
+
+@app.route("/bluetooth_on", methods=["POST"])
+@login_required
+def bluetooth_on():
+    try:
+        enable_bluetooth()
+        flash("Bluetooth aktiviert")
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Bluetooth einschalten fehlgeschlagen: {e}")
+        flash("Bluetooth konnte nicht aktiviert werden")
+    return redirect(url_for("index"))
+
+
+@app.route("/bluetooth_off", methods=["POST"])
+@login_required
+def bluetooth_off():
+    try:
+        disable_bluetooth()
+        flash("Bluetooth deaktiviert")
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Bluetooth ausschalten fehlgeschlagen: {e}")
+        flash("Bluetooth konnte nicht deaktiviert werden")
+    return redirect(url_for("index"))
+
+
 def bluetooth_auto_accept():
     p = subprocess.Popen(
         ["sudo", "bluetoothctl"],

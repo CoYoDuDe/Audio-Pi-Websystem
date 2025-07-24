@@ -147,6 +147,12 @@
     <form action="{{ url_for('update') }}" method="POST">
         <button type="submit" class="btn">Update</button>
     </form>
+    <form action="{{ url_for('bluetooth_on') }}" method="POST" style="display:inline;">
+        <button type="submit" class="btn">Bluetooth an</button>
+    </form>
+    <form action="{{ url_for('bluetooth_off') }}" method="POST" style="display:inline;">
+        <button type="submit" class="btn">Bluetooth aus</button>
+    </form>
 </section>
 
 {% endblock %}
