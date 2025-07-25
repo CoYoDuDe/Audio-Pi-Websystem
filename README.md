@@ -36,11 +36,17 @@ sudo bash install.sh
 Während der Installation fragt das Skript nach einem Wert für `FLASK_SECRET_KEY`
 und richtet den systemd-Dienst direkt ein.
 
-**2. Virtuelle Umgebung aktivieren**
+**2. Umgebung einrichten**
+```bash
+bash setup_env.sh
+```
+
+**3. Virtuelle Umgebung aktivieren**
 ```bash
 source venv/bin/activate
 ```
-**3. Anwendung starten**
+
+**4. Anwendung starten**
 Die Anwendung bricht sofort ab, wenn `FLASK_SECRET_KEY` nicht gesetzt ist. Nach
 dem Setzen der Variable genügt ein einfacher Aufruf. Seit dem behobenen
 Startproblem laufen Scheduler, Bluetooth-Monitor und Co. automatisch an – es
@@ -71,18 +77,6 @@ sudo systemctl enable --now audio-pi.service
 
 Bei der ersten Ausführung legt die Anwendung automatisch die SQLite-Datenbank `audio.db` an und erzeugt die benötigten Tabellen sowie einen Standard-Benutzer (`admin` / `password`). Es ist daher nicht notwendig, eine vorgefüllte Datenbank mitzuliefern. Wenn `audio.db` nicht existiert, wird sie beim Start erstellt.
 
-## Tests
-
-Für die Unittests werden die Abhängigkeiten aus beiden Requirements-Dateien benötigt. Aktivieren Sie zunächst die virtuelle Umgebung und installieren Sie dann die Requirements:
-
-```bash
-source venv/bin/activate
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
-pytest
-```
-
-Die Tests lassen sich danach mit `pytest` starten.
 
 ## Update aus dem Git-Repository
 
