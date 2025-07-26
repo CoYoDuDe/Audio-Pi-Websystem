@@ -84,6 +84,6 @@ Im Web-Interface gibt es einen **Update**-Button. Nach dem Login kann damit ein
 `git pull` ausgeführt werden, um lokale Änderungen aus dem Repository zu holen.
 Ein Hinweis informiert über Erfolg oder Fehler.
 
-## License
+## Lizenz
 
-This project is licensed under the [MIT License](LICENSE).
+Dieses Projekt steht unter der [MIT-Lizenz](LICENSE).
