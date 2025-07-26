@@ -1053,4 +1053,6 @@ if __name__ == "__main__":
     try:
         app.run(host="0.0.0.0", port=8080, debug=debug)
     finally:
-        scheduler.shutdown()
+        # Scheduler nur stoppen, wenn er wirklich gestartet wurde (z.B. nicht im TESTING-Modus)
+        if getattr(scheduler, "running", False):
+            scheduler.shutdown()
