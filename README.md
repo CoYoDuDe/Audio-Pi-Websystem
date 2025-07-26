@@ -87,7 +87,7 @@ Ein Hinweis informiert über Erfolg oder Fehler.
 ## Tests
 
 Die Tests laufen mit `pytest`. Nachdem die Abhängigkeiten installiert sind,
-lassen sich alle Tests einfach per
+(z.B. via `pip install -r requirements.txt`), lassen sich alle Tests einfach per
 
 ```bash
 pytest
