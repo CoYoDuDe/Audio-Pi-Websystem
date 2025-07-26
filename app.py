@@ -1064,3 +1064,10 @@ if __name__ == "__main__":
         # Scheduler nur stoppen, wenn er wirklich gestartet wurde (z.B. nicht im TESTING-Modus)
         if getattr(scheduler, "running", False):
             scheduler.shutdown()
+        if not TESTING and gpio_handle is not None:
+            try:
+                deactivate_amplifier()
+                GPIO.gpiochip_close(gpio_handle)
+                logging.info("GPIO-Handle geschlossen")
+            except GPIO.error as e:
+                logging.error(f"Fehler beim Schließen des GPIO-Handles: {e}")
