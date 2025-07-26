@@ -50,7 +50,7 @@ UPLOAD_FOLDER = "uploads"
 ALLOWED_EXTENSIONS = {"wav", "mp3"}
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-DB_FILE = "audio.db"
+DB_FILE = os.getenv("DB_FILE", "audio.db")
 GPIO_PIN_ENDSTUFE = 17
 VERZOEGERUNG_SEC = 5
 DAC_SINK = "alsa_output.platform-soc_107c000000_sound.stereo-fallback"
@@ -644,10 +644,18 @@ def upload():
     file = request.files["file"]
     if file and allowed_file(file.filename):
         filename = secure_filename(file.filename)
-        file.save(os.path.join(app.config["UPLOAD_FOLDER"], filename))
+        file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+        if os.path.exists(file_path):
+            base, ext = os.path.splitext(filename)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{base}_{timestamp}{ext}"
+            flash(f"Dateiname bereits vorhanden, gespeichert als {filename}")
+            file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+        else:
+            flash("Datei hochgeladen")
+        file.save(file_path)
         cursor.execute("INSERT INTO audio_files (filename) VALUES (?)", (filename,))
         conn.commit()
-        flash("Datei hochgeladen")
     return redirect(url_for("index"))
 
 
