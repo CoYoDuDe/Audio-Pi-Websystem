@@ -4,3 +4,4 @@ uploads/
 audio.db
 *.db
 app.log
+.lgd-*
