@@ -77,6 +77,12 @@ sudo systemctl enable --now audio-pi.service
 
 Bei der ersten Ausführung legt die Anwendung automatisch die SQLite-Datenbank `audio.db` an und erzeugt die benötigten Tabellen sowie einen Standard-Benutzer (`admin` / `password`). Es ist daher nicht notwendig, eine vorgefüllte Datenbank mitzuliefern. Wenn `audio.db` nicht existiert, wird sie beim Start erstellt.
 
+## Konfiguration
+
+Wichtige Einstellungen können über Umgebungsvariablen angepasst werden. 
+So lässt sich beispielsweise mit `DB_FILE` der Pfad zur SQLite-Datenbank festlegen. 
+Standardmäßig wird `audio.db` im Projektverzeichnis verwendet.
+
 
 ## Update aus dem Git-Repository
 
