@@ -846,7 +846,7 @@ def wlan_scan():
 def wlan_connect():
     ssid = request.form["ssid"]
     password = request.form["password"]
-    # Escape special characters so wpa_cli parses them correctly
+    # Sonderzeichen escapen, damit `wpa_cli` sie korrekt verarbeitet
     ssid_escaped = ssid.encode("unicode_escape").decode()
     password_escaped = password.encode("unicode_escape").decode()
     try:

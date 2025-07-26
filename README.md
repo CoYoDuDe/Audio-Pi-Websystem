@@ -84,6 +84,16 @@ Im Web-Interface gibt es einen **Update**-Button. Nach dem Login kann damit ein
 `git pull` ausgeführt werden, um lokale Änderungen aus dem Repository zu holen.
 Ein Hinweis informiert über Erfolg oder Fehler.
 
+## Tests
+
+Die Tests laufen mit `pytest`. Nachdem die Abhängigkeiten installiert sind,
+lassen sich alle Tests einfach per
+
+```bash
+pytest
+```
+ausführen.
+
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+Dieses Projekt steht unter der [MIT-Lizenz](LICENSE).
