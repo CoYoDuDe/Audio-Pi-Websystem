@@ -59,7 +59,7 @@ python app.py
 
 ### Automatischer Start (systemd)
 
-`install.sh` kopiert und konfiguriert `audio-pi.service` automatisch. Die
+`install.sh` kopiert und konfiguriert `audio-pi.service` automatisch. Dabei wird der während der Installation abgefragte `FLASK_SECRET_KEY` eingetragen; ohne gültigen Schlüssel startet der Dienst nicht. Die
 Service-Datei nutzt den Python-Interpreter aus der virtuellen Umgebung und
 startet das Programm mit PulseAudio-Zugriff (entweder über `User=pi` oder mit
 `PULSE_RUNTIME_PATH`). Durch `ExecStartPre=/bin/sleep 10` wartet der Dienst nach
