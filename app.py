@@ -1064,6 +1064,7 @@ if __name__ == "__main__":
         # Scheduler nur stoppen, wenn er wirklich gestartet wurde (z.B. nicht im TESTING-Modus)
         if getattr(scheduler, "running", False):
             scheduler.shutdown()
+            conn.close()
         if not TESTING and gpio_handle is not None:
             try:
                 deactivate_amplifier()
