@@ -10,9 +10,11 @@ WorkingDirectory=/opt/Audio-Pi-Websystem
 ExecStartPre=/bin/sleep 10
 Environment=FLASK_DEBUG=0
 Environment=FLASK_SECRET_KEY=
+Environment=FLASK_PORT=80
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 ExecStart=/opt/Audio-Pi-Websystem/venv/bin/python /opt/Audio-Pi-Websystem/app.py
 Restart=on-failure
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 [Install]
 WantedBy=multi-user.target
