@@ -34,7 +34,8 @@ Ausschalten von Bluetooth.
 sudo bash install.sh
 ```
 Während der Installation fragt das Skript nach einem Wert für `FLASK_SECRET_KEY`
-und richtet den systemd-Dienst direkt ein.
+und richtet den systemd-Dienst direkt ein. Die Eingabe darf nicht leer sein –
+das Skript wiederholt die Abfrage so lange, bis ein Wert vorliegt.
 
 **2. Umgebung einrichten**
 ```bash
@@ -75,7 +76,12 @@ wird aus der virtuellen Umgebung gestartet und erhält PulseAudio-Zugriff
 `ExecStartPre=/bin/sleep 10` wartet der Dienst nach dem Booten zehn Sekunden,
 bevor `app.py` ausgeführt wird. Zusätzlich setzt die Service-Datei
 `XDG_RUNTIME_DIR=/run/user/1000`, damit PulseAudio auch ohne laufende Sitzung
-funktioniert.
+funktioniert. 
+
+> **Wichtig:** In der Vorlage `audio-pi.service` ist `Environment=FLASK_SECRET_KEY=__CHANGE_ME__`
+> als Platzhalter hinterlegt. Wer die Unit manuell installiert, muss diesen
+> Wert vor dem Kopieren durch einen sicheren Schlüssel ersetzen, z. B. via
+> `sudo sed -i "s|Environment=FLASK_SECRET_KEY=.*|Environment=FLASK_SECRET_KEY=<dein_schlüssel>|" audio-pi.service`.
 
 Sollte die Unit manuell neu geladen werden müssen, genügt:
 ```bash
