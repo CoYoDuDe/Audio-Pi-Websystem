@@ -283,7 +283,16 @@ else:
     cursor = None
 
 # Scheduler
-scheduler = BackgroundScheduler()
+LOCAL_TZ = datetime.now().astimezone().tzinfo
+scheduler = BackgroundScheduler(timezone=LOCAL_TZ)
+
+
+def _ensure_local_timezone(dt):
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=LOCAL_TZ)
+    return dt
 
 
 def get_setting(key, default=None):
@@ -617,7 +626,7 @@ def load_schedules():
                 )
                 continue
             if repeat == "once":
-                run_time = parse_once_datetime(time_str)
+                run_time = _ensure_local_timezone(parse_once_datetime(time_str))
                 trigger = DateTrigger(run_date=run_time)
             elif repeat == "daily":
                 h, m, s = [int(part) for part in time_str.split(":")]
@@ -628,17 +637,20 @@ def load_schedules():
                     if start_date
                     else None
                 )
+                start_dt = _ensure_local_timezone(start_dt)
                 end_dt = (
                     datetime.combine(end_date, datetime.max.time())
                     if end_date
                     else None
                 )
+                end_dt = _ensure_local_timezone(end_dt)
                 trigger = CronTrigger(
                     hour=h,
                     minute=m,
                     second=s,
                     start_date=start_dt,
                     end_date=end_dt,
+                    timezone=LOCAL_TZ,
                 )
             elif repeat == "monthly":
                 h, m, s = [int(part) for part in time_str.split(":")]
@@ -676,9 +688,11 @@ def load_schedules():
                     start_dt = datetime.combine(
                         first_occurrence, datetime.min.time()
                     ).replace(hour=h, minute=m, second=s)
+                start_dt = _ensure_local_timezone(start_dt)
                 end_dt = (
                     datetime.combine(end_date, datetime.max.time()) if end_date else None
                 )
+                end_dt = _ensure_local_timezone(end_dt)
                 trigger = CronTrigger(
                     day=day_of_month,
                     hour=h,
@@ -686,6 +700,7 @@ def load_schedules():
                     second=s,
                     start_date=start_dt,
                     end_date=end_dt,
+                    timezone=LOCAL_TZ,
                 )
             else:
                 logging.warning(f"Unbekannter Repeat-Typ {repeat} für Schedule {sch_id}")
