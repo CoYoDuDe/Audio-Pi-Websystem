@@ -154,73 +154,151 @@ if not TESTING:
     sync_rtc_to_system()
 
 # DB Setup
-conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-conn.row_factory = sqlite3.Row
-cursor = conn.cursor()
-cursor.execute(
-    """CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, password TEXT)"""
-)
-cursor.execute(
-    """CREATE TABLE IF NOT EXISTS audio_files (id INTEGER PRIMARY KEY, filename TEXT)"""
-)
-cursor.execute(
-    """CREATE TABLE IF NOT EXISTS schedules (
-        id INTEGER PRIMARY KEY,
-        item_id INTEGER,
-        item_type TEXT,
-        time TEXT,
-        repeat TEXT,
-        delay INTEGER,
-        start_date TEXT,
-        end_date TEXT,
-        day_of_month INTEGER,
-        executed INTEGER DEFAULT 0
-    )"""
-)
-try:
-    cursor.execute("ALTER TABLE schedules ADD COLUMN executed INTEGER DEFAULT 0")
-except sqlite3.OperationalError:
-    pass
-for column, column_type in (
-    ("start_date", "TEXT"),
-    ("end_date", "TEXT"),
-    ("day_of_month", "INTEGER"),
-):
+from contextlib import contextmanager
+
+
+@contextmanager
+def get_db_connection():
+    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
     try:
-        cursor.execute(f"ALTER TABLE schedules ADD COLUMN {column} {column_type}")
-    except sqlite3.OperationalError:
-        pass
-cursor.execute(
-    """CREATE TABLE IF NOT EXISTS playlists (id INTEGER PRIMARY KEY, name TEXT)"""
-)
-cursor.execute(
-    """CREATE TABLE IF NOT EXISTS playlist_files (playlist_id INTEGER, file_id INTEGER)"""
-)
-cursor.execute(
-    """CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)"""
-)
-if not cursor.execute("SELECT * FROM users").fetchone():
-    cursor.execute(
-        "INSERT INTO users (username, password) VALUES (?, ?)",
-        ("admin", generate_password_hash("password")),
-    )
-conn.commit()
+        yield conn, cursor
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def initialize_database():
+    with get_db_connection() as (conn, cursor):
+        cursor.execute(
+            """CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, password TEXT)"""
+        )
+        cursor.execute(
+            """CREATE TABLE IF NOT EXISTS audio_files (id INTEGER PRIMARY KEY, filename TEXT)"""
+        )
+        cursor.execute(
+            """CREATE TABLE IF NOT EXISTS schedules (
+                id INTEGER PRIMARY KEY,
+                item_id INTEGER,
+                item_type TEXT,
+                time TEXT,
+                repeat TEXT,
+                delay INTEGER,
+                start_date TEXT,
+                end_date TEXT,
+                day_of_month INTEGER,
+                executed INTEGER DEFAULT 0
+            )"""
+        )
+        try:
+            cursor.execute("ALTER TABLE schedules ADD COLUMN executed INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+        for column, column_type in (
+            ("start_date", "TEXT"),
+            ("end_date", "TEXT"),
+            ("day_of_month", "INTEGER"),
+        ):
+            try:
+                cursor.execute(f"ALTER TABLE schedules ADD COLUMN {column} {column_type}")
+            except sqlite3.OperationalError:
+                pass
+        cursor.execute(
+            """CREATE TABLE IF NOT EXISTS playlists (id INTEGER PRIMARY KEY, name TEXT)"""
+        )
+        cursor.execute(
+            """CREATE TABLE IF NOT EXISTS playlist_files (playlist_id INTEGER, file_id INTEGER)"""
+        )
+        cursor.execute(
+            """CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)"""
+        )
+        if not cursor.execute("SELECT * FROM users").fetchone():
+            cursor.execute(
+                "INSERT INTO users (username, password) VALUES (?, ?)",
+                ("admin", generate_password_hash("password")),
+            )
+        conn.commit()
+
+
+initialize_database()
+
+
+if TESTING:
+
+    class _TestingConnectionProxy:
+        def __init__(self):
+            self._storage = threading.local()
+
+        def _get_connection(self):
+            conn = getattr(self._storage, "conn", None)
+            if conn is None:
+                conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+                conn.row_factory = sqlite3.Row
+                self._storage.conn = conn
+            return conn
+
+        def __getattr__(self, item):
+            conn = self._get_connection()
+            return getattr(conn, item)
+
+        def close(self):
+            cursor = getattr(self._storage, "cursor", None)
+            if cursor is not None:
+                cursor.close()
+                self._storage.cursor = None
+            conn = getattr(self._storage, "conn", None)
+            if conn is not None:
+                conn.close()
+                self._storage.conn = None
+
+
+    class _TestingCursorProxy:
+        def __init__(self, connection_proxy):
+            self._connection_proxy = connection_proxy
+            self._storage = threading.local()
+
+        def _get_cursor(self):
+            cursor = getattr(self._storage, "cursor", None)
+            if cursor is None:
+                cursor = self._connection_proxy._get_connection().cursor()
+                self._storage.cursor = cursor
+            return cursor
+
+        def __getattr__(self, item):
+            cursor = self._get_cursor()
+            return getattr(cursor, item)
+
+        def close(self):
+            cursor = getattr(self._storage, "cursor", None)
+            if cursor is not None:
+                cursor.close()
+                self._storage.cursor = None
+
+
+    conn = _TestingConnectionProxy()
+    cursor = _TestingCursorProxy(conn)
+else:
+    conn = None
+    cursor = None
 
 # Scheduler
 scheduler = BackgroundScheduler()
 
 
 def get_setting(key, default=None):
-    row = cursor.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-    return row[0] if row else default
+    with get_db_connection() as (conn, cursor):
+        row = cursor.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+        return row[0] if row else default
 
 
 def set_setting(key, value):
-    cursor.execute(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-        (key, value),
-    )
-    conn.commit()
+    with get_db_connection() as (conn, cursor):
+        cursor.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            (key, value),
+        )
+        conn.commit()
 
 
 RELAY_INVERT = get_setting("relay_invert", "0") == "1"
@@ -242,11 +320,12 @@ class User(UserMixin):
 
 @login_manager.user_loader
 def load_user(user_id):
-    cursor.execute("SELECT * FROM users WHERE id=?", (user_id,))
-    user_data = cursor.fetchone()
-    if user_data:
-        return User(user_data[0], user_data[1])
-    return None
+    with get_db_connection() as (conn, cursor):
+        cursor.execute("SELECT * FROM users WHERE id=?", (user_id,))
+        user_data = cursor.fetchone()
+        if user_data:
+            return User(user_data[0], user_data[1])
+        return None
 
 
 def allowed_file(filename):
@@ -386,10 +465,11 @@ def play_item(item_id, item_type, delay, is_schedule=False):
         tmp_file.close()
         try:
             if item_type == "file":
-                cursor.execute(
-                    "SELECT filename FROM audio_files WHERE id=?", (item_id,)
-                )
-                row = cursor.fetchone()
+                with get_db_connection() as (conn, cursor):
+                    cursor.execute(
+                        "SELECT filename FROM audio_files WHERE id=?", (item_id,)
+                    )
+                    row = cursor.fetchone()
                 if not row:
                     logging.warning(f"Audio-Datei-ID {item_id} nicht gefunden")
                     return
@@ -413,13 +493,14 @@ def play_item(item_id, item_type, delay, is_schedule=False):
                 while pygame.mixer.music.get_busy():
                     time.sleep(1)
             elif item_type == "playlist":
-                cursor.execute(
-                    "SELECT f.filename FROM playlist_files pf JOIN audio_files f ON pf.file_id = f.id WHERE pf.playlist_id=?",
-                    (item_id,),
-                )
-                files = cursor.fetchall()
+                with get_db_connection() as (conn, cursor):
+                    cursor.execute(
+                        "SELECT f.filename FROM playlist_files pf JOIN audio_files f ON pf.file_id = f.id WHERE pf.playlist_id=?",
+                        (item_id,),
+                    )
+                    files = [row[0] for row in cursor.fetchall()]
                 for filename in files:
-                    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename[0])
+                    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
                     if not os.path.exists(file_path):
                         logging.warning(f"Datei fehlt: {file_path}")
                         if not is_schedule:
@@ -449,11 +530,13 @@ def play_item(item_id, item_type, delay, is_schedule=False):
 # Scheduler-Logik
 
 def schedule_job(schedule_id):
-    cursor.execute("SELECT * FROM schedules WHERE id=?", (schedule_id,))
-    sch = cursor.fetchone()
-    if sch is None:
+    with get_db_connection() as (conn, cursor):
+        cursor.execute("SELECT * FROM schedules WHERE id=?", (schedule_id,))
+        row = cursor.fetchone()
+    if row is None:
         logging.warning(f"Schedule {schedule_id} nicht gefunden")
         return
+    sch = dict(row)
     item_id = sch["item_id"]
     item_type = sch["item_type"]
     delay = sch["delay"]
@@ -470,33 +553,38 @@ def schedule_job(schedule_id):
         return
     play_item(item_id, item_type, delay, is_schedule=True)
     if repeat == "once":
-        cursor.execute(
-            "UPDATE schedules SET executed=1 WHERE id=?",
-            (schedule_id,),
-        )
-        conn.commit()
+        with get_db_connection() as (conn, cursor):
+            cursor.execute(
+                "UPDATE schedules SET executed=1 WHERE id=?",
+                (schedule_id,),
+            )
+            conn.commit()
         load_schedules()
 
 
 def skip_past_once_schedules():
     """Markiert abgelaufene Einmal-Zeitpläne als ausgeführt (Grace-Zeit)."""
     now = datetime.now()
-    cursor.execute("SELECT id, time FROM schedules WHERE repeat='once' AND executed=0")
-    for sch_id, sch_time in cursor.fetchall():
-        try:
-            run_time = parse_once_datetime(sch_time)
-            if run_time < now + timedelta(seconds=1):
-                cursor.execute("UPDATE schedules SET executed=1 WHERE id=?", (sch_id,))
-                logging.info(f"Skippe überfälligen 'once' Schedule {sch_id}")
-        except ValueError:
-            logging.warning(f"Skippe Schedule {sch_id} mit ungültiger Zeit {sch_time}")
-    conn.commit()
+    with get_db_connection() as (conn, cursor):
+        cursor.execute("SELECT id, time FROM schedules WHERE repeat='once' AND executed=0")
+        schedules = cursor.fetchall()
+        for sch_id, sch_time in schedules:
+            try:
+                run_time = parse_once_datetime(sch_time)
+                if run_time < now + timedelta(seconds=1):
+                    cursor.execute("UPDATE schedules SET executed=1 WHERE id=?", (sch_id,))
+                    logging.info(f"Skippe überfälligen 'once' Schedule {sch_id}")
+            except ValueError:
+                logging.warning(f"Skippe Schedule {sch_id} mit ungültiger Zeit {sch_time}")
+        conn.commit()
 
 
 def load_schedules():
     scheduler.remove_all_jobs()
-    cursor.execute("SELECT * FROM schedules")
-    for sch in cursor.fetchall():
+    with get_db_connection() as (conn, cursor):
+        cursor.execute("SELECT * FROM schedules")
+        schedules = [dict(row) for row in cursor.fetchall()]
+    for sch in schedules:
         sch_id = sch["id"]
         time_str = sch["time"]
         repeat = sch["repeat"]
@@ -723,8 +811,9 @@ def login():
     if request.method == "POST":
         username = request.form["username"]
         password = request.form["password"]
-        cursor.execute("SELECT * FROM users WHERE username=?", (username,))
-        user_data = cursor.fetchone()
+        with get_db_connection() as (conn, cursor):
+            cursor.execute("SELECT * FROM users WHERE username=?", (username,))
+            user_data = cursor.fetchone()
         if user_data and check_password_hash(user_data[2], password):
             user = User(user_data[0], username)
             login_user(user)
@@ -743,28 +832,30 @@ def logout():
 @app.route("/")
 @login_required
 def index():
-    cursor.execute("SELECT * FROM audio_files")
-    files = [tuple(row) for row in cursor.fetchall()]
-    cursor.execute("SELECT * FROM playlists")
-    playlists = [tuple(row) for row in cursor.fetchall()]
-    cursor.execute(
-        """
-        SELECT
-            s.id,
-            CASE WHEN s.item_type='file' THEN f.filename ELSE p.name END as name,
-            s.time,
-            s.repeat,
-            s.delay,
-            s.item_type,
-            s.executed,
-            s.start_date,
-            s.end_date,
-            s.day_of_month
-        FROM schedules s
-        LEFT JOIN audio_files f ON s.item_id = f.id AND s.item_type='file'
-        LEFT JOIN playlists p ON s.item_id = p.id AND s.item_type='playlist'
-        """
-    )
+    with get_db_connection() as (conn, cursor):
+        cursor.execute("SELECT * FROM audio_files")
+        files = [tuple(row) for row in cursor.fetchall()]
+        cursor.execute("SELECT * FROM playlists")
+        playlists = [tuple(row) for row in cursor.fetchall()]
+        cursor.execute(
+            """
+            SELECT
+                s.id,
+                CASE WHEN s.item_type='file' THEN f.filename ELSE p.name END as name,
+                s.time,
+                s.repeat,
+                s.delay,
+                s.item_type,
+                s.executed,
+                s.start_date,
+                s.end_date,
+                s.day_of_month
+            FROM schedules s
+            LEFT JOIN audio_files f ON s.item_id = f.id AND s.item_type='file'
+            LEFT JOIN playlists p ON s.item_id = p.id AND s.item_type='playlist'
+            """
+        )
+        schedule_rows = cursor.fetchall()
     schedules = [
         {
             "id": row["id"],
@@ -778,7 +869,7 @@ def index():
             "end_date": row["end_date"],
             "day_of_month": row["day_of_month"],
         }
-        for row in cursor.fetchall()
+        for row in schedule_rows
     ]
     wlan_ssid = subprocess.getoutput("iwgetid wlan0 -r").strip() or "Nicht verbunden"
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -826,29 +917,31 @@ def upload():
         else:
             flash("Datei hochgeladen")
         file.save(file_path)
-        cursor.execute("INSERT INTO audio_files (filename) VALUES (?)", (filename,))
-        conn.commit()
+        with get_db_connection() as (conn, cursor):
+            cursor.execute("INSERT INTO audio_files (filename) VALUES (?)", (filename,))
+            conn.commit()
     return redirect(url_for("index"))
 
 
 @app.route("/delete/<int:file_id>", methods=["POST"])
 @login_required
 def delete(file_id):
-    cursor.execute("SELECT filename FROM audio_files WHERE id=?", (file_id,))
-    row = cursor.fetchone()
-    if not row:
-        flash("Datei nicht gefunden")
-        return redirect(url_for("index"))
-    filename = row[0]
-    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-    if os.path.exists(file_path):
-        os.remove(file_path)
-    cursor.execute("DELETE FROM audio_files WHERE id=?", (file_id,))
-    cursor.execute("DELETE FROM playlist_files WHERE file_id=?", (file_id,))
-    cursor.execute(
-        "DELETE FROM schedules WHERE item_id=? AND item_type='file'", (file_id,)
-    )
-    conn.commit()
+    with get_db_connection() as (conn, cursor):
+        cursor.execute("SELECT filename FROM audio_files WHERE id=?", (file_id,))
+        row = cursor.fetchone()
+        if not row:
+            flash("Datei nicht gefunden")
+            return redirect(url_for("index"))
+        filename = row[0]
+        file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        cursor.execute("DELETE FROM audio_files WHERE id=?", (file_id,))
+        cursor.execute("DELETE FROM playlist_files WHERE file_id=?", (file_id,))
+        cursor.execute(
+            "DELETE FROM schedules WHERE item_id=? AND item_type='file'", (file_id,)
+        )
+        conn.commit()
     flash("Datei gelöscht")
     return redirect(url_for("index"))
 
@@ -857,8 +950,9 @@ def delete(file_id):
 @login_required
 def create_playlist():
     name = request.form["name"]
-    cursor.execute("INSERT INTO playlists (name) VALUES (?)", (name,))
-    conn.commit()
+    with get_db_connection() as (conn, cursor):
+        cursor.execute("INSERT INTO playlists (name) VALUES (?)", (name,))
+        conn.commit()
     flash("Playlist erstellt")
     return redirect(url_for("index"))
 
@@ -868,11 +962,12 @@ def create_playlist():
 def add_to_playlist():
     playlist_id = request.form["playlist_id"]
     file_id = request.form["file_id"]
-    cursor.execute(
-        "INSERT INTO playlist_files (playlist_id, file_id) VALUES (?, ?)",
-        (playlist_id, file_id),
-    )
-    conn.commit()
+    with get_db_connection() as (conn, cursor):
+        cursor.execute(
+            "INSERT INTO playlist_files (playlist_id, file_id) VALUES (?, ?)",
+            (playlist_id, file_id),
+        )
+        conn.commit()
     flash("Datei zur Playlist hinzugefügt")
     return redirect(url_for("index"))
 
@@ -880,12 +975,13 @@ def add_to_playlist():
 @app.route("/delete_playlist/<int:playlist_id>", methods=["POST"])
 @login_required
 def delete_playlist(playlist_id):
-    cursor.execute("DELETE FROM playlists WHERE id=?", (playlist_id,))
-    cursor.execute("DELETE FROM playlist_files WHERE playlist_id=?", (playlist_id,))
-    cursor.execute(
-        "DELETE FROM schedules WHERE item_id=? AND item_type='playlist'", (playlist_id,)
-    )
-    conn.commit()
+    with get_db_connection() as (conn, cursor):
+        cursor.execute("DELETE FROM playlists WHERE id=?", (playlist_id,))
+        cursor.execute("DELETE FROM playlist_files WHERE playlist_id=?", (playlist_id,))
+        cursor.execute(
+            "DELETE FROM schedules WHERE item_id=? AND item_type='playlist'", (playlist_id,)
+        )
+        conn.commit()
     flash("Playlist gelöscht")
     return redirect(url_for("index"))
 
@@ -1041,23 +1137,24 @@ def add_schedule():
         flash("Kein Element gewählt")
         return redirect(url_for("index"))
 
-    cursor.execute(
-        """
-        INSERT INTO schedules (item_id, item_type, time, repeat, delay, start_date, end_date, day_of_month, executed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
-        """,
-        (
-            item_id,
-            item_type,
-            time_only,
-            repeat,
-            delay,
-            start_date_value,
-            end_date_value,
-            day_of_month_value,
-        ),
-    )
-    conn.commit()
+    with get_db_connection() as (conn, cursor):
+        cursor.execute(
+            """
+            INSERT INTO schedules (item_id, item_type, time, repeat, delay, start_date, end_date, day_of_month, executed)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+            """,
+            (
+                item_id,
+                item_type,
+                time_only,
+                repeat,
+                delay,
+                start_date_value,
+                end_date_value,
+                day_of_month_value,
+            ),
+        )
+        conn.commit()
     load_schedules()
     flash("Zeitplan hinzugefügt")
     return redirect(url_for("index"))
@@ -1066,8 +1163,9 @@ def add_schedule():
 @app.route("/delete_schedule/<int:sch_id>", methods=["POST"])
 @login_required
 def delete_schedule(sch_id):
-    cursor.execute("DELETE FROM schedules WHERE id=?", (sch_id,))
-    conn.commit()
+    with get_db_connection() as (conn, cursor):
+        cursor.execute("DELETE FROM schedules WHERE id=?", (sch_id,))
+        conn.commit()
     load_schedules()
     flash("Zeitplan gelöscht")
     return redirect(url_for("index"))
@@ -1173,17 +1271,20 @@ def change_password():
         if not new_pass or len(new_pass) < 4:
             flash("Neues Passwort zu kurz")
             return render_template("change_password.html")
-        cursor.execute("SELECT password FROM users WHERE id=?", (current_user.id,))
-        hashed = cursor.fetchone()[0]
-        if check_password_hash(hashed, old_pass):
-            new_hashed = generate_password_hash(new_pass)
-            cursor.execute(
-                "UPDATE users SET password=? WHERE id=?", (new_hashed, current_user.id)
-            )
-            conn.commit()
-            flash("Passwort geändert")
-        else:
-            flash("Falsches altes Passwort")
+        with get_db_connection() as (conn, cursor):
+            cursor.execute("SELECT password FROM users WHERE id=?", (current_user.id,))
+            result = cursor.fetchone()
+            if result and check_password_hash(result[0], old_pass):
+                new_hashed = generate_password_hash(new_pass)
+                cursor.execute(
+                    "UPDATE users SET password=? WHERE id=?",
+                    (new_hashed, current_user.id),
+                )
+                conn.commit()
+                flash("Passwort geändert")
+            else:
+                flash("Falsches altes Passwort")
+                return render_template("change_password.html")
     return render_template("change_password.html")
 
 
@@ -1294,7 +1395,6 @@ if __name__ == "__main__":
         # Scheduler nur stoppen, wenn er wirklich gestartet wurde (z.B. nicht im TESTING-Modus)
         if getattr(scheduler, "running", False):
             scheduler.shutdown()
-            conn.close()
         if not TESTING and gpio_handle is not None:
             try:
                 deactivate_amplifier()
