@@ -581,6 +581,18 @@ def skip_past_once_schedules():
 
 def load_schedules():
     scheduler.remove_all_jobs()
+    # Misfire-Puffer: Default 60 s, optional via Settings-Key 'scheduler_misfire_grace_time'.
+    raw_misfire_value = get_setting("scheduler_misfire_grace_time")
+    default_grace_seconds = 60
+    try:
+        misfire_grace_seconds = max(1, int(raw_misfire_value)) if raw_misfire_value is not None else default_grace_seconds
+    except (TypeError, ValueError):
+        logging.warning(
+            "Ungültiger Wert für scheduler_misfire_grace_time (%s), fallback auf %s s",
+            raw_misfire_value,
+            default_grace_seconds,
+        )
+        misfire_grace_seconds = default_grace_seconds
     with get_db_connection() as (conn, cursor):
         cursor.execute("SELECT * FROM schedules")
         schedules = [dict(row) for row in cursor.fetchall()]
@@ -591,7 +603,6 @@ def load_schedules():
         executed = sch["executed"]
         if executed:
             continue
-        misfire_grace_time = 1
         try:
             start_date = parse_schedule_date(sch["start_date"])
             end_date = parse_schedule_date(sch["end_date"])
@@ -680,11 +691,11 @@ def load_schedules():
                 schedule_job,
                 trigger,
                 args=[sch_id],
-                misfire_grace_time=misfire_grace_time,
+                misfire_grace_time=misfire_grace_seconds,
                 id=str(sch_id),
             )
             logging.info(
-                f"Geplanter Job {sch_id}: Repeat={repeat}, Time={time_str}, Misfire-Grace={misfire_grace_time}"
+                f"Geplanter Job {sch_id}: Repeat={repeat}, Time={time_str}, Misfire-Grace={misfire_grace_seconds}"
             )
         except ValueError:
             logging.warning(f"Ungültige Zeit {time_str} für Schedule {sch_id}")
