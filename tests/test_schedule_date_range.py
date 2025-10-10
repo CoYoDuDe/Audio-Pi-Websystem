@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.background import BackgroundScheduler
 
 import pytest
+from flask import get_flashed_messages
 
 os.environ.setdefault('FLASK_SECRET_KEY', 'test')
 os.environ.setdefault('TESTING', '1')
@@ -172,6 +173,34 @@ def test_add_schedule_rejects_impossible_month_range():
     ):
         response = app.add_schedule.__wrapped__()
         assert response.status_code == 302
+
+    count = app.cursor.execute('SELECT COUNT(*) AS cnt FROM schedules').fetchone()['cnt']
+    assert count == 0
+
+
+def test_add_schedule_rejects_negative_delay():
+    app.cursor.execute('DELETE FROM audio_files')
+    app.cursor.execute("INSERT INTO audio_files (filename) VALUES (?)", ('probe.mp3',))
+    file_id = app.cursor.lastrowid
+    app.conn.commit()
+
+    with app.app.test_request_context(
+        '/schedule',
+        method='POST',
+        data={
+            'item_type': 'file',
+            'item_id': str(file_id),
+            'time': '2024-01-31T08:00',
+            'repeat': 'once',
+            'delay': '-5',
+            'start_date': '',
+            'end_date': '',
+        },
+    ):
+        response = app.add_schedule.__wrapped__()
+        assert response.status_code == 302
+        messages = get_flashed_messages()
+        assert any('Verzögerung' in message for message in messages)
 
     count = app.cursor.execute('SELECT COUNT(*) AS cnt FROM schedules').fetchone()['cnt']
     assert count == 0

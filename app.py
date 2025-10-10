@@ -54,6 +54,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 DB_FILE = os.getenv("DB_FILE", "audio.db")
 GPIO_PIN_ENDSTUFE = 17
 VERZOEGERUNG_SEC = 5
+MAX_SCHEDULE_DELAY_SECONDS = int(os.getenv("MAX_SCHEDULE_DELAY_SECONDS", "60"))
 DAC_SINK = "alsa_output.platform-soc_107c000000_sound.stereo-fallback"
 
 # Logging
@@ -1139,7 +1140,20 @@ def add_schedule():
     item_id = request.form["item_id"]
     time_str = request.form["time"]  # Erwarte Format YYYY-MM-DDTHH:MM
     repeat = request.form["repeat"]
-    delay = int(request.form["delay"])
+    delay_raw = request.form.get("delay", "0")
+    try:
+        delay = int(delay_raw)
+    except (TypeError, ValueError):
+        flash("Ungültige Verzögerung")
+        return redirect(url_for("index"))
+
+    if delay < 0:
+        flash("Verzögerung darf nicht negativ sein")
+        return redirect(url_for("index"))
+
+    if delay > MAX_SCHEDULE_DELAY_SECONDS:
+        flash("Verzögerung ist zu groß")
+        return redirect(url_for("index"))
     start_date_input = request.form.get("start_date", "").strip()
     end_date_input = request.form.get("end_date", "").strip()
     day_of_month_value = None
