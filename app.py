@@ -321,6 +321,45 @@ def update_amp_levels():
     AMP_OFF_LEVEL = 1 if RELAY_INVERT else 0
 
 
+def _set_amp_output(level, *, keep_claimed=None):
+    """Schreibt einen GPIO-Pegel und berücksichtigt den Claim-Zustand."""
+
+    global amplifier_claimed
+    if keep_claimed is None:
+        keep_claimed = amplifier_claimed
+
+    try:
+        if amplifier_claimed:
+            GPIO.gpio_write(gpio_handle, GPIO_PIN_ENDSTUFE, level)
+            if not keep_claimed:
+                GPIO.gpio_free(gpio_handle, GPIO_PIN_ENDSTUFE)
+                amplifier_claimed = False
+            return True
+
+        GPIO.gpio_claim_output(
+            gpio_handle, GPIO_PIN_ENDSTUFE, lFlags=0, level=level
+        )
+        GPIO.gpio_write(gpio_handle, GPIO_PIN_ENDSTUFE, level)
+        if keep_claimed:
+            amplifier_claimed = True
+        else:
+            GPIO.gpio_free(gpio_handle, GPIO_PIN_ENDSTUFE)
+        return True
+    except GPIO.error as e:
+        if "GPIO busy" in str(e):
+            logging.warning(
+                "GPIO busy beim Setzen des Endstufenpegels, Aktion wird übersprungen"
+            )
+            if amplifier_claimed and not keep_claimed:
+                try:
+                    GPIO.gpio_free(gpio_handle, GPIO_PIN_ENDSTUFE)
+                except GPIO.error:
+                    pass
+                amplifier_claimed = False
+            return False
+        raise
+
+
 class User(UserMixin):
     def __init__(self, id, username):
         self.id = id
@@ -416,37 +455,37 @@ def set_sink(sink_name):
 # GPIO für Endstufe
 def activate_amplifier():
     global amplifier_claimed
-    if not amplifier_claimed:
-        try:
-            GPIO.gpio_claim_output(
-                gpio_handle, GPIO_PIN_ENDSTUFE, lFlags=0, level=AMP_OFF_LEVEL
+    was_claimed = amplifier_claimed
+    try:
+        if not was_claimed:
+            if not _set_amp_output(AMP_OFF_LEVEL, keep_claimed=True):
+                return
+        if _set_amp_output(AMP_ON_LEVEL, keep_claimed=True):
+            logging.info(
+                "Endstufe EIN (bereits belegt)"
+                if was_claimed
+                else "Endstufe EIN"
             )
-            amplifier_claimed = True
-            GPIO.gpio_write(gpio_handle, GPIO_PIN_ENDSTUFE, AMP_ON_LEVEL)
-            logging.info("Endstufe EIN")
-        except GPIO.error as e:
-            if "GPIO busy" in str(e):
-                logging.warning("GPIO bereits belegt, überspringe claim")
-            else:
-                raise e
-    else:
-        GPIO.gpio_write(gpio_handle, GPIO_PIN_ENDSTUFE, AMP_ON_LEVEL)
-        logging.info("Endstufe EIN (bereits belegt)")
+    except GPIO.error as e:
+        if "GPIO busy" in str(e):
+            logging.warning("GPIO bereits belegt, überspringe claim")
+        else:
+            raise e
 
 
 def deactivate_amplifier():
     global amplifier_claimed
-    if amplifier_claimed:
-        try:
-            GPIO.gpio_write(gpio_handle, GPIO_PIN_ENDSTUFE, AMP_OFF_LEVEL)
-            GPIO.gpio_free(gpio_handle, GPIO_PIN_ENDSTUFE)
-            amplifier_claimed = False
+    if not amplifier_claimed:
+        _set_amp_output(AMP_OFF_LEVEL, keep_claimed=False)
+        return
+    try:
+        if _set_amp_output(AMP_OFF_LEVEL, keep_claimed=False):
             logging.info("Endstufe AUS")
-        except GPIO.error as e:
-            if "GPIO busy" in str(e):
-                logging.warning("GPIO busy beim deaktivieren, ignoriere")
-            else:
-                raise e
+    except GPIO.error as e:
+        if "GPIO busy" in str(e):
+            logging.warning("GPIO busy beim deaktivieren, ignoriere")
+        else:
+            raise e
 
 
 # Endstufe beim Start aus
@@ -1085,6 +1124,10 @@ def set_relay_invert():
     RELAY_INVERT = "invert" in request.form
     set_setting("relay_invert", "1" if RELAY_INVERT else "0")
     update_amp_levels()
+    if amplifier_claimed:
+        _set_amp_output(AMP_ON_LEVEL, keep_claimed=True)
+    else:
+        _set_amp_output(AMP_OFF_LEVEL, keep_claimed=False)
     flash("Relais-Logik invertiert" if RELAY_INVERT else "Relais-Logik normal")
     return redirect(url_for("index"))
 
