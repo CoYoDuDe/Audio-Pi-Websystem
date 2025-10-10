@@ -154,6 +154,7 @@ if not TESTING:
 
 # DB Setup
 conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+conn.row_factory = sqlite3.Row
 cursor = conn.cursor()
 cursor.execute(
     """CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, password TEXT)"""
@@ -162,12 +163,27 @@ cursor.execute(
     """CREATE TABLE IF NOT EXISTS audio_files (id INTEGER PRIMARY KEY, filename TEXT)"""
 )
 cursor.execute(
-    """CREATE TABLE IF NOT EXISTS schedules (id INTEGER PRIMARY KEY, item_id INTEGER, item_type TEXT, time TEXT, repeat TEXT, delay INTEGER, executed INTEGER DEFAULT 0)"""
+    """CREATE TABLE IF NOT EXISTS schedules (
+        id INTEGER PRIMARY KEY,
+        item_id INTEGER,
+        item_type TEXT,
+        time TEXT,
+        repeat TEXT,
+        delay INTEGER,
+        start_date TEXT,
+        end_date TEXT,
+        executed INTEGER DEFAULT 0
+    )"""
 )
 try:
     cursor.execute("ALTER TABLE schedules ADD COLUMN executed INTEGER DEFAULT 0")
 except sqlite3.OperationalError:
     pass
+for column in ("start_date", "end_date"):
+    try:
+        cursor.execute(f"ALTER TABLE schedules ADD COLUMN {column} TEXT")
+    except sqlite3.OperationalError:
+        pass
 cursor.execute(
     """CREATE TABLE IF NOT EXISTS playlists (id INTEGER PRIMARY KEY, name TEXT)"""
 )
@@ -251,6 +267,27 @@ def parse_once_datetime(time_str):
         except ValueError:
             continue
     raise ValueError(f"Ungültige Zeitangabe: {time_str}")
+
+
+def parse_schedule_date(date_str):
+    if not date_str:
+        return None
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        logging.warning(f"Ungültiges Datumsformat für Schedule: {date_str}")
+        return None
+
+
+def is_within_schedule_range(start_date_str, end_date_str, reference=None):
+    reference_date = (reference or datetime.now()).date()
+    start_date = parse_schedule_date(start_date_str)
+    end_date = parse_schedule_date(end_date_str)
+    if start_date and reference_date < start_date:
+        return False
+    if end_date and reference_date > end_date:
+        return False
+    return True
 
 
 # PulseAudio
@@ -392,10 +429,20 @@ def schedule_job(schedule_id):
     if sch is None:
         logging.warning(f"Schedule {schedule_id} nicht gefunden")
         return
-    item_id = sch[1]
-    item_type = sch[2]
-    delay = sch[5]
-    repeat = sch[4]
+    item_id = sch["item_id"]
+    item_type = sch["item_type"]
+    delay = sch["delay"]
+    repeat = sch["repeat"]
+    if repeat != "once" and not is_within_schedule_range(
+        sch["start_date"], sch["end_date"]
+    ):
+        logging.info(
+            "Zeitplan %s außerhalb des gültigen Datumsbereichs (%s - %s) – übersprungen",
+            schedule_id,
+            sch["start_date"] or "offen",
+            sch["end_date"] or "offen",
+        )
+        return
     play_item(item_id, item_type, delay, is_schedule=True)
     if repeat == "once":
         cursor.execute(
@@ -425,23 +472,69 @@ def load_schedules():
     scheduler.remove_all_jobs()
     cursor.execute("SELECT * FROM schedules")
     for sch in cursor.fetchall():
-        sch_id = sch[0]
-        time_str = sch[3]
-        repeat = sch[4]
-        executed = sch[6]
+        sch_id = sch["id"]
+        time_str = sch["time"]
+        repeat = sch["repeat"]
+        executed = sch["executed"]
         if executed:
             continue
         misfire_grace_time = 1
         try:
+            start_date = parse_schedule_date(sch["start_date"])
+            end_date = parse_schedule_date(sch["end_date"])
+            if repeat != "once" and end_date and end_date < datetime.now().date():
+                logging.info(
+                    "Zeitplan %s endet am %s und wird nicht geladen",
+                    sch_id,
+                    end_date,
+                )
+                continue
             if repeat == "once":
                 run_time = parse_once_datetime(time_str)
                 trigger = DateTrigger(run_date=run_time)
             elif repeat == "daily":
-                h, m, s = time_str.split(":")
-                trigger = CronTrigger(hour=h, minute=m, second=s)
+                h, m, s = [int(part) for part in time_str.split(":")]
+                start_dt = (
+                    datetime.combine(start_date, datetime.min.time()).replace(
+                        hour=h, minute=m, second=s
+                    )
+                    if start_date
+                    else None
+                )
+                end_dt = (
+                    datetime.combine(end_date, datetime.max.time())
+                    if end_date
+                    else None
+                )
+                trigger = CronTrigger(
+                    hour=h,
+                    minute=m,
+                    second=s,
+                    start_date=start_dt,
+                    end_date=end_dt,
+                )
             elif repeat == "monthly":
-                h, m, s = time_str.split(":")
-                trigger = CronTrigger(day=1, hour=h, minute=m, second=s)
+                h, m, s = [int(part) for part in time_str.split(":")]
+                start_dt = (
+                    datetime.combine(start_date, datetime.min.time()).replace(
+                        hour=h, minute=m, second=s
+                    )
+                    if start_date
+                    else None
+                )
+                end_dt = (
+                    datetime.combine(end_date, datetime.max.time())
+                    if end_date
+                    else None
+                )
+                trigger = CronTrigger(
+                    day=1,
+                    hour=h,
+                    minute=m,
+                    second=s,
+                    start_date=start_dt,
+                    end_date=end_dt,
+                )
             else:
                 logging.warning(f"Unbekannter Repeat-Typ {repeat} für Schedule {sch_id}")
                 continue
@@ -601,13 +694,40 @@ def logout():
 @login_required
 def index():
     cursor.execute("SELECT * FROM audio_files")
-    files = cursor.fetchall()
+    files = [tuple(row) for row in cursor.fetchall()]
     cursor.execute("SELECT * FROM playlists")
-    playlists = cursor.fetchall()
+    playlists = [tuple(row) for row in cursor.fetchall()]
     cursor.execute(
-        "SELECT s.id, CASE WHEN s.item_type='file' THEN f.filename ELSE p.name END as name, s.time, s.repeat, s.delay, s.item_type, s.executed FROM schedules s LEFT JOIN audio_files f ON s.item_id = f.id AND s.item_type='file' LEFT JOIN playlists p ON s.item_id = p.id AND s.item_type='playlist'"
+        """
+        SELECT
+            s.id,
+            CASE WHEN s.item_type='file' THEN f.filename ELSE p.name END as name,
+            s.time,
+            s.repeat,
+            s.delay,
+            s.item_type,
+            s.executed,
+            s.start_date,
+            s.end_date
+        FROM schedules s
+        LEFT JOIN audio_files f ON s.item_id = f.id AND s.item_type='file'
+        LEFT JOIN playlists p ON s.item_id = p.id AND s.item_type='playlist'
+        """
     )
-    schedules = cursor.fetchall()
+    schedules = [
+        {
+            "id": row["id"],
+            "name": row["name"],
+            "time": row["time"],
+            "repeat": row["repeat"],
+            "delay": row["delay"],
+            "item_type": row["item_type"],
+            "executed": row["executed"],
+            "start_date": row["start_date"],
+            "end_date": row["end_date"],
+        }
+        for row in cursor.fetchall()
+    ]
     wlan_ssid = subprocess.getoutput("iwgetid wlan0 -r").strip() or "Nicht verbunden"
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     current_volume = (
@@ -800,6 +920,8 @@ def add_schedule():
     time_str = request.form["time"]  # Erwarte Format YYYY-MM-DDTHH:MM
     repeat = request.form["repeat"]
     delay = int(request.form["delay"])
+    start_date_input = request.form.get("start_date", "").strip()
+    end_date_input = request.form.get("end_date", "").strip()
 
     try:
         dt = parse_once_datetime(time_str) if repeat == "once" else datetime.fromisoformat(time_str.replace("Z", "+00:00"))
@@ -814,6 +936,28 @@ def add_schedule():
         flash("Ungültiges Datums-/Zeitformat")
         return redirect(url_for("index"))
 
+    try:
+        start_date_value = None
+        end_date_value = None
+        if repeat != "once":
+            if start_date_input:
+                start_date_dt = datetime.strptime(start_date_input, "%Y-%m-%d").date()
+            else:
+                start_date_dt = dt.date()
+            start_date_value = start_date_dt.isoformat()
+            if end_date_input:
+                end_date_dt = datetime.strptime(end_date_input, "%Y-%m-%d").date()
+                if end_date_dt < start_date_dt:
+                    flash("Enddatum darf nicht vor dem Startdatum liegen")
+                    return redirect(url_for("index"))
+                end_date_value = end_date_dt.isoformat()
+        else:
+            start_date_value = None
+            end_date_value = None
+    except ValueError:
+        flash("Ungültiges Start- oder Enddatum")
+        return redirect(url_for("index"))
+
     if item_type not in ("file", "playlist"):
         flash("Ungültiger Typ ausgewählt")
         return redirect(url_for("index"))
@@ -823,8 +967,11 @@ def add_schedule():
         return redirect(url_for("index"))
 
     cursor.execute(
-        "INSERT INTO schedules (item_id, item_type, time, repeat, delay, executed) VALUES (?, ?, ?, ?, ?, 0)",
-        (item_id, item_type, time_only, repeat, delay),
+        """
+        INSERT INTO schedules (item_id, item_type, time, repeat, delay, start_date, end_date, executed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+        """,
+        (item_id, item_type, time_only, repeat, delay, start_date_value, end_date_value),
     )
     conn.commit()
     load_schedules()
