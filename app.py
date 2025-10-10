@@ -972,8 +972,11 @@ def index():
 def upload():
     if "file" not in request.files:
         flash("Keine Datei ausgewählt")
-        return redirect(request.url)
+        return redirect(url_for("index"))
     file = request.files["file"]
+    if file.filename == "":
+        flash("Keine Datei ausgewählt")
+        return redirect(url_for("index"))
     if file and allowed_file(file.filename):
         filename = secure_filename(file.filename)
         file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
@@ -989,6 +992,8 @@ def upload():
         with get_db_connection() as (conn, cursor):
             cursor.execute("INSERT INTO audio_files (filename) VALUES (?)", (filename,))
             conn.commit()
+        return redirect(url_for("index"))
+    flash("Dateiformat wird nicht unterstützt")
     return redirect(url_for("index"))
 
 
