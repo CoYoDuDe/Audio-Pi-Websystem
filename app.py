@@ -1475,8 +1475,16 @@ if not TESTING:
 
 if __name__ == "__main__":
     debug = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true", "yes")
+    port_raw = os.environ.get("FLASK_PORT", "80")
     try:
-        app.run(host="0.0.0.0", port=8080, debug=debug)
+        port = int(port_raw)
+    except ValueError:
+        logging.warning(
+            "Ungültiger Wert für FLASK_PORT '%s'. Fallback auf Port 80.", port_raw
+        )
+        port = 80
+    try:
+        app.run(host="0.0.0.0", port=port, debug=debug)
     finally:
         # Scheduler nur stoppen, wenn er wirklich gestartet wurde (z.B. nicht im TESTING-Modus)
         if getattr(scheduler, "running", False):

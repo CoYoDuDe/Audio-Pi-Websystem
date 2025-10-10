@@ -54,18 +54,28 @@ ist kein zusätzlicher Funktionsaufruf mehr nötig.
 
 ```bash
 export FLASK_SECRET_KEY="ein_sicherer_schluessel"
+# optional: Port ändern (Standard ist 80)
+export FLASK_PORT=8080
 python app.py
 ```
+
+> **Hinweis:** Für Ports <1024 benötigt der ausführende Benutzer die Capability
+> `CAP_NET_BIND_SERVICE`. Entweder wird die Anwendung über den systemd-Dienst
+> gestartet (siehe unten), oder die Python-Interpreter-Binary erhält diese
+> Capability beispielsweise per `sudo setcap 'cap_net_bind_service=+ep' $(readlink -f $(which python3))`.
 
 ### Automatischer Start (systemd)
 
 `install.sh` kopiert und konfiguriert `audio-pi.service` automatisch. Dabei wird der während der Installation abgefragte `FLASK_SECRET_KEY` eingetragen; ohne gültigen Schlüssel startet der Dienst nicht. Die
-Service-Datei nutzt den Python-Interpreter aus der virtuellen Umgebung und
-startet das Programm mit PulseAudio-Zugriff (entweder über `User=pi` oder mit
-`PULSE_RUNTIME_PATH`). Durch `ExecStartPre=/bin/sleep 10` wartet der Dienst nach
-dem Booten zehn Sekunden, bevor `app.py` ausgeführt wird. Zusätzlich setzt die
-Service-Datei `XDG_RUNTIME_DIR=/run/user/1000`, damit PulseAudio auch ohne
-laufende Sitzung funktioniert.
+Service-Datei setzt außerdem `FLASK_PORT=80` und stattet den Dienst dank
+`AmbientCapabilities=CAP_NET_BIND_SERVICE` mit den nötigen Rechten aus, damit
+der nicht-root-Benutzer `pi` auch Port 80 binden kann. Der Python-Interpreter
+wird aus der virtuellen Umgebung gestartet und erhält PulseAudio-Zugriff
+(entweder über `User=pi` oder mit `PULSE_RUNTIME_PATH`). Durch
+`ExecStartPre=/bin/sleep 10` wartet der Dienst nach dem Booten zehn Sekunden,
+bevor `app.py` ausgeführt wird. Zusätzlich setzt die Service-Datei
+`XDG_RUNTIME_DIR=/run/user/1000`, damit PulseAudio auch ohne laufende Sitzung
+funktioniert.
 
 Sollte die Unit manuell neu geladen werden müssen, genügt:
 ```bash
@@ -79,9 +89,15 @@ Bei der ersten Ausführung legt die Anwendung automatisch die SQLite-Datenbank `
 
 ## Konfiguration
 
-Wichtige Einstellungen können über Umgebungsvariablen angepasst werden. 
-So lässt sich beispielsweise mit `DB_FILE` der Pfad zur SQLite-Datenbank festlegen. 
-Standardmäßig wird `audio.db` im Projektverzeichnis verwendet.
+Wichtige Einstellungen können über Umgebungsvariablen angepasst werden:
+
+- `FLASK_SECRET_KEY`: Muss gesetzt sein, sonst startet die Anwendung nicht.
+- `FLASK_PORT`: HTTP-Port für Flask (Standard: `80`).
+- `DB_FILE`: Pfad zur SQLite-Datenbank (Standard: `audio.db` im Projektverzeichnis).
+- `MAX_SCHEDULE_DELAY_SECONDS`: Maximale Verzögerung für Scheduler-Nachläufer.
+
+Weitere Variablen sind im Quelltext dokumentiert. Wird ein Port kleiner 1024
+eingesetzt, sind – je nach Startmethode – entsprechende Capabilities oder Root-Rechte notwendig (siehe Hinweise oben).
 
 
 ## Update aus dem Git-Repository
