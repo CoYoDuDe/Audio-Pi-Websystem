@@ -101,20 +101,35 @@
         </select>
         <select name="item_id" id="item-select"></select>
         <input type="datetime-local" name="time" required>
-        <select name="repeat">
+        <select name="repeat" id="repeat-select">
             <option value="daily">Täglich</option>
             <option value="monthly">Monatlich</option>
             <option value="once">Nur einmal</option>
         </select>
+        <div id="date-range-fields" style="display:none;">
+            <label>
+                Startdatum
+                <input type="date" name="start_date">
+            </label>
+            <label>
+                Enddatum (optional)
+                <input type="date" name="end_date">
+            </label>
+        </div>
         <input type="number" name="delay" value="5" min="0" max="60" style="width:50px;"> Sek. Verzögerung
         <button type="submit" class="btn">Hinzufügen</button>
     </form>
     <ul>
         {% for schedule in schedules %}
         <li>
-            {{ schedule[1] }} ({{ schedule[5] }}) - {{ schedule[2] }} ({{ schedule[3] }}) +{{ schedule[4] }}s
-            {% if schedule[6] and schedule[3] == 'once' %}- ausgeführt{% endif %}
-            <form action="{{ url_for('delete_schedule', sch_id=schedule[0]) }}" method="POST" style="display:inline;">
+            {{ schedule.name or 'Unbekanntes Element' }} ({{ schedule.item_type }}) - {{ schedule.time }} ({{ schedule.repeat }}) +{{ schedule.delay }}s
+            {% if schedule.start_date or schedule.end_date %}
+                [
+                {{ schedule.start_date or 'ab sofort' }}{% if schedule.end_date %} – {{ schedule.end_date }}{% endif %}
+                ]
+            {% endif %}
+            {% if schedule.executed and schedule.repeat == 'once' %}- ausgeführt{% endif %}
+            <form action="{{ url_for('delete_schedule', sch_id=schedule.id) }}" method="POST" style="display:inline;">
                 <button type="submit" class="btn">Entfernen</button>
             </form>
         </li>
@@ -126,6 +141,11 @@
     const playlists = {{ playlists | tojson }};
     const itemSelect = document.getElementById('item-select');
     const typeSelect = document.getElementById('item-type');
+    const repeatSelect = document.getElementById('repeat-select');
+    const dateRangeFields = document.getElementById('date-range-fields');
+    const startDateInput = document.querySelector('input[name="start_date"]');
+    const endDateInput = document.querySelector('input[name="end_date"]');
+    const timeInput = document.querySelector('input[name="time"]');
     function populate() {
         const items = typeSelect.value === 'playlist' ? playlists : files;
         const label = typeSelect.value === 'playlist' ? 'Playlist' : 'Datei';
@@ -137,8 +157,46 @@
             itemSelect.appendChild(opt);
         }
     }
+    function updateDateRangeVisibility() {
+        if (!repeatSelect) {
+            return;
+        }
+        const show = repeatSelect.value !== 'once';
+        dateRangeFields.style.display = show ? 'block' : 'none';
+        if (show && timeInput && startDateInput && !startDateInput.value && timeInput.value) {
+            const [datePart] = timeInput.value.split('T');
+            if (datePart) {
+                startDateInput.value = datePart;
+            }
+        }
+        if (!show) {
+            if (startDateInput) startDateInput.value = '';
+            if (endDateInput) endDateInput.value = '';
+        }
+    }
+    function syncStartDateWithTime() {
+        if (!timeInput || !startDateInput) {
+            return;
+        }
+        const [datePart] = timeInput.value.split('T');
+        if (datePart && !startDateInput.value) {
+            startDateInput.value = datePart;
+        }
+    }
     typeSelect.addEventListener('change', populate);
+    if (repeatSelect) {
+        repeatSelect.addEventListener('change', updateDateRangeVisibility);
+    }
+    if (timeInput) {
+        timeInput.addEventListener('change', () => {
+            syncStartDateWithTime();
+            if (endDateInput && endDateInput.value && startDateInput && startDateInput.value && endDateInput.value < startDateInput.value) {
+                endDateInput.value = startDateInput.value;
+            }
+        });
+    }
     populate();
+    updateDateRangeVisibility();
     </script>
 </section>
 
