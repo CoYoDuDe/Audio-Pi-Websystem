@@ -7,7 +7,8 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 import sqlite3
 import tempfile
-from datetime import datetime, timedelta
+import calendar
+from datetime import date, datetime, timedelta
 from flask import (
     Flask,
     render_template,
@@ -172,6 +173,7 @@ cursor.execute(
         delay INTEGER,
         start_date TEXT,
         end_date TEXT,
+        day_of_month INTEGER,
         executed INTEGER DEFAULT 0
     )"""
 )
@@ -179,9 +181,13 @@ try:
     cursor.execute("ALTER TABLE schedules ADD COLUMN executed INTEGER DEFAULT 0")
 except sqlite3.OperationalError:
     pass
-for column in ("start_date", "end_date"):
+for column, column_type in (
+    ("start_date", "TEXT"),
+    ("end_date", "TEXT"),
+    ("day_of_month", "INTEGER"),
+):
     try:
-        cursor.execute(f"ALTER TABLE schedules ADD COLUMN {column} TEXT")
+        cursor.execute(f"ALTER TABLE schedules ADD COLUMN {column} {column_type}")
     except sqlite3.OperationalError:
         pass
 cursor.execute(
@@ -277,6 +283,25 @@ def parse_schedule_date(date_str):
     except ValueError:
         logging.warning(f"Ungültiges Datumsformat für Schedule: {date_str}")
         return None
+
+
+def calculate_first_monthly_occurrence(start_date: date, day_of_month: int) -> date:
+    """Bestimmt das erste zulässige Ausführungsdatum für einen monatlichen Zeitplan."""
+    if not 1 <= day_of_month <= 31:
+        raise ValueError("Ungültiger Tag im Monat")
+    year = start_date.year
+    month = start_date.month
+    while True:
+        days_in_month = calendar.monthrange(year, month)[1]
+        if day_of_month <= days_in_month:
+            candidate = date(year, month, day_of_month)
+            if candidate >= start_date:
+                return candidate
+        month += 1
+        if month > 12:
+            month = 1
+            year += 1
+        start_date = date(year, month, 1)
 
 
 def is_within_schedule_range(start_date_str, end_date_str, reference=None):
@@ -515,20 +540,45 @@ def load_schedules():
                 )
             elif repeat == "monthly":
                 h, m, s = [int(part) for part in time_str.split(":")]
-                start_dt = (
-                    datetime.combine(start_date, datetime.min.time()).replace(
-                        hour=h, minute=m, second=s
+                raw_day_of_month = sch["day_of_month"]
+                if raw_day_of_month is None and start_date:
+                    raw_day_of_month = start_date.day
+                try:
+                    day_of_month = int(raw_day_of_month)
+                except (TypeError, ValueError):
+                    logging.warning(
+                        "Zeitplan %s besitzt keinen gültigen Tag im Monat und wird übersprungen",
+                        sch_id,
                     )
-                    if start_date
-                    else None
-                )
+                    continue
+                if not 1 <= day_of_month <= 31:
+                    logging.warning(
+                        "Zeitplan %s hat einen ungültigen Tag im Monat (%s)",
+                        sch_id,
+                        day_of_month,
+                    )
+                    continue
+                start_dt = None
+                if start_date:
+                    try:
+                        first_occurrence = calculate_first_monthly_occurrence(
+                            start_date, day_of_month
+                        )
+                    except ValueError as exc:
+                        logging.warning(
+                            "Zeitplan %s kann nicht geladen werden: %s",
+                            sch_id,
+                            exc,
+                        )
+                        continue
+                    start_dt = datetime.combine(
+                        first_occurrence, datetime.min.time()
+                    ).replace(hour=h, minute=m, second=s)
                 end_dt = (
-                    datetime.combine(end_date, datetime.max.time())
-                    if end_date
-                    else None
+                    datetime.combine(end_date, datetime.max.time()) if end_date else None
                 )
                 trigger = CronTrigger(
-                    day=1,
+                    day=day_of_month,
                     hour=h,
                     minute=m,
                     second=s,
@@ -708,7 +758,8 @@ def index():
             s.item_type,
             s.executed,
             s.start_date,
-            s.end_date
+            s.end_date,
+            s.day_of_month
         FROM schedules s
         LEFT JOIN audio_files f ON s.item_id = f.id AND s.item_type='file'
         LEFT JOIN playlists p ON s.item_id = p.id AND s.item_type='playlist'
@@ -725,6 +776,7 @@ def index():
             "executed": row["executed"],
             "start_date": row["start_date"],
             "end_date": row["end_date"],
+            "day_of_month": row["day_of_month"],
         }
         for row in cursor.fetchall()
     ]
@@ -922,9 +974,15 @@ def add_schedule():
     delay = int(request.form["delay"])
     start_date_input = request.form.get("start_date", "").strip()
     end_date_input = request.form.get("end_date", "").strip()
+    day_of_month_value = None
 
     try:
-        dt = parse_once_datetime(time_str) if repeat == "once" else datetime.fromisoformat(time_str.replace("Z", "+00:00"))
+        if repeat == "once":
+            dt = parse_once_datetime(time_str)
+        else:
+            dt = datetime.fromisoformat(time_str.replace("Z", "+00:00"))
+            if repeat == "monthly":
+                day_of_month_value = dt.day
         if repeat == "once":
             time_only = dt.strftime("%Y-%m-%d %H:%M:%S")
         else:
@@ -939,6 +997,8 @@ def add_schedule():
     try:
         start_date_value = None
         end_date_value = None
+        start_date_dt = None
+        end_date_dt = None
         if repeat != "once":
             if start_date_input:
                 start_date_dt = datetime.strptime(start_date_input, "%Y-%m-%d").date()
@@ -951,6 +1011,21 @@ def add_schedule():
                     flash("Enddatum darf nicht vor dem Startdatum liegen")
                     return redirect(url_for("index"))
                 end_date_value = end_date_dt.isoformat()
+            if repeat == "monthly":
+                if day_of_month_value is None:
+                    day_of_month_value = dt.day
+                try:
+                    first_occurrence = calculate_first_monthly_occurrence(
+                        start_date_dt, day_of_month_value
+                    )
+                except ValueError:
+                    flash("Ungültiger Tag für monatlichen Zeitplan")
+                    return redirect(url_for("index"))
+                if end_date_dt and first_occurrence > end_date_dt:
+                    flash(
+                        "Der gewählte Zeitraum enthält keinen gültigen Ausführungstag für den Zeitplan"
+                    )
+                    return redirect(url_for("index"))
         else:
             start_date_value = None
             end_date_value = None
@@ -968,10 +1043,19 @@ def add_schedule():
 
     cursor.execute(
         """
-        INSERT INTO schedules (item_id, item_type, time, repeat, delay, start_date, end_date, executed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+        INSERT INTO schedules (item_id, item_type, time, repeat, delay, start_date, end_date, day_of_month, executed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
         """,
-        (item_id, item_type, time_only, repeat, delay, start_date_value, end_date_value),
+        (
+            item_id,
+            item_type,
+            time_only,
+            repeat,
+            delay,
+            start_date_value,
+            end_date_value,
+            day_of_month_value,
+        ),
     )
     conn.commit()
     load_schedules()
