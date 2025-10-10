@@ -565,13 +565,16 @@ def schedule_job(schedule_id):
 def skip_past_once_schedules():
     """Markiert abgelaufene Einmal-Zeitpläne als ausgeführt (Grace-Zeit)."""
     now = datetime.now()
+    # Negatives Toleranzfenster, um nur eindeutig vergangene Startzeiten zu überspringen.
+    tolerance = timedelta(seconds=1)
+    threshold = now - tolerance
     with get_db_connection() as (conn, cursor):
         cursor.execute("SELECT id, time FROM schedules WHERE repeat='once' AND executed=0")
         schedules = cursor.fetchall()
         for sch_id, sch_time in schedules:
             try:
                 run_time = parse_once_datetime(sch_time)
-                if run_time < now + timedelta(seconds=1):
+                if run_time <= threshold:
                     cursor.execute("UPDATE schedules SET executed=1 WHERE id=?", (sch_id,))
                     logging.info(f"Skippe überfälligen 'once' Schedule {sch_id}")
             except ValueError:
