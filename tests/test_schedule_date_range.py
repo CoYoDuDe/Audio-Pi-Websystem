@@ -2,6 +2,8 @@ import os
 import importlib
 from datetime import datetime, timedelta, timezone
 
+from apscheduler.schedulers.background import BackgroundScheduler
+
 import pytest
 
 os.environ.setdefault('FLASK_SECRET_KEY', 'test')
@@ -57,6 +59,27 @@ def _insert_monthly_schedule(day_of_month, start_date, end_date=None):
             start_date.isoformat() if start_date else None,
             end_date.isoformat() if end_date else None,
             day_of_month,
+        ),
+    )
+    app.conn.commit()
+    return app.cursor.lastrowid
+
+
+def _insert_once_schedule(run_time):
+    app.cursor.execute(
+        """
+        INSERT INTO schedules (item_id, item_type, time, repeat, delay, start_date, end_date, day_of_month, executed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+        """,
+        (
+            42,
+            'file',
+            run_time.isoformat(timespec='seconds'),
+            'once',
+            0,
+            None,
+            None,
+            None,
         ),
     )
     app.conn.commit()
@@ -169,3 +192,23 @@ def test_monthly_schedule_trigger_respects_day():
         None, datetime(2024, 2, 1, 9, 0, 0, tzinfo=timezone.utc)
     )
     assert next_run.month == 3 and next_run.day == 31
+
+
+def test_job_next_run_time_uses_local_timezone():
+    future = datetime.now() + timedelta(minutes=5)
+    future = future.replace(microsecond=0)
+    schedule_id = _insert_once_schedule(future)
+
+    app.load_schedules()
+    job_id = str(schedule_id)
+    job = app.scheduler.get_job(job_id)
+
+    assert job is not None
+
+    app.scheduler.start(paused=True)
+    try:
+        job = app.scheduler.get_job(job_id)
+        assert job.next_run_time.tzinfo == app.LOCAL_TZ
+    finally:
+        app.scheduler.shutdown(wait=False)
+        app.scheduler = BackgroundScheduler(timezone=app.LOCAL_TZ)
