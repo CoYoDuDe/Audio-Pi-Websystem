@@ -114,13 +114,14 @@ def dec_to_bcd(val):
 def read_rtc():
     if bus is None:
         raise RTCUnavailableError("RTC-Bus nicht initialisiert")
-    data = bus.read_i2c_block_data(RTC_ADDRESS, 0x04, 7)
+    data = bus.read_i2c_block_data(RTC_ADDRESS, 0x02, 7)
     second = bcd_to_dec(data[0] & 0x7F)
     minute = bcd_to_dec(data[1] & 0x7F)
     hour = bcd_to_dec(data[2] & 0x3F)
     date = bcd_to_dec(data[3] & 0x3F)
+    _weekday = bcd_to_dec(data[4] & 0x07)
     month = bcd_to_dec(data[5] & 0x1F)
-    year = bcd_to_dec(data[6])
+    year = bcd_to_dec(data[6] & 0xFF)
     if month < 1 or month > 12:
         raise ValueError("Ungültiger Monat von RTC – RTC evtl. initialisieren!")
     return datetime(2000 + year, month, date, hour, minute, second)
@@ -129,15 +130,15 @@ def read_rtc():
 def set_rtc(dt):
     if bus is None:
         raise RTCUnavailableError("RTC-Bus nicht initialisiert")
-    second = dec_to_bcd(dt.second)
-    minute = dec_to_bcd(dt.minute)
-    hour = dec_to_bcd(dt.hour)
-    date = dec_to_bcd(dt.day)
-    weekday = dec_to_bcd(dt.weekday())
-    month = dec_to_bcd(dt.month)
-    year = dec_to_bcd(dt.year - 2000)
+    second = dec_to_bcd(dt.second) & 0x7F
+    minute = dec_to_bcd(dt.minute) & 0x7F
+    hour = dec_to_bcd(dt.hour) & 0x3F
+    date = dec_to_bcd(dt.day) & 0x3F
+    weekday = dec_to_bcd(dt.weekday()) & 0x07
+    month = dec_to_bcd(dt.month) & 0x1F
+    year = dec_to_bcd(dt.year - 2000) & 0xFF
     bus.write_i2c_block_data(
-        RTC_ADDRESS, 0x04, [second, minute, hour, date, weekday, month, year]
+        RTC_ADDRESS, 0x02, [second, minute, hour, date, weekday, month, year]
     )
     logging.info(f'RTC gesetzt auf {dt.strftime("%Y-%m-%d %H:%M:%S")}')
 
