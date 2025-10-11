@@ -128,3 +128,35 @@ def test_wlan_connect_open_network(client, monkeypatch):
     assert auth_alg_call[7] == "OPEN"
 
     assert all(call[6] != "psk" for call in set_network_calls)
+
+
+def test_wlan_connect_all_space_passphrase(client, monkeypatch):
+    flask_client, app_module = client
+    calls = []
+
+    def fake_check_output(args, **kwargs):
+        assert args == ["sudo", "wpa_cli", "-i", "wlan0", "add_network"]
+        return b"4\n"
+
+    def fake_check_call(args, **kwargs):
+        calls.append(args)
+        return 0
+
+    _login_admin(flask_client)
+    monkeypatch.setattr(app_module.subprocess, "check_output", fake_check_output)
+    monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
+
+    response = flask_client.post(
+        "/wlan_connect",
+        data={"ssid": "SpacesOnly", "password": " " * 8},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+
+    set_network_calls = [call for call in calls if len(call) > 6 and call[4] == "set_network"]
+
+    password_call = next(call for call in set_network_calls if call[6] == "psk")
+    assert password_call[7] == '"        "'
+
+    assert all(call[6] != "key_mgmt" or call[7] != "NONE" for call in set_network_calls)
