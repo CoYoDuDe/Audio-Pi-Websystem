@@ -76,6 +76,14 @@ except (TypeError, ValueError):
         raw_max_schedule_delay,
         DEFAULT_MAX_SCHEDULE_DELAY_SECONDS,
     )
+else:
+    if MAX_SCHEDULE_DELAY_SECONDS < 0:
+        logging.warning(
+            "MAX_SCHEDULE_DELAY_SECONDS-Wert '%s' ist negativ. Fallback auf %s Sekunden.",
+            raw_max_schedule_delay,
+            DEFAULT_MAX_SCHEDULE_DELAY_SECONDS,
+        )
+        MAX_SCHEDULE_DELAY_SECONDS = DEFAULT_MAX_SCHEDULE_DELAY_SECONDS
 DAC_SINK = "alsa_output.platform-soc_107c000000_sound.stereo-fallback"
 
 # Logging
