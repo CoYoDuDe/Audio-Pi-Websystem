@@ -1288,9 +1288,12 @@ def _format_ssid_for_wpa_cli(ssid: str) -> str:
 @login_required
 def wlan_connect():
     ssid = request.form["ssid"]
-    password = request.form["password"]
+    password = request.form.get("password", "")
     formatted_ssid = _format_ssid_for_wpa_cli(ssid)
-    is_open_network = password.strip() == ""
+    is_blank_password = password.strip() == ""
+    is_open_network = password == "" or (
+        is_blank_password and len(password) < 8
+    )
     try:
         net_id = (
             subprocess.check_output(["sudo", "wpa_cli", "-i", "wlan0", "add_network"])
