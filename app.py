@@ -42,7 +42,16 @@ if not secret_key:
     logging.error("FLASK_SECRET_KEY nicht gesetzt. Bitte Umgebungsvariable setzen.")
     sys.exit(1)
 app.secret_key = secret_key
-TESTING = os.getenv("TESTING")
+TESTING_RAW = os.getenv("TESTING")
+
+
+def _env_to_bool(value):
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+TESTING = _env_to_bool(TESTING_RAW)
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
