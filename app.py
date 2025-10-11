@@ -1290,7 +1290,7 @@ def wlan_connect():
     ssid = request.form["ssid"]
     password = request.form["password"]
     formatted_ssid = _format_ssid_for_wpa_cli(ssid)
-    quoted_password = _quote_wpa_cli(password)
+    is_open_network = password.strip() == ""
     try:
         net_id = (
             subprocess.check_output(["sudo", "wpa_cli", "-i", "wlan0", "add_network"])
@@ -1309,18 +1309,45 @@ def wlan_connect():
                 formatted_ssid,
             ]
         )
-        subprocess.check_call(
-            [
-                "sudo",
-                "wpa_cli",
-                "-i",
-                "wlan0",
-                "set_network",
-                net_id,
-                "psk",
-                quoted_password,
-            ]
-        )
+        if is_open_network:
+            subprocess.check_call(
+                [
+                    "sudo",
+                    "wpa_cli",
+                    "-i",
+                    "wlan0",
+                    "set_network",
+                    net_id,
+                    "key_mgmt",
+                    "NONE",
+                ]
+            )
+            subprocess.check_call(
+                [
+                    "sudo",
+                    "wpa_cli",
+                    "-i",
+                    "wlan0",
+                    "set_network",
+                    net_id,
+                    "auth_alg",
+                    "OPEN",
+                ]
+            )
+        else:
+            quoted_password = _quote_wpa_cli(password)
+            subprocess.check_call(
+                [
+                    "sudo",
+                    "wpa_cli",
+                    "-i",
+                    "wlan0",
+                    "set_network",
+                    net_id,
+                    "psk",
+                    quoted_password,
+                ]
+            )
         subprocess.check_call(
             ["sudo", "wpa_cli", "-i", "wlan0", "enable_network", net_id]
         )
