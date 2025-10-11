@@ -1269,14 +1269,28 @@ def wlan_scan():
     return render_template("scan.html", networks=result)
 
 
+def _quote_wpa_cli(value: str) -> str:
+    """Gibt einen sicher in doppelte Anführungszeichen gesetzten String zurück."""
+
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _format_ssid_for_wpa_cli(ssid: str) -> str:
+    """Bereitet die SSID so auf, dass `wpa_cli` Unicode zuverlässig übernimmt."""
+
+    if all(32 <= ord(char) <= 126 for char in ssid):
+        return _quote_wpa_cli(ssid)
+    return "0x" + ssid.encode("utf-8").hex()
+
+
 @app.route("/wlan_connect", methods=["POST"])
 @login_required
 def wlan_connect():
     ssid = request.form["ssid"]
     password = request.form["password"]
-    # Sonderzeichen escapen, damit `wpa_cli` sie korrekt verarbeitet
-    ssid_escaped = ssid.encode("unicode_escape").decode()
-    password_escaped = password.encode("unicode_escape").decode()
+    formatted_ssid = _format_ssid_for_wpa_cli(ssid)
+    quoted_password = _quote_wpa_cli(password)
     try:
         net_id = (
             subprocess.check_output(["sudo", "wpa_cli", "-i", "wlan0", "add_network"])
@@ -1292,7 +1306,7 @@ def wlan_connect():
                 "set_network",
                 net_id,
                 "ssid",
-                f'"{ssid_escaped}"',
+                formatted_ssid,
             ]
         )
         subprocess.check_call(
@@ -1304,7 +1318,7 @@ def wlan_connect():
                 "set_network",
                 net_id,
                 "psk",
-                f'"{password_escaped}"',
+                quoted_password,
             ]
         )
         subprocess.check_call(
