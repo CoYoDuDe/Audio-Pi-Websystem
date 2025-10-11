@@ -63,7 +63,19 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 DB_FILE = os.getenv("DB_FILE", "audio.db")
 GPIO_PIN_ENDSTUFE = 17
 VERZOEGERUNG_SEC = 5
-MAX_SCHEDULE_DELAY_SECONDS = int(os.getenv("MAX_SCHEDULE_DELAY_SECONDS", "60"))
+DEFAULT_MAX_SCHEDULE_DELAY_SECONDS = 60
+raw_max_schedule_delay = os.getenv(
+    "MAX_SCHEDULE_DELAY_SECONDS", str(DEFAULT_MAX_SCHEDULE_DELAY_SECONDS)
+)
+try:
+    MAX_SCHEDULE_DELAY_SECONDS = int(raw_max_schedule_delay)
+except (TypeError, ValueError):
+    MAX_SCHEDULE_DELAY_SECONDS = DEFAULT_MAX_SCHEDULE_DELAY_SECONDS
+    logging.warning(
+        "Ungültiger MAX_SCHEDULE_DELAY_SECONDS-Wert '%s'. Fallback auf %s Sekunden.",
+        raw_max_schedule_delay,
+        DEFAULT_MAX_SCHEDULE_DELAY_SECONDS,
+    )
 DAC_SINK = "alsa_output.platform-soc_107c000000_sound.stereo-fallback"
 
 # Logging
