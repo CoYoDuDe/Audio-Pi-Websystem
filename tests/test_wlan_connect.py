@@ -160,3 +160,32 @@ def test_wlan_connect_all_space_passphrase(client, monkeypatch):
     assert password_call[7] == '"        "'
 
     assert all(call[6] != "key_mgmt" or call[7] != "NONE" for call in set_network_calls)
+
+
+def test_wlan_connect_hex_psk_unquoted(client, monkeypatch):
+    flask_client, app_module = client
+    calls = []
+    hex_psk = "0123456789abcdef" * 4
+
+    def fake_check_output(args, **kwargs):
+        assert args == ["sudo", "wpa_cli", "-i", "wlan0", "add_network"]
+        return b"5\n"
+
+    def fake_check_call(args, **kwargs):
+        calls.append(args)
+        return 0
+
+    _login_admin(flask_client)
+    monkeypatch.setattr(app_module.subprocess, "check_output", fake_check_output)
+    monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
+
+    response = flask_client.post(
+        "/wlan_connect",
+        data={"ssid": "HexNetwork", "password": hex_psk},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+
+    password_call = next(call for call in calls if len(call) > 6 and call[6] == "psk")
+    assert password_call[7] == hex_psk

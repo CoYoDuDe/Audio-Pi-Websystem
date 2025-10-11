@@ -1313,6 +1313,14 @@ def _format_ssid_for_wpa_cli(ssid: str) -> str:
     return "0x" + ssid.encode("utf-8").hex()
 
 
+def _is_hex_psk(candidate: str) -> bool:
+    """Erkennt 64-stellige hexadezimale WPA2-PSKs."""
+
+    return len(candidate) == 64 and all(
+        char in "0123456789abcdefABCDEF" for char in candidate
+    )
+
+
 @app.route("/wlan_connect", methods=["POST"])
 @login_required
 def wlan_connect():
@@ -1367,7 +1375,10 @@ def wlan_connect():
                 ]
             )
         else:
-            quoted_password = _quote_wpa_cli(password)
+            if _is_hex_psk(password):
+                psk_value = password
+            else:
+                psk_value = _quote_wpa_cli(password)
             subprocess.check_call(
                 [
                     "sudo",
@@ -1377,7 +1388,7 @@ def wlan_connect():
                     "set_network",
                     net_id,
                     "psk",
-                    quoted_password,
+                    psk_value,
                 ]
             )
         subprocess.check_call(
