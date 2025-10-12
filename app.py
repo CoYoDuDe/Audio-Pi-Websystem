@@ -266,6 +266,14 @@ def get_db_connection():
         conn.close()
 
 
+AUTO_REBOOT_DEFAULTS = {
+    "auto_reboot_enabled": "0",
+    "auto_reboot_mode": "daily",
+    "auto_reboot_time": "03:00",
+    "auto_reboot_weekday": "monday",
+}
+
+
 def initialize_database():
     with get_db_connection() as (conn, cursor):
         cursor.execute(
@@ -344,6 +352,11 @@ def initialize_database():
         cursor.execute(
             """CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)"""
         )
+        for key, value in AUTO_REBOOT_DEFAULTS.items():
+            cursor.execute(
+                "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+                (key, value),
+            )
         if not cursor.execute("SELECT * FROM users").fetchone():
             cursor.execute(
                 "INSERT INTO users (username, password) VALUES (?, ?)",
@@ -416,6 +429,17 @@ else:
 # Scheduler
 LOCAL_TZ = datetime.now().astimezone().tzinfo
 scheduler = BackgroundScheduler(timezone=LOCAL_TZ)
+AUTO_REBOOT_JOB_ID = "auto_reboot_job"
+AUTO_REBOOT_MISFIRE_GRACE_SECONDS = 300
+AUTO_REBOOT_WEEKDAYS = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+]
 
 
 def _ensure_local_timezone(dt):
@@ -429,14 +453,20 @@ def _ensure_local_timezone(dt):
 def get_setting(key, default=None):
     with get_db_connection() as (conn, cursor):
         row = cursor.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-        return row[0] if row else default
+    if row:
+        return row[0]
+    if key in AUTO_REBOOT_DEFAULTS:
+        default_value = AUTO_REBOOT_DEFAULTS[key]
+        set_setting(key, default_value)
+        return default_value
+    return default
 
 
 def set_setting(key, value):
     with get_db_connection() as (conn, cursor):
         cursor.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-            (key, value),
+            (key, "" if value is None else str(value)),
         )
         conn.commit()
 
@@ -842,6 +872,102 @@ def gather_status():
     }
 
 
+def _parse_auto_reboot_time(time_str):
+    if not time_str:
+        return None
+    for fmt in ("%H:%M", "%H:%M:%S"):
+        try:
+            dt = datetime.strptime(time_str, fmt)
+            return dt.hour, dt.minute
+        except ValueError:
+            continue
+    return None
+
+
+def _normalize_time_for_input(time_str):
+    parsed = _parse_auto_reboot_time(time_str)
+    if parsed is None:
+        return ""
+    hour, minute = parsed
+    return f"{hour:02d}:{minute:02d}"
+
+
+def run_auto_reboot_job():
+    try:
+        logging.info("Automatischer Neustart wird initiiert.")
+        result = subprocess.call(["sudo", "reboot"])
+        if result != 0:
+            logging.error(
+                "Automatischer Neustart fehlgeschlagen – Rückgabewert %s", result
+            )
+    except Exception as exc:  # pragma: no cover - reine Vorsichtsmaßnahme
+        logging.error("Fehler beim automatischen Neustart: %s", exc, exc_info=True)
+
+
+def update_auto_reboot_job():
+    enabled = get_setting("auto_reboot_enabled") == "1"
+    try:
+        job = scheduler.get_job(AUTO_REBOOT_JOB_ID)
+    except Exception:  # pragma: no cover - Defensive, Scheduler kann JobLookupError werfen
+        job = None
+    if not enabled:
+        if job is not None:
+            scheduler.remove_job(AUTO_REBOOT_JOB_ID)
+            logging.info("Auto-Reboot-Job entfernt (deaktiviert).")
+        return False
+    time_value = get_setting(
+        "auto_reboot_time", AUTO_REBOOT_DEFAULTS["auto_reboot_time"]
+    )
+    parsed_time = _parse_auto_reboot_time(time_value)
+    if parsed_time is None:
+        logging.error(
+            "Auto-Reboot: Ungültige Zeit '%s' – Job wird nicht geplant.", time_value
+        )
+        if job is not None:
+            scheduler.remove_job(AUTO_REBOOT_JOB_ID)
+        return False
+    hour, minute = parsed_time
+    mode = (get_setting("auto_reboot_mode") or "").strip().lower()
+    if not mode:
+        mode = AUTO_REBOOT_DEFAULTS["auto_reboot_mode"]
+    cron_kwargs = {
+        "hour": hour,
+        "minute": minute,
+        "second": 0,
+        "timezone": LOCAL_TZ,
+    }
+    if mode == "weekly":
+        weekday = (get_setting("auto_reboot_weekday") or "").strip().lower()
+        if weekday not in AUTO_REBOOT_WEEKDAYS:
+            weekday = AUTO_REBOOT_DEFAULTS["auto_reboot_weekday"]
+        cron_kwargs["day_of_week"] = weekday
+    elif mode != "daily":
+        logging.warning(
+            "Auto-Reboot: Unbekannter Modus '%s' – Job wird deaktiviert.", mode
+        )
+        if job is not None:
+            scheduler.remove_job(AUTO_REBOOT_JOB_ID)
+        return False
+    trigger = CronTrigger(**cron_kwargs)
+    scheduler.add_job(
+        run_auto_reboot_job,
+        trigger,
+        id=AUTO_REBOOT_JOB_ID,
+        replace_existing=True,
+        misfire_grace_time=AUTO_REBOOT_MISFIRE_GRACE_SECONDS,
+    )
+    logging.info(
+        "Auto-Reboot-Job geplant: Modus=%s, Zeit=%02d:%02d%s",
+        mode,
+        hour,
+        minute,
+        f", Wochentag={cron_kwargs.get('day_of_week')}"
+        if mode == "weekly"
+        else "",
+    )
+    return True
+
+
 # GPIO für Endstufe
 def activate_amplifier():
     global amplifier_claimed
@@ -1175,6 +1301,7 @@ def load_schedules():
 if not TESTING:
     skip_past_once_schedules()
     load_schedules()
+    update_auto_reboot_job()
     scheduler.start()
 
 
@@ -1369,12 +1496,26 @@ def index():
             "rtc_missing_flag": RTC_MISSING_FLAG,
         }
     )
+    auto_reboot_settings = {
+        "enabled": get_setting("auto_reboot_enabled") == "1",
+        "mode": get_setting(
+            "auto_reboot_mode", AUTO_REBOOT_DEFAULTS["auto_reboot_mode"]
+        ),
+        "time": _normalize_time_for_input(
+            get_setting("auto_reboot_time", AUTO_REBOOT_DEFAULTS["auto_reboot_time"])
+        ),
+        "weekday": get_setting(
+            "auto_reboot_weekday", AUTO_REBOOT_DEFAULTS["auto_reboot_weekday"]
+        ),
+    }
     return render_template(
         "index.html",
         files=files,
         playlists=playlists,
         schedules=schedules,
         status=status,
+        auto_reboot_settings=auto_reboot_settings,
+        auto_reboot_weekdays=AUTO_REBOOT_WEEKDAYS,
     )
 
 
@@ -1563,6 +1704,59 @@ def set_relay_invert():
     else:
         _set_amp_output(AMP_OFF_LEVEL, keep_claimed=False)
     flash("Relais-Logik invertiert" if RELAY_INVERT else "Relais-Logik normal")
+    return redirect(url_for("index"))
+
+
+@app.route("/settings/auto_reboot", methods=["POST"])
+@login_required
+def save_auto_reboot_settings():
+    enabled = request.form.get("auto_reboot_enabled") == "on"
+    mode = (request.form.get("auto_reboot_mode") or "daily").strip().lower()
+    if mode not in {"daily", "weekly"}:
+        flash("Ungültiger Modus für den automatischen Neustart.")
+        return redirect(url_for("index"))
+    time_raw = (request.form.get("auto_reboot_time") or "").strip()
+    existing_time_value = get_setting(
+        "auto_reboot_time", AUTO_REBOOT_DEFAULTS["auto_reboot_time"]
+    )
+    time_to_store = existing_time_value
+    if time_raw:
+        parsed_time = _parse_auto_reboot_time(time_raw)
+        if parsed_time is None:
+            flash("Ungültige Uhrzeit für den automatischen Neustart.")
+            return redirect(url_for("index"))
+        hour, minute = parsed_time
+        time_to_store = f"{hour:02d}:{minute:02d}"
+    else:
+        parsed_existing = _parse_auto_reboot_time(time_to_store)
+        if parsed_existing is None:
+            if enabled:
+                flash("Bitte eine gültige Uhrzeit für den automatischen Neustart wählen.")
+                return redirect(url_for("index"))
+            time_to_store = AUTO_REBOOT_DEFAULTS["auto_reboot_time"]
+    weekday_raw = (request.form.get("auto_reboot_weekday") or "").strip().lower()
+    if mode == "weekly":
+        if weekday_raw not in AUTO_REBOOT_WEEKDAYS:
+            flash("Bitte einen gültigen Wochentag auswählen.")
+            return redirect(url_for("index"))
+        weekday_to_store = weekday_raw
+    else:
+        existing_weekday = get_setting(
+            "auto_reboot_weekday", AUTO_REBOOT_DEFAULTS["auto_reboot_weekday"]
+        )
+        weekday_to_store = (
+            existing_weekday
+            if existing_weekday in AUTO_REBOOT_WEEKDAYS
+            else AUTO_REBOOT_DEFAULTS["auto_reboot_weekday"]
+        )
+    set_setting("auto_reboot_enabled", "1" if enabled else "0")
+    set_setting("auto_reboot_mode", mode)
+    set_setting("auto_reboot_time", time_to_store)
+    set_setting("auto_reboot_weekday", weekday_to_store)
+    update_auto_reboot_job()
+    flash(
+        "Automatischer Neustart aktiviert." if enabled else "Automatischer Neustart deaktiviert."
+    )
     return redirect(url_for("index"))
 
 

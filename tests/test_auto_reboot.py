@@ -1,0 +1,146 @@
+import os
+import pytest
+from unittest.mock import MagicMock
+
+os.environ.setdefault("FLASK_SECRET_KEY", "test")
+os.environ.setdefault("TESTING", "1")
+
+import app  # noqa: E402
+
+
+@pytest.fixture
+def app_module(tmp_path, monkeypatch):
+    db_path = tmp_path / "auto-reboot.db"
+    if db_path.exists():
+        db_path.unlink()
+    monkeypatch.setattr(app, "DB_FILE", str(db_path))
+    app.initialize_database()
+    app.scheduler.remove_all_jobs()
+    monkeypatch.setattr(app.pygame.mixer, "music", MagicMock(get_busy=lambda: False))
+    yield app
+    app.scheduler.remove_all_jobs()
+
+
+def test_auto_reboot_defaults_inserted(app_module):
+    assert app_module.get_setting("auto_reboot_enabled") == "0"
+    assert app_module.get_setting("auto_reboot_mode") == "daily"
+    assert app_module.get_setting("auto_reboot_time") == "03:00"
+    assert app_module.get_setting("auto_reboot_weekday") == "monday"
+
+
+def test_update_auto_reboot_job_daily_registers_cron(app_module, monkeypatch):
+    scheduler_mock = MagicMock()
+    monkeypatch.setattr(app_module, "scheduler", scheduler_mock)
+
+    captured_kwargs = {}
+
+    class DummyCron:
+        def __init__(self, **kwargs):
+            captured_kwargs.update(kwargs)
+
+    monkeypatch.setattr(app_module, "CronTrigger", lambda **kwargs: DummyCron(**kwargs))
+
+    app_module.set_setting("auto_reboot_enabled", "1")
+    app_module.set_setting("auto_reboot_mode", "daily")
+    app_module.set_setting("auto_reboot_time", "04:15")
+
+    assert app_module.update_auto_reboot_job() is True
+    scheduler_mock.add_job.assert_called_once()
+    trigger = scheduler_mock.add_job.call_args[0][1]
+    assert isinstance(trigger, DummyCron)
+    assert captured_kwargs["hour"] == 4
+    assert captured_kwargs["minute"] == 15
+    assert captured_kwargs.get("day_of_week") is None
+
+
+def test_update_auto_reboot_job_weekly_uses_weekday(app_module, monkeypatch):
+    scheduler_mock = MagicMock()
+    scheduler_mock.get_job.return_value = None
+    monkeypatch.setattr(app_module, "scheduler", scheduler_mock)
+
+    captured_kwargs = {}
+
+    class DummyCron:
+        def __init__(self, **kwargs):
+            captured_kwargs.update(kwargs)
+
+    monkeypatch.setattr(app_module, "CronTrigger", lambda **kwargs: DummyCron(**kwargs))
+
+    app_module.set_setting("auto_reboot_enabled", "1")
+    app_module.set_setting("auto_reboot_mode", "weekly")
+    app_module.set_setting("auto_reboot_time", "06:45")
+    app_module.set_setting("auto_reboot_weekday", "thursday")
+
+    app_module.update_auto_reboot_job()
+    scheduler_mock.add_job.assert_called_once()
+    assert captured_kwargs["day_of_week"] == "thursday"
+
+
+def test_update_auto_reboot_job_disabled_removes_existing(app_module, monkeypatch):
+    scheduler_mock = MagicMock()
+    scheduler_mock.get_job.return_value = object()
+    monkeypatch.setattr(app_module, "scheduler", scheduler_mock)
+
+    app_module.set_setting("auto_reboot_enabled", "0")
+
+    assert app_module.update_auto_reboot_job() is False
+    scheduler_mock.remove_job.assert_called_once_with(app_module.AUTO_REBOOT_JOB_ID)
+    scheduler_mock.add_job.assert_not_called()
+
+
+def test_save_auto_reboot_settings_route_updates_values(app_module, monkeypatch):
+    update_mock = MagicMock()
+    monkeypatch.setattr(app_module, "update_auto_reboot_job", update_mock)
+
+    client = app_module.app.test_client()
+    with client:
+        response = client.post(
+            "/login",
+            data={"username": "admin", "password": "password"},
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+        response = client.post(
+            "/settings/auto_reboot",
+            data={
+                "auto_reboot_enabled": "on",
+                "auto_reboot_time": "05:30",
+                "auto_reboot_mode": "weekly",
+                "auto_reboot_weekday": "friday",
+            },
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+
+    assert app_module.get_setting("auto_reboot_enabled") == "1"
+    assert app_module.get_setting("auto_reboot_time") == "05:30"
+    assert app_module.get_setting("auto_reboot_mode") == "weekly"
+    assert app_module.get_setting("auto_reboot_weekday") == "friday"
+    update_mock.assert_called_once()
+
+
+def test_save_auto_reboot_settings_rejects_invalid_time(app_module, monkeypatch):
+    update_mock = MagicMock()
+    monkeypatch.setattr(app_module, "update_auto_reboot_job", update_mock)
+
+    client = app_module.app.test_client()
+    with client:
+        client.post(
+            "/login",
+            data={"username": "admin", "password": "password"},
+            follow_redirects=True,
+        )
+        response = client.post(
+            "/settings/auto_reboot",
+            data={
+                "auto_reboot_enabled": "on",
+                "auto_reboot_time": "99:99",
+                "auto_reboot_mode": "daily",
+            },
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+
+    assert "Ungültige Uhrzeit" in response.get_data(as_text=True)
+    assert app_module.get_setting("auto_reboot_enabled") == "0"
+    update_mock.assert_not_called()
