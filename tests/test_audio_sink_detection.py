@@ -51,6 +51,30 @@ def test_set_sink_missing(monkeypatch):
     assert calls == []
 
 
+def test_set_sink_keeps_flag_for_non_dac(monkeypatch):
+    calls = []
+
+    bluetooth_sink = "bluez_sink.12345"
+
+    def fake_check_output(cmd, text=None, encoding=None, errors=None):
+        assert cmd == ["pactl", "list", "short", "sinks"]
+        return f"0\t{bluetooth_sink}\tRUNNING\n"
+
+    def fake_call(cmd):
+        calls.append(cmd)
+        return 0
+
+    app.audio_status["hifiberry_detected"] = False
+    monkeypatch.setattr(app.subprocess, "check_output", fake_check_output)
+    monkeypatch.setattr(app.subprocess, "call", fake_call)
+
+    result = app.set_sink(bluetooth_sink)
+
+    assert result is True
+    assert app.audio_status["hifiberry_detected"] is False
+    assert calls == [["pactl", "set-default-sink", bluetooth_sink]]
+
+
 def test_gather_status_includes_hifiberry_flag(monkeypatch):
     class FakeDateTime:
         @staticmethod
