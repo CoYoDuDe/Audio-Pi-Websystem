@@ -90,3 +90,12 @@ def test_index_shows_address_when_rtc_available(client):
     response = client.get("/")
     assert b"0x68" in response.data
     assert b"Keine RTC erkannt" not in response.data
+
+
+def test_index_warns_when_hifiberry_missing(client):
+    client, app_module = client
+    _login(client)
+    app_module.audio_status["hifiberry_detected"] = False
+
+    response = client.get("/")
+    assert b"HiFiBerry DAC nicht erkannt" in response.data

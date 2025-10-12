@@ -5,7 +5,7 @@
 
 <section id="status">
     <h3>Status</h3>
-    {% if status['hifiberry_detected'] is sameas false %}
+    {% if status.get('hifiberry_detected') is sameas false %}
     <div class="warning" style="color:#b30000;font-weight:bold;">
         HiFiBerry DAC nicht erkannt – interner Audio-Ausgang aktiv.
     </div>
