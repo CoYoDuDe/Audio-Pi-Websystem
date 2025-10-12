@@ -9,6 +9,7 @@ Audio-Pi-Control ist ein vollständiges Steuer- und Audiomanagement-System für 
 - **Audio-Wiedergabe per Zeitplan** (Einzeldateien & Playlists)
 - **Bluetooth als Audio-Sink** (Handy → Pi → Verstärker)
 - **Bluetooth über Web-UI ein-/ausschalten**
+- **System-Neustart und Herunterfahren über Web-UI**
 - **Endstufe/GPIO automatisch schalten** (bei Musik oder BT-Audio)
 - **Relais-Logik invertierbar über Web-UI**
 - **RTC-Steuerung & Systemzeit**
@@ -23,7 +24,8 @@ Audio-Pi-Control ist ein vollständiges Steuer- und Audiomanagement-System für 
 - `parse_once_datetime` verarbeitet einmalige Zeitangaben in verschiedenen Formaten.
 
 Im Bereich "System" der Weboberfläche befinden sich Buttons zum Ein- und
-Ausschalten von Bluetooth.
+Ausschalten von Bluetooth sowie Schaltflächen zum geordneten Neustart oder
+Herunterfahren des Raspberry Pi.
 
 ---
 
@@ -111,6 +113,25 @@ eingesetzt, sind – je nach Startmethode – entsprechende Capabilities oder Ro
 Im Web-Interface gibt es einen **Update**-Button. Nach dem Login kann damit ein
 `git pull` ausgeführt werden, um lokale Änderungen aus dem Repository zu holen.
 Ein Hinweis informiert über Erfolg oder Fehler.
+
+### Systemsteuerung (Neustart & Shutdown)
+
+Zusätzlich zum Update stehen im selben Bereich zwei Buttons bereit, um einen
+Neustart (`sudo reboot`) oder ein Herunterfahren (`sudo poweroff`) über das
+Web-Interface auszulösen. Beide Aktionen sind ausschließlich nach erfolgreichem
+Login verfügbar und fragen vor dem Absenden per JavaScript nach einer
+Bestätigung.
+
+> **Hinweis:** Damit die Kommandos ohne Passwortabfrage funktionieren, muss der
+> Benutzer, unter dem Flask läuft (z. B. `pi` oder ein Service-Account), in der
+> `sudoers`-Konfiguration entsprechende Regeln besitzen, etwa:
+>
+> ```bash
+> pi ALL=NOPASSWD:/sbin/reboot,/sbin/poweroff
+> ```
+>
+> Die exakten Pfade zu `reboot` bzw. `poweroff` können je nach Distribution
+> variieren (`/usr/sbin` vs. `/sbin`).
 
 ## Tests
 

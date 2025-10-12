@@ -197,78 +197,107 @@
     </ul>
 
     <script>
-    const audioFiles = {{ files | tojson }};
-    const playlists = {{ playlists | tojson }};
-    const itemSelect = document.getElementById('item-select');
-    const typeSelect = document.getElementById('item-type');
-    const repeatSelect = document.getElementById('repeat-select');
-    const dateRangeFields = document.getElementById('date-range-fields');
-    const startDateInput = document.querySelector('input[name="start_date"]');
-    const endDateInput = document.querySelector('input[name="end_date"]');
-    const timeInput = document.querySelector('input[name="time"]');
-    const autoRebootModeSelect = document.getElementById('auto-reboot-mode');
-    const autoRebootWeekdayWrapper = document.getElementById('auto-reboot-weekday-wrapper');
-    function populate() {
-        const items = typeSelect.value === 'playlist' ? playlists : audioFiles;
-        const label = typeSelect.value === 'playlist' ? 'Playlist' : 'Datei';
-        itemSelect.innerHTML = `<option value="">-- ${label} wählen --</option>`;
-        for (const item of items) {
-            const opt = document.createElement('option');
-            opt.value = item.id;
-            opt.textContent = item.name || item.filename;
-            itemSelect.appendChild(opt);
+    document.addEventListener('DOMContentLoaded', function () {
+        const audioFiles = {{ files | tojson }};
+        const playlists = {{ playlists | tojson }};
+        const itemSelect = document.getElementById('item-select');
+        const typeSelect = document.getElementById('item-type');
+        const repeatSelect = document.getElementById('repeat-select');
+        const dateRangeFields = document.getElementById('date-range-fields');
+        const startDateInput = document.querySelector('input[name="start_date"]');
+        const endDateInput = document.querySelector('input[name="end_date"]');
+        const timeInput = document.querySelector('input[name="time"]');
+        const autoRebootModeSelect = document.getElementById('auto-reboot-mode');
+        const autoRebootWeekdayWrapper = document.getElementById('auto-reboot-weekday-wrapper');
+
+        function populate() {
+            if (!itemSelect || !typeSelect) {
+                return;
+            }
+            const items = typeSelect.value === 'playlist' ? playlists : audioFiles;
+            const label = typeSelect.value === 'playlist' ? 'Playlist' : 'Datei';
+            itemSelect.innerHTML = `<option value="">-- ${label} wählen --</option>`;
+            for (const item of items) {
+                const opt = document.createElement('option');
+                opt.value = item.id;
+                opt.textContent = item.name || item.filename;
+                itemSelect.appendChild(opt);
+            }
         }
-    }
-    function updateDateRangeVisibility() {
-        if (!repeatSelect) {
-            return;
+
+        function updateDateRangeVisibility() {
+            if (!repeatSelect || !dateRangeFields) {
+                return;
+            }
+            const show = repeatSelect.value !== 'once';
+            dateRangeFields.style.display = show ? 'block' : 'none';
+            if (show && timeInput && startDateInput && !startDateInput.value && timeInput.value) {
+                const [datePart] = timeInput.value.split('T');
+                if (datePart) {
+                    startDateInput.value = datePart;
+                }
+            }
+            if (!show) {
+                if (startDateInput) startDateInput.value = '';
+                if (endDateInput) endDateInput.value = '';
+            }
         }
-        const show = repeatSelect.value !== 'once';
-        dateRangeFields.style.display = show ? 'block' : 'none';
-        if (show && timeInput && startDateInput && !startDateInput.value && timeInput.value) {
+
+        function syncStartDateWithTime() {
+            if (!timeInput || !startDateInput) {
+                return;
+            }
             const [datePart] = timeInput.value.split('T');
-            if (datePart) {
+            if (datePart && !startDateInput.value) {
                 startDateInput.value = datePart;
             }
         }
-        if (!show) {
-            if (startDateInput) startDateInput.value = '';
-            if (endDateInput) endDateInput.value = '';
-        }
-    }
-    function syncStartDateWithTime() {
-        if (!timeInput || !startDateInput) {
-            return;
-        }
-        const [datePart] = timeInput.value.split('T');
-        if (datePart && !startDateInput.value) {
-            startDateInput.value = datePart;
-        }
-    }
-    function updateAutoRebootWeekdayVisibility() {
-        if (!autoRebootModeSelect || !autoRebootWeekdayWrapper) {
-            return;
-        }
-        autoRebootWeekdayWrapper.style.display = autoRebootModeSelect.value === 'weekly' ? 'block' : 'none';
-    }
-    typeSelect.addEventListener('change', populate);
-    if (repeatSelect) {
-        repeatSelect.addEventListener('change', updateDateRangeVisibility);
-    }
-    if (timeInput) {
-        timeInput.addEventListener('change', () => {
-            syncStartDateWithTime();
-            if (endDateInput && endDateInput.value && startDateInput && startDateInput.value && endDateInput.value < startDateInput.value) {
-                endDateInput.value = startDateInput.value;
+
+        function updateAutoRebootWeekdayVisibility() {
+            if (!autoRebootModeSelect || !autoRebootWeekdayWrapper) {
+                return;
             }
+            autoRebootWeekdayWrapper.style.display = autoRebootModeSelect.value === 'weekly' ? 'block' : 'none';
+        }
+
+        if (typeSelect) {
+            typeSelect.addEventListener('change', populate);
+        }
+        if (repeatSelect) {
+            repeatSelect.addEventListener('change', updateDateRangeVisibility);
+        }
+        if (timeInput) {
+            timeInput.addEventListener('change', () => {
+                syncStartDateWithTime();
+                if (
+                    endDateInput &&
+                    endDateInput.value &&
+                    startDateInput &&
+                    startDateInput.value &&
+                    endDateInput.value < startDateInput.value
+                ) {
+                    endDateInput.value = startDateInput.value;
+                }
+            });
+        }
+
+        populate();
+        updateDateRangeVisibility();
+        updateAutoRebootWeekdayVisibility();
+        if (autoRebootModeSelect) {
+            autoRebootModeSelect.addEventListener('change', updateAutoRebootWeekdayVisibility);
+        }
+
+        const confirmForms = document.querySelectorAll('form[data-confirm]');
+        confirmForms.forEach((form) => {
+            form.addEventListener('submit', (event) => {
+                const message = form.getAttribute('data-confirm') || 'Aktion wirklich ausführen?';
+                if (!window.confirm(message)) {
+                    event.preventDefault();
+                }
+            });
         });
-    }
-    populate();
-    updateDateRangeVisibility();
-    updateAutoRebootWeekdayVisibility();
-    if (autoRebootModeSelect) {
-        autoRebootModeSelect.addEventListener('change', updateAutoRebootWeekdayVisibility);
-    }
+    });
     </script>
 </section>
 
@@ -283,6 +312,14 @@
     <form action="{{ url_for('bluetooth_off') }}" method="POST" style="display:inline;">
         <button type="submit" class="btn">Bluetooth aus</button>
     </form>
+    <div class="power-controls" style="margin-top:1rem;">
+        <form action="{{ url_for('system_reboot') }}" method="POST" data-confirm="System jetzt neu starten?" style="display:inline;">
+            <button type="submit" class="btn">Neustart</button>
+        </form>
+        <form action="{{ url_for('system_shutdown') }}" method="POST" data-confirm="System wirklich herunterfahren?" style="display:inline;">
+            <button type="submit" class="btn">Herunterfahren</button>
+        </form>
+    </div>
 </section>
 
 {% endblock %}

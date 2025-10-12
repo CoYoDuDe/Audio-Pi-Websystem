@@ -1692,6 +1692,37 @@ def deactivate_amp():
     return redirect(url_for("index"))
 
 
+def _execute_system_command(command, success_message, error_message):
+    try:
+        subprocess.Popen(command)
+    except Exception as exc:  # pragma: no cover - Fehlerfall hardwareabhängig
+        logging.exception("Systemkommando %s fehlgeschlagen", command)
+        flash(f"{error_message}: {exc}")
+    else:
+        flash(success_message)
+    return redirect(url_for("index"))
+
+
+@app.route("/system/reboot", methods=["POST"])
+@login_required
+def system_reboot():
+    return _execute_system_command(
+        ["sudo", "reboot"],
+        "Systemneustart eingeleitet.",
+        "Neustart konnte nicht gestartet werden",
+    )
+
+
+@app.route("/system/shutdown", methods=["POST"])
+@login_required
+def system_shutdown():
+    return _execute_system_command(
+        ["sudo", "poweroff"],
+        "Herunterfahren eingeleitet.",
+        "Herunterfahren konnte nicht gestartet werden",
+    )
+
+
 @app.route("/set_relay_invert", methods=["POST"])
 @login_required
 def set_relay_invert():
