@@ -827,6 +827,8 @@ def gather_status():
         )
         or "Unbekannt"
     )
+    if audio_status.get("hifiberry_detected") is None:
+        audio_status["hifiberry_detected"] = _is_sink_available(DAC_SINK)
     return {
         "playing": pygame.mixer.music.get_busy(),
         "bluetooth_status": "Verbunden" if is_bt_connected() else "Nicht verbunden",
