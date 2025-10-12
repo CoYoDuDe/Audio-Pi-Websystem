@@ -35,6 +35,7 @@ import smbus
 import sys
 import logging
 import re
+from typing import Iterable, Optional
 
 app = Flask(__name__)
 secret_key = os.environ.get("FLASK_SECRET_KEY")
@@ -123,13 +124,75 @@ class RTCUnavailableError(Exception):
     """RTC I²C-Bus konnte nicht initialisiert werden."""
 
 
+RTC_CANDIDATE_ADDRESSES = (0x51, 0x68, 0x57, 0x6F)
+RTC_ADDRESS = RTC_CANDIDATE_ADDRESSES[0]
+RTC_AVAILABLE = False
+RTC_DETECTED_ADDRESS: Optional[int] = None
+RTC_MISSING_FLAG = False
+
+
+def scan_i2c_addresses_for_rtc(
+    i2c_bus, candidate_addresses: Iterable[int]
+) -> Optional[int]:
+    """Suche nach einer RTC auf dem angegebenen I²C-Bus."""
+
+    if i2c_bus is None:
+        return None
+
+    for address in candidate_addresses:
+        try:
+            try:
+                i2c_bus.read_byte_data(address, 0x00)
+            except AttributeError:
+                i2c_bus.read_byte(address)
+        except OSError:
+            continue
+        except Exception as exc:  # pragma: no cover - nur zur Sicherheit
+            logging.debug(
+                "RTC-Scan: Adresse 0x%02X übersprungen (%s)",
+                address,
+                exc,
+            )
+            continue
+        return address
+    return None
+
+
 try:
     bus = smbus.SMBus(1) if not TESTING else None
 except (FileNotFoundError, OSError) as e:
     logging.warning(f"RTC SMBus nicht verfügbar: {e}")
     bus = None
-
-RTC_ADDRESS = 0x51
+    RTC_MISSING_FLAG = True
+else:
+    if bus is None:
+        RTC_MISSING_FLAG = True
+    else:
+        try:
+            _detected_address = scan_i2c_addresses_for_rtc(
+                bus, RTC_CANDIDATE_ADDRESSES
+            )
+        except Exception as exc:  # pragma: no cover - hardwareabhängig
+            logging.warning(f"RTC-Scan fehlgeschlagen: {exc}")
+            RTC_MISSING_FLAG = True
+        else:
+            if _detected_address is not None:
+                RTC_ADDRESS = _detected_address
+                RTC_DETECTED_ADDRESS = _detected_address
+                RTC_AVAILABLE = True
+                RTC_MISSING_FLAG = False
+                logging.info(
+                    "RTC auf I²C-Adresse 0x%02X erkannt.", _detected_address
+                )
+            else:
+                RTC_DETECTED_ADDRESS = None
+                RTC_AVAILABLE = False
+                RTC_MISSING_FLAG = True
+                bus = None
+                logging.warning(
+                    "Keine RTC auf den bekannten I²C-Adressen gefunden (%s).",
+                    ", ".join(f"0x{addr:02X}" for addr in RTC_CANDIDATE_ADDRESSES),
+                )
 
 
 def bcd_to_dec(val):
@@ -141,7 +204,7 @@ def dec_to_bcd(val):
 
 
 def read_rtc():
-    if bus is None:
+    if bus is None or not RTC_AVAILABLE or RTC_ADDRESS is None:
         raise RTCUnavailableError("RTC-Bus nicht initialisiert")
     data = bus.read_i2c_block_data(RTC_ADDRESS, 0x04, 7)
     second = bcd_to_dec(data[0] & 0x7F)
@@ -156,7 +219,7 @@ def read_rtc():
 
 
 def set_rtc(dt):
-    if bus is None:
+    if bus is None or not RTC_AVAILABLE or RTC_ADDRESS is None:
         raise RTCUnavailableError("RTC-Bus nicht initialisiert")
     second = dec_to_bcd(dt.second)
     minute = dec_to_bcd(dt.minute)
@@ -1218,6 +1281,9 @@ def index():
         "amplifier_status": "An" if amplifier_claimed else "Aus",
         "relay_invert": RELAY_INVERT,
         "current_volume": current_volume,
+        "rtc_available": RTC_AVAILABLE,
+        "rtc_address": RTC_DETECTED_ADDRESS,
+        "rtc_missing_flag": RTC_MISSING_FLAG,
     }
     return render_template(
         "index.html",
