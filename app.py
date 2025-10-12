@@ -594,54 +594,82 @@ def _get_item_duration(cursor, item_type, item_id):
     return None
 
 
-def _schedule_interval_on_date(schedule_data, duration_seconds, target_date):
-    if duration_seconds is None:
-        return None
-    try:
-        duration = float(duration_seconds)
-    except (TypeError, ValueError):
-        return None
-    if duration <= 0:
-        return None
-    repeat = schedule_data.get("repeat")
-    try:
-        delay_seconds = int(schedule_data.get("delay", 0))
-    except (TypeError, ValueError):
-        delay_seconds = 0
-    start_date_obj = parse_schedule_date(schedule_data.get("start_date"))
-    end_date_obj = parse_schedule_date(schedule_data.get("end_date"))
-    if repeat == "once":
+def _schedule_interval_on_date(
+    schedule_data, duration_seconds, target_date, include_adjacent=False
+):
+    def _interval_for_date(effective_date):
+        if duration_seconds is None:
+            return None
         try:
-            run_dt = parse_once_datetime(schedule_data.get("time"))
+            duration = float(duration_seconds)
         except (TypeError, ValueError):
             return None
-        if run_dt.date() != target_date:
+        if duration <= 0:
             return None
-        start_dt = run_dt + timedelta(seconds=delay_seconds)
+        repeat = schedule_data.get("repeat")
+        try:
+            delay_seconds = int(schedule_data.get("delay", 0))
+        except (TypeError, ValueError):
+            delay_seconds = 0
+        start_date_obj = parse_schedule_date(schedule_data.get("start_date"))
+        end_date_obj = parse_schedule_date(schedule_data.get("end_date"))
+        if repeat == "once":
+            try:
+                run_dt = parse_once_datetime(schedule_data.get("time"))
+            except (TypeError, ValueError):
+                return None
+            if run_dt.date() != effective_date:
+                return None
+            start_dt = run_dt + timedelta(seconds=delay_seconds)
+            end_dt = start_dt + timedelta(seconds=duration)
+            return start_dt, end_dt
+        if start_date_obj and effective_date < start_date_obj:
+            return None
+        if end_date_obj and effective_date > end_date_obj:
+            return None
+        try:
+            base_time = datetime.strptime(schedule_data.get("time"), "%H:%M:%S").time()
+        except (TypeError, ValueError):
+            return None
+        if repeat == "monthly":
+            day_of_month = schedule_data.get("day_of_month")
+            if day_of_month is None and start_date_obj is not None:
+                day_of_month = start_date_obj.day
+            try:
+                day_of_month = int(day_of_month)
+            except (TypeError, ValueError):
+                return None
+            if effective_date.day != day_of_month:
+                return None
+        base_dt = datetime.combine(effective_date, base_time)
+        start_dt = base_dt + timedelta(seconds=delay_seconds)
         end_dt = start_dt + timedelta(seconds=duration)
         return start_dt, end_dt
-    if start_date_obj and target_date < start_date_obj:
-        return None
-    if end_date_obj and target_date > end_date_obj:
-        return None
-    try:
-        base_time = datetime.strptime(schedule_data.get("time"), "%H:%M:%S").time()
-    except (TypeError, ValueError):
-        return None
-    if repeat == "monthly":
-        day_of_month = schedule_data.get("day_of_month")
-        if day_of_month is None and start_date_obj is not None:
-            day_of_month = start_date_obj.day
-        try:
-            day_of_month = int(day_of_month)
-        except (TypeError, ValueError):
-            return None
-        if target_date.day != day_of_month:
-            return None
-    base_dt = datetime.combine(target_date, base_time)
-    start_dt = base_dt + timedelta(seconds=delay_seconds)
-    end_dt = start_dt + timedelta(seconds=duration)
-    return start_dt, end_dt
+
+    def _interval_overlaps_date(interval, reference_date):
+        if interval is None:
+            return False
+        day_start = datetime.combine(reference_date, datetime.min.time())
+        day_end = day_start + timedelta(days=1)
+        start_dt, end_dt = interval
+        return start_dt < day_end and end_dt > day_start
+
+    if not include_adjacent:
+        return _interval_for_date(target_date)
+
+    intervals = []
+    seen_intervals = set()
+    for offset in (-1, 0, 1):
+        effective_date = target_date + timedelta(days=offset)
+        interval = _interval_for_date(effective_date)
+        if interval is None:
+            continue
+        if not _interval_overlaps_date(interval, target_date):
+            continue
+        if interval not in seen_intervals:
+            seen_intervals.add(interval)
+            intervals.append(interval)
+    return intervals
 
 
 def _intervals_overlap(interval_a, interval_b):
@@ -721,18 +749,26 @@ def _has_schedule_conflict(cursor, new_schedule_data, new_duration_seconds, new_
             except (TypeError, ValueError):
                 pass
         for candidate_date in relevant_dates:
-            new_interval = _schedule_interval_on_date(
-                new_schedule_data, duration_value, candidate_date
+            new_intervals = _schedule_interval_on_date(
+                new_schedule_data,
+                duration_value,
+                candidate_date,
+                include_adjacent=True,
             )
-            if new_interval is None:
+            if not new_intervals:
                 continue
-            existing_interval = _schedule_interval_on_date(
-                schedule, existing_duration_value, candidate_date
+            existing_intervals = _schedule_interval_on_date(
+                schedule,
+                existing_duration_value,
+                candidate_date,
+                include_adjacent=True,
             )
-            if existing_interval is None:
+            if not existing_intervals:
                 continue
-            if _intervals_overlap(new_interval, existing_interval):
-                return True
+            for new_interval in new_intervals:
+                for existing_interval in existing_intervals:
+                    if _intervals_overlap(new_interval, existing_interval):
+                        return True
     return False
 
 
