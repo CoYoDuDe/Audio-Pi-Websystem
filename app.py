@@ -653,19 +653,34 @@ def _has_schedule_conflict(cursor, new_schedule_data, new_duration_seconds, new_
                 relevant_dates.add(parse_once_datetime(schedule.get("time")).date())
             except (TypeError, ValueError):
                 pass
+        expanded_dates = set()
         for candidate_date in relevant_dates:
+            if candidate_date is None:
+                continue
+            expanded_dates.add(candidate_date)
+            expanded_dates.add(candidate_date - timedelta(days=1))
+            expanded_dates.add(candidate_date + timedelta(days=1))
+        new_intervals = []
+        existing_intervals = []
+        for candidate_date in expanded_dates:
+            if candidate_date is None:
+                continue
             new_interval = _schedule_interval_on_date(
                 new_schedule_data, duration_value, candidate_date
             )
-            if new_interval is None:
-                continue
+            if new_interval is not None:
+                new_intervals.append((candidate_date, new_interval))
             existing_interval = _schedule_interval_on_date(
                 schedule, existing_duration_value, candidate_date
             )
-            if existing_interval is None:
-                continue
-            if _intervals_overlap(new_interval, existing_interval):
-                return True
+            if existing_interval is not None:
+                existing_intervals.append((candidate_date, existing_interval))
+        for new_date, new_interval in new_intervals:
+            for existing_date, existing_interval in existing_intervals:
+                if abs((existing_date - new_date).days) > 1:
+                    continue
+                if _intervals_overlap(new_interval, existing_interval):
+                    return True
     return False
 
 
