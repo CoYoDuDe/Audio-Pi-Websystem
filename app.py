@@ -440,6 +440,15 @@ AUTO_REBOOT_WEEKDAYS = [
     "saturday",
     "sunday",
 ]
+AUTO_REBOOT_WEEKDAY_TO_CRON = {
+    "monday": "mon",
+    "tuesday": "tue",
+    "wednesday": "wed",
+    "thursday": "thu",
+    "friday": "fri",
+    "saturday": "sat",
+    "sunday": "sun",
+}
 
 
 def _ensure_local_timezone(dt):
@@ -940,7 +949,7 @@ def update_auto_reboot_job():
         weekday = (get_setting("auto_reboot_weekday") or "").strip().lower()
         if weekday not in AUTO_REBOOT_WEEKDAYS:
             weekday = AUTO_REBOOT_DEFAULTS["auto_reboot_weekday"]
-        cron_kwargs["day_of_week"] = weekday
+        cron_kwargs["day_of_week"] = AUTO_REBOOT_WEEKDAY_TO_CRON[weekday]
     elif mode != "daily":
         logging.warning(
             "Auto-Reboot: Unbekannter Modus '%s' – Job wird deaktiviert.", mode

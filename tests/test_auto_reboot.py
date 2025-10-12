@@ -73,7 +73,10 @@ def test_update_auto_reboot_job_weekly_uses_weekday(app_module, monkeypatch):
 
     app_module.update_auto_reboot_job()
     scheduler_mock.add_job.assert_called_once()
-    assert captured_kwargs["day_of_week"] == "thursday"
+    assert (
+        captured_kwargs["day_of_week"]
+        == app_module.AUTO_REBOOT_WEEKDAY_TO_CRON["thursday"]
+    )
 
 
 def test_update_auto_reboot_job_disabled_removes_existing(app_module, monkeypatch):
