@@ -103,6 +103,10 @@ amplifier_claimed = False
 # Track pause status manually since pygame lacks a get_paused() helper
 is_paused = False
 
+
+# Globale Statusinformationen für Audiofunktionen
+audio_status = {"hifiberry_detected": None}
+
 # Pygame Audio und Lautstärke nur initialisieren, wenn nicht im Test
 if not TESTING:
     pygame.mixer.init()
@@ -748,9 +752,54 @@ def get_current_sink():
     return subprocess.getoutput("pactl get-default-sink")
 
 
+def _is_sink_available(sink_name):
+    try:
+        output = subprocess.check_output(
+            ["pactl", "list", "short", "sinks"],
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        logging.warning("Konnte PulseAudio-Sinks nicht abfragen: %s", exc)
+        return False
+    return any(sink_name in line for line in output.splitlines())
+
+
 def set_sink(sink_name):
+    if not _is_sink_available(sink_name):
+        audio_status["hifiberry_detected"] = False
+        logging.warning(
+            "HiFiBerry-Sink '%s' nicht gefunden. Behalte aktuellen Standardsink bei.",
+            sink_name,
+        )
+        return False
+    audio_status["hifiberry_detected"] = True
     subprocess.call(["pactl", "set-default-sink", sink_name])
     logging.info(f"Switch zu Sink: {sink_name}")
+    return True
+
+
+def gather_status():
+    wlan_ssid = subprocess.getoutput("iwgetid wlan0 -r").strip() or "Nicht verbunden"
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    current_volume = (
+        subprocess.getoutput(
+            'pactl get-sink-volume @DEFAULT_SINK@ | grep -oP "\\d+%" | head -1'
+        )
+        or "Unbekannt"
+    )
+    return {
+        "playing": pygame.mixer.music.get_busy(),
+        "bluetooth_status": "Verbunden" if is_bt_connected() else "Nicht verbunden",
+        "wlan_status": wlan_ssid,
+        "current_sink": get_current_sink(),
+        "current_time": current_time,
+        "amplifier_status": "An" if amplifier_claimed else "Aus",
+        "relay_invert": RELAY_INVERT,
+        "current_volume": current_volume,
+        "hifiberry_detected": audio_status.get("hifiberry_detected"),
+    }
 
 
 # GPIO für Endstufe
@@ -805,7 +854,11 @@ def play_item(item_id, item_type, delay, is_schedule=False):
                 f"Skippe Wiedergabe für {item_type} {item_id}, da andere läuft"
             )
             return
-        set_sink(DAC_SINK)
+        sink_switched = set_sink(DAC_SINK)
+        if not sink_switched:
+            logging.info(
+                "Nutze vorhandenen PulseAudio-Standardsink für Wiedergabe, da HiFiBerry nicht verfügbar ist."
+            )
         activate_amplifier()
         time.sleep(delay)
         logging.info(f"Starte Wiedergabe für {item_type} {item_id}")
@@ -1264,6 +1317,7 @@ def index():
         }
         for row in schedule_rows
     ]
+    status = gather_status()
     wlan_ssid = subprocess.getoutput("iwgetid wlan0 -r").strip() or "Nicht verbunden"
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     current_volume = (
