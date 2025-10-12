@@ -205,8 +205,42 @@ def initialize_database():
             """CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, password TEXT)"""
         )
         cursor.execute(
-            """CREATE TABLE IF NOT EXISTS audio_files (id INTEGER PRIMARY KEY, filename TEXT)"""
+            """
+            CREATE TABLE IF NOT EXISTS audio_files (
+                id INTEGER PRIMARY KEY,
+                filename TEXT,
+                duration_seconds REAL
+            )
+            """
         )
+        cursor.execute("PRAGMA table_info(audio_files)")
+        audio_columns = {row[1] for row in cursor.fetchall()}
+        if "duration_seconds" not in audio_columns:
+            cursor.execute("ALTER TABLE audio_files ADD COLUMN duration_seconds REAL")
+            conn.commit()
+        cursor.execute(
+            "SELECT id, filename FROM audio_files WHERE duration_seconds IS NULL"
+        )
+        rows_without_duration = cursor.fetchall()
+        for row in rows_without_duration:
+            file_id, filename = row[0], row[1]
+            file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+            duration = None
+            if os.path.exists(file_path):
+                try:
+                    sound = AudioSegment.from_file(file_path)
+                    duration = len(sound) / 1000.0
+                except Exception as exc:
+                    logging.warning(
+                        "Konnte Dauer für bestehende Datei %s nicht bestimmen: %s",
+                        filename,
+                        exc,
+                    )
+            if duration is not None:
+                cursor.execute(
+                    "UPDATE audio_files SET duration_seconds=? WHERE id=?",
+                    (duration, file_id),
+                )
         cursor.execute(
             """CREATE TABLE IF NOT EXISTS schedules (
                 id INTEGER PRIMARY KEY,
@@ -545,13 +579,15 @@ def play_item(item_id, item_type, delay, is_schedule=False):
             if item_type == "file":
                 with get_db_connection() as (conn, cursor):
                     cursor.execute(
-                        "SELECT filename FROM audio_files WHERE id=?", (item_id,)
+                        "SELECT filename, duration_seconds FROM audio_files WHERE id=?",
+                        (item_id,),
                     )
                     row = cursor.fetchone()
                 if not row:
                     logging.warning(f"Audio-Datei-ID {item_id} nicht gefunden")
                     return
-                filename = row[0]
+                filename = row["filename"]
+                duration_seconds = row["duration_seconds"]
                 file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
                 if not os.path.exists(file_path):
                     logging.warning(f"Datei fehlt: {file_path}")
@@ -567,17 +603,29 @@ def play_item(item_id, item_type, delay, is_schedule=False):
                 normalized.export(temp_path, format="wav")
                 pygame.mixer.music.load(temp_path)
                 pygame.mixer.music.play()
+                if duration_seconds is not None:
+                    logging.info(
+                        "Spiele Datei %s (%.2f s)", filename, duration_seconds
+                    )
                 is_paused = False
                 while pygame.mixer.music.get_busy():
                     time.sleep(1)
             elif item_type == "playlist":
                 with get_db_connection() as (conn, cursor):
                     cursor.execute(
-                        "SELECT f.filename FROM playlist_files pf JOIN audio_files f ON pf.file_id = f.id WHERE pf.playlist_id=?",
+                        """
+                        SELECT f.filename, f.duration_seconds
+                        FROM playlist_files pf
+                        JOIN audio_files f ON pf.file_id = f.id
+                        WHERE pf.playlist_id=?
+                        ORDER BY f.filename
+                        """,
                         (item_id,),
                     )
-                    files = [row[0] for row in cursor.fetchall()]
-                for filename in files:
+                    files = [dict(row) for row in cursor.fetchall()]
+                for file_info in files:
+                    filename = file_info["filename"]
+                    duration_seconds = file_info.get("duration_seconds")
                     file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
                     if not os.path.exists(file_path):
                         logging.warning(f"Datei fehlt: {file_path}")
@@ -593,6 +641,12 @@ def play_item(item_id, item_type, delay, is_schedule=False):
                     normalized.export(temp_path, format="wav")
                     pygame.mixer.music.load(temp_path)
                     pygame.mixer.music.play()
+                    if duration_seconds is not None:
+                        logging.info(
+                            "Spiele Playlist-Datei %s (%.2f s)",
+                            filename,
+                            duration_seconds,
+                        )
                     is_paused = False
                     while pygame.mixer.music.get_busy():
                         time.sleep(1)
@@ -931,10 +985,12 @@ def logout():
 @login_required
 def index():
     with get_db_connection() as (conn, cursor):
-        cursor.execute("SELECT * FROM audio_files")
-        files = [tuple(row) for row in cursor.fetchall()]
-        cursor.execute("SELECT * FROM playlists")
-        playlists = [tuple(row) for row in cursor.fetchall()]
+        cursor.execute(
+            "SELECT id, filename, duration_seconds FROM audio_files ORDER BY filename"
+        )
+        files = [dict(row) for row in cursor.fetchall()]
+        cursor.execute("SELECT id, name FROM playlists ORDER BY name")
+        playlists = [dict(row) for row in cursor.fetchall()]
         cursor.execute(
             """
             SELECT
@@ -947,7 +1003,8 @@ def index():
                 s.executed,
                 s.start_date,
                 s.end_date,
-                s.day_of_month
+                s.day_of_month,
+                f.duration_seconds AS file_duration
             FROM schedules s
             LEFT JOIN audio_files f ON s.item_id = f.id AND s.item_type='file'
             LEFT JOIN playlists p ON s.item_id = p.id AND s.item_type='playlist'
@@ -966,6 +1023,7 @@ def index():
             "start_date": row["start_date"],
             "end_date": row["end_date"],
             "day_of_month": row["day_of_month"],
+            "duration_seconds": row["file_duration"],
         }
         for row in schedule_rows
     ]
@@ -1018,8 +1076,22 @@ def upload():
         else:
             flash("Datei hochgeladen")
         file.save(file_path)
+        try:
+            sound = AudioSegment.from_file(file_path)
+            duration_seconds = len(sound) / 1000.0
+        except Exception as exc:
+            logging.error("Fehler beim Auslesen der Audiodauer von %s: %s", filename, exc)
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+            flash("Audiodatei konnte nicht verarbeitet werden")
+            return redirect(url_for("index"))
         with get_db_connection() as (conn, cursor):
-            cursor.execute("INSERT INTO audio_files (filename) VALUES (?)", (filename,))
+            cursor.execute(
+                "INSERT INTO audio_files (filename, duration_seconds) VALUES (?, ?)",
+                (filename, duration_seconds),
+            )
             conn.commit()
         return redirect(url_for("index"))
     flash("Dateiformat wird nicht unterstützt")
@@ -1030,12 +1102,15 @@ def upload():
 @login_required
 def delete(file_id):
     with get_db_connection() as (conn, cursor):
-        cursor.execute("SELECT filename FROM audio_files WHERE id=?", (file_id,))
+        cursor.execute(
+            "SELECT filename, duration_seconds FROM audio_files WHERE id=?",
+            (file_id,),
+        )
         row = cursor.fetchone()
         if not row:
             flash("Datei nicht gefunden")
             return redirect(url_for("index"))
-        filename = row[0]
+        filename = row["filename"]
         file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
         if os.path.exists(file_path):
             os.remove(file_path)

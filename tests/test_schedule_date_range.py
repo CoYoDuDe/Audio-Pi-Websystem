@@ -126,7 +126,10 @@ def test_recurring_schedule_skipped_before_start(monkeypatch):
 
 def test_add_schedule_stores_day_of_month():
     app.cursor.execute('DELETE FROM audio_files')
-    app.cursor.execute("INSERT INTO audio_files (filename) VALUES (?)", ('probe.mp3',))
+    app.cursor.execute(
+        "INSERT INTO audio_files (filename, duration_seconds) VALUES (?, ?)",
+        ('probe.mp3', 1.0),
+    )
     file_id = app.cursor.lastrowid
     app.conn.commit()
 
@@ -154,7 +157,10 @@ def test_add_schedule_stores_day_of_month():
 
 def test_add_schedule_rejects_impossible_month_range():
     app.cursor.execute('DELETE FROM audio_files')
-    app.cursor.execute("INSERT INTO audio_files (filename) VALUES (?)", ('probe.mp3',))
+    app.cursor.execute(
+        "INSERT INTO audio_files (filename, duration_seconds) VALUES (?, ?)",
+        ('probe.mp3', 1.0),
+    )
     file_id = app.cursor.lastrowid
     app.conn.commit()
 
@@ -180,7 +186,10 @@ def test_add_schedule_rejects_impossible_month_range():
 
 def test_add_schedule_rejects_negative_delay():
     app.cursor.execute('DELETE FROM audio_files')
-    app.cursor.execute("INSERT INTO audio_files (filename) VALUES (?)", ('probe.mp3',))
+    app.cursor.execute(
+        "INSERT INTO audio_files (filename, duration_seconds) VALUES (?, ?)",
+        ('probe.mp3', 1.0),
+    )
     file_id = app.cursor.lastrowid
     app.conn.commit()
 

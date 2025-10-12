@@ -29,6 +29,28 @@ def client(tmp_path, monkeypatch):
     upload_dir.mkdir()
     app_module.app.config["UPLOAD_FOLDER"] = str(upload_dir)
 
+    class DummySegment:
+        def __init__(self, duration_ms=1234):
+            self._duration_ms = duration_ms
+
+        def __len__(self):
+            return self._duration_ms
+
+        def normalize(self, headroom=0.1):
+            return self
+
+        def export(self, *args, **kwargs):
+            pass
+
+    def fake_from_file(*args, **kwargs):
+        return DummySegment()
+
+    monkeypatch.setattr(
+        app_module.AudioSegment,
+        "from_file",
+        staticmethod(fake_from_file),
+    )
+
     with app_module.app.test_client() as client:
         yield client, upload_dir, app_module
 
@@ -59,7 +81,10 @@ def test_upload_twice_generates_new_name(client):
 
     conn = sqlite3.connect(app_module.DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("SELECT filename FROM audio_files")
-    db_names = {row[0] for row in cursor.fetchall()}
+    cursor.execute("SELECT filename, duration_seconds FROM audio_files")
+    rows = cursor.fetchall()
+    db_names = {row[0] for row in rows}
+    for _, duration in rows:
+        assert duration == pytest.approx(1.234, rel=1e-3)
     conn.close()
     assert {first_name, second_name} == db_names

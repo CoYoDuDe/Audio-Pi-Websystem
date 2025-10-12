@@ -54,9 +54,14 @@
     <ul>
         {% for file in files %}
         <li>
-            {{ file[1] }}
-            <a href="{{ url_for('play_now', item_type='file', item_id=file[0]) }}">Play</a>
-            <form action="{{ url_for('delete', file_id=file[0]) }}" method="POST" style="display:inline;">
+            {{ file.filename }}
+            {% if file.duration_seconds is not none %}
+                ({{ '%.2f' % file.duration_seconds }}&nbsp;s)
+            {% else %}
+                (Dauer unbekannt)
+            {% endif %}
+            <a href="{{ url_for('play_now', item_type='file', item_id=file.id) }}">Play</a>
+            <form action="{{ url_for('delete', file_id=file.id) }}" method="POST" style="display:inline;">
                 <button type="submit" class="btn">Löschen</button>
             </form>
         </li>
@@ -73,18 +78,18 @@
     <ul>
         {% for playlist in playlists %}
         <li>
-            {{ playlist[1] }}
-            <a href="{{ url_for('play_now', item_type='playlist', item_id=playlist[0]) }}">Play</a>
-            <form action="{{ url_for('delete_playlist', playlist_id=playlist[0]) }}" method="POST" style="display:inline;">
+            {{ playlist.name }}
+            <a href="{{ url_for('play_now', item_type='playlist', item_id=playlist.id) }}">Play</a>
+            <form action="{{ url_for('delete_playlist', playlist_id=playlist.id) }}" method="POST" style="display:inline;">
                 <button type="submit" class="btn">Löschen</button>
             </form>
             <form action="{{ url_for('add_to_playlist') }}" method="POST" style="display:inline;">
                 <select name="file_id">
                     {% for file in files %}
-                    <option value="{{ file[0] }}">{{ file[1] }}</option>
+                    <option value="{{ file.id }}">{{ file.filename }}</option>
                     {% endfor %}
                 </select>
-                <input type="hidden" name="playlist_id" value="{{ playlist[0] }}">
+                <input type="hidden" name="playlist_id" value="{{ playlist.id }}">
                 <button type="submit" class="btn">Hinzufügen</button>
             </form>
         </li>
@@ -137,7 +142,7 @@
     </ul>
 
     <script>
-    const files = {{ files | tojson }};
+    const audioFiles = {{ files | tojson }};
     const playlists = {{ playlists | tojson }};
     const itemSelect = document.getElementById('item-select');
     const typeSelect = document.getElementById('item-type');
@@ -147,13 +152,13 @@
     const endDateInput = document.querySelector('input[name="end_date"]');
     const timeInput = document.querySelector('input[name="time"]');
     function populate() {
-        const items = typeSelect.value === 'playlist' ? playlists : files;
+        const items = typeSelect.value === 'playlist' ? playlists : audioFiles;
         const label = typeSelect.value === 'playlist' ? 'Playlist' : 'Datei';
         itemSelect.innerHTML = `<option value="">-- ${label} wählen --</option>`;
         for (const item of items) {
             const opt = document.createElement('option');
-            opt.value = item[0];
-            opt.textContent = item[1];
+            opt.value = item.id;
+            opt.textContent = item.name || item.filename;
             itemSelect.appendChild(opt);
         }
     }
