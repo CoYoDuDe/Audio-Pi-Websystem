@@ -652,6 +652,16 @@ def _schedule_interval_on_date(
         day_start = datetime.combine(reference_date, datetime.min.time())
         day_end = day_start + timedelta(days=1)
         start_dt, end_dt = interval
+
+        tz_aware = None
+        for candidate in (start_dt, end_dt):
+            if candidate.tzinfo is not None and candidate.tzinfo.utcoffset(candidate) is not None:
+                tz_aware = candidate.tzinfo
+                break
+        if tz_aware is not None:
+            day_start = day_start.replace(tzinfo=tz_aware)
+            day_end = day_end.replace(tzinfo=tz_aware)
+
         return start_dt < day_end and end_dt > day_start
 
     if not include_adjacent:
