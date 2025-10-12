@@ -125,3 +125,44 @@ def test_add_schedule_blocks_playlist_overlap():
 
     count = app.cursor.execute("SELECT COUNT(*) AS cnt FROM schedules").fetchone()["cnt"]
     assert count == 1
+
+
+def test_has_schedule_conflict_detects_cross_midnight_once_events():
+    evening_file = _insert_audio_file("late_show.mp3", 5400.0)
+    night_file = _insert_audio_file("night_mix.mp3", 1800.0)
+
+    with app.app.test_request_context(
+        "/schedule",
+        method="POST",
+        data={
+            "item_type": "file",
+            "item_id": str(evening_file),
+            "time": "2024-03-01T23:30",
+            "repeat": "once",
+            "delay": "0",
+            "start_date": "",
+            "end_date": "",
+        },
+    ):
+        response = app.add_schedule.__wrapped__()
+        assert response.status_code == 302
+
+    new_schedule = {
+        "item_id": str(night_file),
+        "item_type": "file",
+        "time": "2024-03-02 00:30:00",
+        "repeat": "once",
+        "delay": 0,
+        "start_date": None,
+        "end_date": None,
+        "day_of_month": None,
+    }
+    new_first_date = app.parse_once_datetime(new_schedule["time"]).date()
+
+    with app.get_db_connection() as (conn, cursor):
+        new_duration = app._get_item_duration(cursor, "file", new_schedule["item_id"])
+        assert new_duration is not None
+        conflict = app._has_schedule_conflict(
+            cursor, new_schedule, new_duration, new_first_date
+        )
+    assert conflict is True
