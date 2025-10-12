@@ -804,14 +804,16 @@ def _is_sink_available(sink_name):
 
 def set_sink(sink_name):
     if not _is_sink_available(sink_name):
-        audio_status["hifiberry_detected"] = False
+        if sink_name == DAC_SINK:
+            audio_status["hifiberry_detected"] = False
         logging.warning(
-            "HiFiBerry-Sink '%s' nicht gefunden. Behalte aktuellen Standardsink bei.",
+            "Sink '%s' nicht gefunden. Behalte aktuellen Standardsink bei.",
             sink_name,
         )
         return False
-    audio_status["hifiberry_detected"] = True
     subprocess.call(["pactl", "set-default-sink", sink_name])
+    if sink_name == DAC_SINK:
+        audio_status["hifiberry_detected"] = True
     logging.info(f"Switch zu Sink: {sink_name}")
     return True
 
@@ -1195,7 +1197,11 @@ def resume_bt_audio():
             logging.info("Kein Bluetooth-Sink zum Resume gefunden")
             return
         bt_sink = sink_lines[0].split()[1]
+        previous_detection = audio_status.get("hifiberry_detected")
         set_sink(bt_sink)
+        if bt_sink != DAC_SINK:
+            # Sicherstellen, dass der HiFiBerry-Status durch Fremd-Sinks unverändert bleibt.
+            audio_status["hifiberry_detected"] = previous_detection
         logging.info(f"Bluetooth-Sink {bt_sink} wieder aktiv")
     except Exception as e:
         logging.error(f"Fehler beim Aktivieren des Bluetooth-Sinks: {e}")
