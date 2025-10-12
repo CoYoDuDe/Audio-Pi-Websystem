@@ -495,6 +495,180 @@ def calculate_first_monthly_occurrence(start_date: date, day_of_month: int) -> d
         start_date = date(year, month, 1)
 
 
+def _get_item_duration(cursor, item_type, item_id):
+    lookup_id = item_id
+    try:
+        lookup_id = int(item_id)
+    except (TypeError, ValueError):
+        pass
+    if item_type == "file":
+        cursor.execute(
+            "SELECT duration_seconds FROM audio_files WHERE id=?",
+            (lookup_id,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return row["duration_seconds"]
+    if item_type == "playlist":
+        cursor.execute(
+            """
+            SELECT SUM(f.duration_seconds) AS total_duration
+            FROM playlist_files pf
+            JOIN audio_files f ON pf.file_id = f.id
+            WHERE pf.playlist_id=?
+            """,
+            (lookup_id,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return row["total_duration"]
+    return None
+
+
+def _schedule_interval_on_date(schedule_data, duration_seconds, target_date):
+    if duration_seconds is None:
+        return None
+    try:
+        duration = float(duration_seconds)
+    except (TypeError, ValueError):
+        return None
+    if duration <= 0:
+        return None
+    repeat = schedule_data.get("repeat")
+    try:
+        delay_seconds = int(schedule_data.get("delay", 0))
+    except (TypeError, ValueError):
+        delay_seconds = 0
+    start_date_obj = parse_schedule_date(schedule_data.get("start_date"))
+    end_date_obj = parse_schedule_date(schedule_data.get("end_date"))
+    if repeat == "once":
+        try:
+            run_dt = parse_once_datetime(schedule_data.get("time"))
+        except (TypeError, ValueError):
+            return None
+        if run_dt.date() != target_date:
+            return None
+        start_dt = run_dt + timedelta(seconds=delay_seconds)
+        end_dt = start_dt + timedelta(seconds=duration)
+        return start_dt, end_dt
+    if start_date_obj and target_date < start_date_obj:
+        return None
+    if end_date_obj and target_date > end_date_obj:
+        return None
+    try:
+        base_time = datetime.strptime(schedule_data.get("time"), "%H:%M:%S").time()
+    except (TypeError, ValueError):
+        return None
+    if repeat == "monthly":
+        day_of_month = schedule_data.get("day_of_month")
+        if day_of_month is None and start_date_obj is not None:
+            day_of_month = start_date_obj.day
+        try:
+            day_of_month = int(day_of_month)
+        except (TypeError, ValueError):
+            return None
+        if target_date.day != day_of_month:
+            return None
+    base_dt = datetime.combine(target_date, base_time)
+    start_dt = base_dt + timedelta(seconds=delay_seconds)
+    end_dt = start_dt + timedelta(seconds=duration)
+    return start_dt, end_dt
+
+
+def _intervals_overlap(interval_a, interval_b):
+    start_a, end_a = interval_a
+    start_b, end_b = interval_b
+    return start_a < end_b and start_b < end_a
+
+
+def _get_first_occurrence_date(schedule_data):
+    repeat = schedule_data.get("repeat")
+    if repeat == "once":
+        try:
+            return parse_once_datetime(schedule_data.get("time")).date()
+        except (TypeError, ValueError):
+            return None
+    start_date_obj = parse_schedule_date(schedule_data.get("start_date"))
+    if repeat == "monthly" and start_date_obj is not None:
+        day_of_month = schedule_data.get("day_of_month")
+        if day_of_month is None:
+            day_of_month = start_date_obj.day
+        try:
+            day_of_month = int(day_of_month)
+        except (TypeError, ValueError):
+            return None
+        try:
+            return calculate_first_monthly_occurrence(start_date_obj, day_of_month)
+        except ValueError:
+            return None
+    return start_date_obj
+
+
+def _has_schedule_conflict(cursor, new_schedule_data, new_duration_seconds, new_first_date):
+    if new_duration_seconds is None:
+        return False
+    try:
+        duration_value = float(new_duration_seconds)
+    except (TypeError, ValueError):
+        return False
+    if duration_value <= 0:
+        return False
+    cursor.execute(
+        """
+        SELECT item_id, item_type, time, repeat, delay, start_date, end_date, day_of_month, executed
+        FROM schedules
+        """
+    )
+    existing_rows = cursor.fetchall()
+    duration_cache = {}
+    base_dates = set()
+    if new_first_date is not None:
+        base_dates.add(new_first_date)
+    for row in existing_rows:
+        schedule = dict(row)
+        if schedule.get("repeat") == "once" and schedule.get("executed"):
+            continue
+        key = (schedule.get("item_type"), schedule.get("item_id"))
+        if key not in duration_cache:
+            duration_cache[key] = _get_item_duration(
+                cursor, schedule.get("item_type"), schedule.get("item_id")
+            )
+        existing_duration = duration_cache[key]
+        if existing_duration is None:
+            continue
+        try:
+            existing_duration_value = float(existing_duration)
+        except (TypeError, ValueError):
+            continue
+        if existing_duration_value <= 0:
+            continue
+        relevant_dates = set(base_dates)
+        first_date = _get_first_occurrence_date(schedule)
+        if first_date is not None:
+            relevant_dates.add(first_date)
+        if schedule.get("repeat") == "once":
+            try:
+                relevant_dates.add(parse_once_datetime(schedule.get("time")).date())
+            except (TypeError, ValueError):
+                pass
+        for candidate_date in relevant_dates:
+            new_interval = _schedule_interval_on_date(
+                new_schedule_data, duration_value, candidate_date
+            )
+            if new_interval is None:
+                continue
+            existing_interval = _schedule_interval_on_date(
+                schedule, existing_duration_value, candidate_date
+            )
+            if existing_interval is None:
+                continue
+            if _intervals_overlap(new_interval, existing_interval):
+                return True
+    return False
+
+
 def is_within_schedule_range(start_date_str, end_date_str, reference=None):
     reference_date = (reference or datetime.now()).date()
     start_date = parse_schedule_date(start_date_str)
@@ -1267,6 +1441,7 @@ def add_schedule():
     end_date_input = request.form.get("end_date", "").strip()
     day_of_month_value = None
 
+    first_occurrence_date = None
     try:
         if repeat == "once":
             dt = parse_once_datetime(time_str)
@@ -1296,6 +1471,8 @@ def add_schedule():
             else:
                 start_date_dt = dt.date()
             start_date_value = start_date_dt.isoformat()
+            if repeat == "daily":
+                first_occurrence_date = start_date_dt
             if end_date_input:
                 end_date_dt = datetime.strptime(end_date_input, "%Y-%m-%d").date()
                 if end_date_dt < start_date_dt:
@@ -1317,9 +1494,11 @@ def add_schedule():
                         "Der gewählte Zeitraum enthält keinen gültigen Ausführungstag für den Zeitplan"
                     )
                     return redirect(url_for("index"))
+                first_occurrence_date = first_occurrence
         else:
             start_date_value = None
             end_date_value = None
+            first_occurrence_date = dt.date()
     except ValueError:
         flash("Ungültiges Start- oder Enddatum")
         return redirect(url_for("index"))
@@ -1332,7 +1511,33 @@ def add_schedule():
         flash("Kein Element gewählt")
         return redirect(url_for("index"))
 
+    new_schedule_record = {
+        "item_id": item_id,
+        "item_type": item_type,
+        "time": time_only,
+        "repeat": repeat,
+        "delay": delay,
+        "start_date": start_date_value,
+        "end_date": end_date_value,
+        "day_of_month": day_of_month_value,
+    }
+
     with get_db_connection() as (conn, cursor):
+        duration_seconds = _get_item_duration(cursor, item_type, item_id)
+        if duration_seconds is not None:
+            if first_occurrence_date is None and repeat != "once":
+                first_occurrence_date = parse_schedule_date(start_date_value)
+            if first_occurrence_date is not None:
+                if _has_schedule_conflict(
+                    cursor,
+                    new_schedule_record,
+                    duration_seconds,
+                    first_occurrence_date,
+                ):
+                    flash(
+                        "Zeitplan überschneidet sich mit einer bestehenden Wiedergabe"
+                    )
+                    return redirect(url_for("index"))
         cursor.execute(
             """
             INSERT INTO schedules (item_id, item_type, time, repeat, delay, start_date, end_date, day_of_month, executed)
