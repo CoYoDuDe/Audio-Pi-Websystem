@@ -241,6 +241,8 @@ def initialize_database():
                     "UPDATE audio_files SET duration_seconds=? WHERE id=?",
                     (duration, file_id),
                 )
+        if rows_without_duration:
+            conn.commit()
         cursor.execute(
             """CREATE TABLE IF NOT EXISTS schedules (
                 id INTEGER PRIMARY KEY,
