@@ -5,6 +5,11 @@
 
 <section id="status">
     <h3>Status</h3>
+    {% if status['hifiberry_detected'] is sameas false %}
+    <div class="warning" style="color:#b30000;font-weight:bold;">
+        HiFiBerry DAC nicht erkannt – interner Audio-Ausgang aktiv.
+    </div>
+    {% endif %}
     <ul>
         <li>Aktuell: {{ 'Wiedergabe läuft' if status['playing'] else 'Wiedergabe gestoppt' }}</li>
         <li>Bluetooth: {{ status['bluetooth_status'] }}</li>
@@ -12,6 +17,7 @@
         <li>Endstufe: {{ status['amplifier_status'] }}</li>
         <li>Relais-Umkehr: {{ 'Ja' if status['relay_invert'] else 'Nein' }}</li>
         <li>Lautstärke: {{ status['current_volume'] }}</li>
+        <li>Audio-Sink: {{ status['current_sink'] }}</li>
         <li>Time: {{ status['current_time'] }}</li>
     </ul>
 </section>
