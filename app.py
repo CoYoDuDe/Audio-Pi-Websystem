@@ -1318,27 +1318,13 @@ def index():
         for row in schedule_rows
     ]
     status = gather_status()
-    wlan_ssid = subprocess.getoutput("iwgetid wlan0 -r").strip() or "Nicht verbunden"
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    current_volume = (
-        subprocess.getoutput(
-            'pactl get-sink-volume @DEFAULT_SINK@ | grep -oP "\\d+%" | head -1'
-        )
-        or "Unbekannt"
+    status.update(
+        {
+            "rtc_available": RTC_AVAILABLE,
+            "rtc_address": RTC_DETECTED_ADDRESS,
+            "rtc_missing_flag": RTC_MISSING_FLAG,
+        }
     )
-    status = {
-        "playing": pygame.mixer.music.get_busy(),
-        "bluetooth_status": "Verbunden" if is_bt_connected() else "Nicht verbunden",
-        "wlan_status": wlan_ssid,
-        "current_sink": get_current_sink(),
-        "current_time": current_time,
-        "amplifier_status": "An" if amplifier_claimed else "Aus",
-        "relay_invert": RELAY_INVERT,
-        "current_volume": current_volume,
-        "rtc_available": RTC_AVAILABLE,
-        "rtc_address": RTC_DETECTED_ADDRESS,
-        "rtc_missing_flag": RTC_MISSING_FLAG,
-    }
     return render_template(
         "index.html",
         files=files,
