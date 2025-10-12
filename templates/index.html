@@ -19,7 +19,20 @@
         <li>Lautstärke: {{ status['current_volume'] }}</li>
         <li>Audio-Sink: {{ status['current_sink'] }}</li>
         <li>Time: {{ status['current_time'] }}</li>
+        <li>
+            RTC:
+            {% if status['rtc_available'] %}
+                Verfügbar (Adresse {{ '0x%02X'|format(status['rtc_address']) }})
+            {% else %}
+                Nicht verfügbar
+            {% endif %}
+        </li>
     </ul>
+    {% if not status['rtc_available'] %}
+    <div class="alert alert-warning rtc-warning" style="background-color:#fff3cd;padding:1rem;border:1px solid #ffeeba;border-radius:0.5rem;color:#856404;margin-top:1rem;">
+        <strong>Warnung:</strong> Keine RTC erkannt. Die Systemzeit läuft ohne Hardware-Uhr weiter; bitte Verkabelung und I²C-Konfiguration prüfen.
+    </div>
+    {% endif %}
 </section>
 
 <section id="playback">
