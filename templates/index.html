@@ -35,6 +35,39 @@
     {% endif %}
 </section>
 
+<section id="auto-reboot">
+    <h3>Automatischer Neustart</h3>
+    <form action="{{ url_for('save_auto_reboot_settings') }}" method="POST" class="auto-reboot-form">
+        <label style="display:block;margin-bottom:0.5rem;">
+            <input type="checkbox" name="auto_reboot_enabled" {% if auto_reboot_settings.enabled %}checked{% endif %}>
+            Automatischer Neustart aktiv
+        </label>
+        <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:center;">
+            <label>
+                Uhrzeit
+                <input type="time" name="auto_reboot_time" value="{{ auto_reboot_settings.time }}" required>
+            </label>
+            <label>
+                Ausführung
+                <select name="auto_reboot_mode" id="auto-reboot-mode">
+                    <option value="daily" {% if auto_reboot_settings.mode == 'daily' %}selected{% endif %}>Täglich</option>
+                    <option value="weekly" {% if auto_reboot_settings.mode == 'weekly' %}selected{% endif %}>Wöchentlich</option>
+                </select>
+            </label>
+            <label id="auto-reboot-weekday-wrapper">
+                Wochentag
+                <select name="auto_reboot_weekday" id="auto-reboot-weekday">
+                    {% for weekday in auto_reboot_weekdays %}
+                    <option value="{{ weekday }}" {% if auto_reboot_settings.weekday == weekday %}selected{% endif %}>{{ weekday|capitalize }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        </div>
+        <button type="submit" class="btn" style="margin-top:0.5rem;">Speichern</button>
+    </form>
+    <p class="hint">Der automatische Neustart nutzt den System-Scheduler. Bei "Wöchentlich" erfolgt der Neustart nur am gewählten Tag.</p>
+</section>
+
 <section id="playback">
     <h3>Playback Steuerung</h3>
     <form action="{{ url_for('set_volume') }}" method="POST" style="display:inline;">
@@ -173,6 +206,8 @@
     const startDateInput = document.querySelector('input[name="start_date"]');
     const endDateInput = document.querySelector('input[name="end_date"]');
     const timeInput = document.querySelector('input[name="time"]');
+    const autoRebootModeSelect = document.getElementById('auto-reboot-mode');
+    const autoRebootWeekdayWrapper = document.getElementById('auto-reboot-weekday-wrapper');
     function populate() {
         const items = typeSelect.value === 'playlist' ? playlists : audioFiles;
         const label = typeSelect.value === 'playlist' ? 'Playlist' : 'Datei';
@@ -210,6 +245,12 @@
             startDateInput.value = datePart;
         }
     }
+    function updateAutoRebootWeekdayVisibility() {
+        if (!autoRebootModeSelect || !autoRebootWeekdayWrapper) {
+            return;
+        }
+        autoRebootWeekdayWrapper.style.display = autoRebootModeSelect.value === 'weekly' ? 'block' : 'none';
+    }
     typeSelect.addEventListener('change', populate);
     if (repeatSelect) {
         repeatSelect.addEventListener('change', updateDateRangeVisibility);
@@ -224,6 +265,10 @@
     }
     populate();
     updateDateRangeVisibility();
+    updateAutoRebootWeekdayVisibility();
+    if (autoRebootModeSelect) {
+        autoRebootModeSelect.addEventListener('change', updateAutoRebootWeekdayVisibility);
+    }
     </script>
 </section>
 
