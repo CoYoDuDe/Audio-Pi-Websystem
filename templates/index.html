@@ -124,6 +124,9 @@
         <input type="number" name="delay" value="5" min="0" max="60" style="width:50px;"> Sek. Verzögerung
         <button type="submit" class="btn">Hinzufügen</button>
     </form>
+    <p class="hint">
+        Hinweis: Überlappende Zeitpläne werden automatisch verhindert. Bei einem Konflikt erscheint eine Fehlermeldung.
+    </p>
     <ul>
         {% for schedule in schedules %}
         <li>
