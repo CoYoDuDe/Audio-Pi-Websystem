@@ -24,8 +24,8 @@ def test_negative_env_fallback_allows_zero_delay(monkeypatch):
         app_module.conn.commit()
 
         app_module.cursor.execute(
-            "INSERT INTO audio_files (filename) VALUES (?)",
-            ("probe.mp3",),
+            "INSERT INTO audio_files (filename, duration_seconds) VALUES (?, ?)",
+            ("probe.mp3", 1.0),
         )
         file_id = app_module.cursor.lastrowid
         app_module.conn.commit()
