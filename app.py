@@ -125,6 +125,8 @@ class RTCUnavailableError(Exception):
 
 
 RTC_CANDIDATE_ADDRESSES = (0x51, 0x68, 0x57, 0x6F)
+# Der aktuelle Lese-/Schreibcode unterstützt nur das PCF8563-Registerlayout.
+RTC_COMPATIBLE_ADDRESSES = {0x51}
 RTC_ADDRESS = RTC_CANDIDATE_ADDRESSES[0]
 RTC_AVAILABLE = False
 RTC_DETECTED_ADDRESS: Optional[int] = None
@@ -177,13 +179,22 @@ else:
             RTC_MISSING_FLAG = True
         else:
             if _detected_address is not None:
-                RTC_ADDRESS = _detected_address
                 RTC_DETECTED_ADDRESS = _detected_address
-                RTC_AVAILABLE = True
-                RTC_MISSING_FLAG = False
-                logging.info(
-                    "RTC auf I²C-Adresse 0x%02X erkannt.", _detected_address
-                )
+                if _detected_address in RTC_COMPATIBLE_ADDRESSES:
+                    RTC_ADDRESS = _detected_address
+                    RTC_AVAILABLE = True
+                    RTC_MISSING_FLAG = False
+                    logging.info(
+                        "RTC auf I²C-Adresse 0x%02X erkannt.", _detected_address
+                    )
+                else:
+                    RTC_AVAILABLE = False
+                    RTC_MISSING_FLAG = True
+                    bus = None
+                    logging.warning(
+                        "RTC auf 0x%02X gefunden, Registerlayout jedoch nicht unterstützt.",
+                        _detected_address,
+                    )
             else:
                 RTC_DETECTED_ADDRESS = None
                 RTC_AVAILABLE = False
