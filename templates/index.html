@@ -70,8 +70,21 @@
 
 <section id="playback">
     <h3>Playback Steuerung</h3>
-    <form action="{{ url_for('set_volume') }}" method="POST" style="display:inline;">
-        <input type="number" min="0" max="100" name="volume" placeholder="Lautstärke (%)">
+    <form action="{{ url_for('set_volume') }}" method="POST" style="display:inline-flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+        {% set raw_volume = status['current_volume'] | default('50', true) %}
+        {% set volume_digits = raw_volume | replace('%', '') | replace(' ', '') | trim %}
+        {% set volume_initial = volume_digits if volume_digits.isdigit() else '50' %}
+        <label class="volume-slider" style="display:flex;align-items:center;gap:0.5rem;">
+            <input
+                type="range"
+                min="0"
+                max="100"
+                name="volume"
+                id="volume-slider"
+                value="{{ volume_initial }}"
+            >
+            <span id="volume-value" style="min-width:3ch;text-align:right;">{{ volume_initial }}%</span>
+        </label>
         <button type="submit" class="btn">Setzen</button>
     </form>
     <form action="{{ url_for('activate_amp') }}" method="POST" style="display:inline;">
@@ -209,6 +222,8 @@
         const timeInput = document.querySelector('input[name="time"]');
         const autoRebootModeSelect = document.getElementById('auto-reboot-mode');
         const autoRebootWeekdayWrapper = document.getElementById('auto-reboot-weekday-wrapper');
+        const volumeSlider = document.getElementById('volume-slider');
+        const volumeValue = document.getElementById('volume-value');
 
         function populate() {
             if (!itemSelect || !typeSelect) {
@@ -297,6 +312,14 @@
                 }
             });
         });
+
+        if (volumeSlider && volumeValue) {
+            const updateVolumeDisplay = () => {
+                volumeValue.textContent = `${volumeSlider.value}%`;
+            };
+            updateVolumeDisplay();
+            volumeSlider.addEventListener('input', updateVolumeDisplay);
+        }
     });
     </script>
 </section>
