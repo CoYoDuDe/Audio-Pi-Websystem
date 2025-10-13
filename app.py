@@ -357,7 +357,7 @@ if not TESTING:
     sync_rtc_to_system()
 
 # DB Setup
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
 
 @contextmanager
@@ -433,13 +433,29 @@ def initialize_database():
                 start_date TEXT,
                 end_date TEXT,
                 day_of_month INTEGER,
-                executed INTEGER DEFAULT 0
+                executed INTEGER DEFAULT 0,
+                volume_percent INTEGER DEFAULT 100
             )"""
         )
         try:
             cursor.execute("ALTER TABLE schedules ADD COLUMN executed INTEGER DEFAULT 0")
         except sqlite3.OperationalError:
             pass
+        cursor.execute("PRAGMA table_info(schedules)")
+        schedule_columns = {row[1] for row in cursor.fetchall()}
+        if "volume_percent" not in schedule_columns:
+            try:
+                cursor.execute(
+                    "ALTER TABLE schedules ADD COLUMN volume_percent INTEGER DEFAULT 100"
+                )
+            except sqlite3.OperationalError:
+                pass
+            else:
+                schedule_columns.add("volume_percent")
+        if "volume_percent" in schedule_columns:
+            cursor.execute(
+                "UPDATE schedules SET volume_percent = 100 WHERE volume_percent IS NULL"
+            )
         for column, column_type in (
             ("start_date", "TEXT"),
             ("end_date", "TEXT"),
@@ -1118,7 +1134,57 @@ play_lock = threading.Lock()
 
 
 # Wiedergabe Funktion
-def play_item(item_id, item_type, delay, is_schedule=False):
+def _coerce_volume_percent(raw_value, *, default=100):
+    if raw_value is None:
+        return default
+    try:
+        percent = int(raw_value)
+    except (TypeError, ValueError):
+        return default
+    return max(0, min(100, percent))
+
+
+def _get_master_volume():
+    try:
+        volume = float(pygame.mixer.music.get_volume())
+    except Exception as exc:  # pragma: no cover - defensive Schutz für pygame
+        logging.debug("Konnte Master-Lautstärke nicht auslesen: %s", exc)
+        return 1.0
+    return max(0.0, min(1.0, volume))
+
+
+def _set_volume_safe(value):
+    clamped = max(0.0, min(1.0, float(value)))
+    try:
+        pygame.mixer.music.set_volume(clamped)
+    except Exception as exc:  # pragma: no cover - defensive Schutz für pygame
+        logging.debug("Konnte Lautstärke nicht setzen: %s", exc)
+        return False
+    return True
+
+
+def _temporary_volume_scale(volume_percent):
+    sanitized = _coerce_volume_percent(volume_percent, default=None)
+    if sanitized is None or sanitized == 100:
+        return nullcontext()
+    master_volume = _get_master_volume()
+    target = master_volume * (sanitized / 100.0)
+
+    @contextmanager
+    def _volume_context():
+        if not _set_volume_safe(target):
+            yield
+            return
+        try:
+            yield
+        finally:
+            _set_volume_safe(master_volume)
+
+    return _volume_context()
+
+
+# Wiedergabe Funktion
+def play_item(item_id, item_type, delay, is_schedule=False, volume_percent=100):
     global is_paused
     with play_lock:
         if pygame.mixer.music.get_busy():
@@ -1134,6 +1200,7 @@ def play_item(item_id, item_type, delay, is_schedule=False):
         activate_amplifier()
         time.sleep(delay)
         logging.info(f"Starte Wiedergabe für {item_type} {item_id}")
+        sanitized_volume = _coerce_volume_percent(volume_percent)
         tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
         temp_path = tmp_file.name
         tmp_file.close()
@@ -1163,15 +1230,16 @@ def play_item(item_id, item_type, delay, is_schedule=False):
                 sound = AudioSegment.from_file(file_path)
                 normalized = sound.normalize(headroom=0.1)
                 normalized.export(temp_path, format="wav")
-                pygame.mixer.music.load(temp_path)
-                pygame.mixer.music.play()
-                if duration_seconds is not None:
-                    logging.info(
-                        "Spiele Datei %s (%.2f s)", filename, duration_seconds
-                    )
-                is_paused = False
-                while pygame.mixer.music.get_busy():
-                    time.sleep(1)
+                with _temporary_volume_scale(sanitized_volume):
+                    pygame.mixer.music.load(temp_path)
+                    pygame.mixer.music.play()
+                    if duration_seconds is not None:
+                        logging.info(
+                            "Spiele Datei %s (%.2f s)", filename, duration_seconds
+                        )
+                    is_paused = False
+                    while pygame.mixer.music.get_busy():
+                        time.sleep(1)
             elif item_type == "playlist":
                 with get_db_connection() as (conn, cursor):
                     cursor.execute(
@@ -1185,33 +1253,34 @@ def play_item(item_id, item_type, delay, is_schedule=False):
                         (item_id,),
                     )
                     files = [dict(row) for row in cursor.fetchall()]
-                for file_info in files:
-                    filename = file_info["filename"]
-                    duration_seconds = file_info.get("duration_seconds")
-                    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-                    if not os.path.exists(file_path):
-                        logging.warning(f"Datei fehlt: {file_path}")
-                        if not is_schedule:
-                            try:
-                                if has_request_context():
-                                    flash("Audio-Datei nicht gefunden")
-                            except Exception:
-                                pass
-                        continue
-                    sound = AudioSegment.from_file(file_path)
-                    normalized = sound.normalize(headroom=0.1)
-                    normalized.export(temp_path, format="wav")
-                    pygame.mixer.music.load(temp_path)
-                    pygame.mixer.music.play()
-                    if duration_seconds is not None:
-                        logging.info(
-                            "Spiele Playlist-Datei %s (%.2f s)",
-                            filename,
-                            duration_seconds,
-                        )
-                    is_paused = False
-                    while pygame.mixer.music.get_busy():
-                        time.sleep(1)
+                with _temporary_volume_scale(sanitized_volume):
+                    for file_info in files:
+                        filename = file_info["filename"]
+                        duration_seconds = file_info.get("duration_seconds")
+                        file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+                        if not os.path.exists(file_path):
+                            logging.warning(f"Datei fehlt: {file_path}")
+                            if not is_schedule:
+                                try:
+                                    if has_request_context():
+                                        flash("Audio-Datei nicht gefunden")
+                                except Exception:
+                                    pass
+                            continue
+                        sound = AudioSegment.from_file(file_path)
+                        normalized = sound.normalize(headroom=0.1)
+                        normalized.export(temp_path, format="wav")
+                        pygame.mixer.music.load(temp_path)
+                        pygame.mixer.music.play()
+                        if duration_seconds is not None:
+                            logging.info(
+                                "Spiele Playlist-Datei %s (%.2f s)",
+                                filename,
+                                duration_seconds,
+                            )
+                        is_paused = False
+                        while pygame.mixer.music.get_busy():
+                            time.sleep(1)
         finally:
             try:
                 os.remove(temp_path)
@@ -1235,6 +1304,7 @@ def schedule_job(schedule_id):
     item_type = sch["item_type"]
     delay = sch["delay"]
     repeat = sch["repeat"]
+    volume_percent = _coerce_volume_percent(sch.get("volume_percent"))
     if repeat != "once" and not is_within_schedule_range(
         sch["start_date"], sch["end_date"]
     ):
@@ -1245,7 +1315,7 @@ def schedule_job(schedule_id):
             sch["end_date"] or "offen",
         )
         return
-    play_item(item_id, item_type, delay, is_schedule=True)
+    play_item(item_id, item_type, delay, is_schedule=True, volume_percent=volume_percent)
     if repeat == "once":
         with get_db_connection() as (conn, cursor):
             cursor.execute(
@@ -1571,7 +1641,8 @@ def index():
                 s.start_date,
                 s.end_date,
                 s.day_of_month,
-                f.duration_seconds AS file_duration
+                f.duration_seconds AS file_duration,
+                s.volume_percent
             FROM schedules s
             LEFT JOIN audio_files f ON s.item_id = f.id AND s.item_type='file'
             LEFT JOIN playlists p ON s.item_id = p.id AND s.item_type='playlist'
@@ -1591,6 +1662,7 @@ def index():
             "end_date": row["end_date"],
             "day_of_month": row["day_of_month"],
             "duration_seconds": row["file_duration"],
+            "volume_percent": _coerce_volume_percent(row["volume_percent"]),
         }
         for row in schedule_rows
     ]
@@ -1900,6 +1972,7 @@ def save_auto_reboot_settings():
 @app.route("/schedule", methods=["POST"])
 @login_required
 def add_schedule():
+    volume_raw = (request.form.get("volume_percent") or "").strip()
     item_type = request.form["item_type"]
     item_id = request.form["item_id"]
     time_str = request.form["time"]  # Erwarte Format YYYY-MM-DDTHH:MM
@@ -1992,6 +2065,18 @@ def add_schedule():
         flash("Kein Element gewählt")
         return redirect(url_for("index"))
 
+    if volume_raw == "":
+        volume_percent = 100
+    else:
+        try:
+            volume_percent = int(volume_raw)
+        except (TypeError, ValueError):
+            flash("Ungültiger Lautstärke-Wert für den Zeitplan")
+            return redirect(url_for("index"))
+        if not 0 <= volume_percent <= 100:
+            flash("Lautstärke für den Zeitplan muss zwischen 0% und 100% liegen")
+            return redirect(url_for("index"))
+
     new_schedule_record = {
         "item_id": item_id,
         "item_type": item_type,
@@ -2021,8 +2106,19 @@ def add_schedule():
                     return redirect(url_for("index"))
         cursor.execute(
             """
-            INSERT INTO schedules (item_id, item_type, time, repeat, delay, start_date, end_date, day_of_month, executed)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+            INSERT INTO schedules (
+                item_id,
+                item_type,
+                time,
+                repeat,
+                delay,
+                start_date,
+                end_date,
+                day_of_month,
+                executed,
+                volume_percent
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
             """,
             (
                 item_id,
@@ -2033,6 +2129,7 @@ def add_schedule():
                 start_date_value,
                 end_date_value,
                 day_of_month_value,
+                volume_percent,
             ),
         )
         conn.commit()

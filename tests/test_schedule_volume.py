@@ -1,0 +1,158 @@
+import os
+import importlib
+from datetime import datetime
+from pathlib import Path
+
+import pytest
+from flask import get_flashed_messages
+
+os.environ.setdefault("FLASK_SECRET_KEY", "test")
+os.environ.setdefault("TESTING", "1")
+
+app = importlib.import_module("app")
+
+
+@pytest.fixture(autouse=True)
+def cleanup():
+    app.scheduler.remove_all_jobs()
+    for table in ("playlist_files", "schedules", "playlists", "audio_files"):
+        app.cursor.execute(f"DELETE FROM {table}")
+    app.conn.commit()
+    yield
+    app.scheduler.remove_all_jobs()
+    for table in ("playlist_files", "schedules", "playlists", "audio_files"):
+        app.cursor.execute(f"DELETE FROM {table}")
+    app.conn.commit()
+
+
+def _insert_audio_file(filename="probe.mp3", duration=1.5):
+    app.cursor.execute(
+        "INSERT INTO audio_files (filename, duration_seconds) VALUES (?, ?)",
+        (filename, duration),
+    )
+    app.conn.commit()
+    return app.cursor.lastrowid
+
+
+def test_add_schedule_accepts_custom_volume():
+    file_id = _insert_audio_file()
+    with app.app.test_request_context(
+        "/schedule",
+        method="POST",
+        data={
+            "item_type": "file",
+            "item_id": str(file_id),
+            "time": "2024-01-01T08:00",
+            "repeat": "once",
+            "delay": "0",
+            "start_date": "",
+            "end_date": "",
+            "volume_percent": "45",
+        },
+    ):
+        response = app.add_schedule.__wrapped__()
+        assert response.status_code == 302
+    row = app.cursor.execute(
+        "SELECT volume_percent FROM schedules ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert row["volume_percent"] == 45
+
+
+def test_add_schedule_rejects_volume_out_of_range():
+    file_id = _insert_audio_file()
+    with app.app.test_request_context(
+        "/schedule",
+        method="POST",
+        data={
+            "item_type": "file",
+            "item_id": str(file_id),
+            "time": "2024-01-01T08:00",
+            "repeat": "once",
+            "delay": "0",
+            "start_date": "",
+            "end_date": "",
+            "volume_percent": "150",
+        },
+    ):
+        response = app.add_schedule.__wrapped__()
+        assert response.status_code == 302
+        messages = get_flashed_messages()
+        assert any("Lautstärke" in message for message in messages)
+    count = app.cursor.execute("SELECT COUNT(*) AS cnt FROM schedules").fetchone()["cnt"]
+    assert count == 0
+
+
+def test_schedule_job_passes_volume_to_play_item(monkeypatch):
+    schedule_time = datetime.now().replace(microsecond=0)
+    app.cursor.execute(
+        """
+        INSERT INTO schedules (
+            item_id,
+            item_type,
+            time,
+            repeat,
+            delay,
+            start_date,
+            end_date,
+            day_of_month,
+            executed,
+            volume_percent
+        )
+        VALUES (?, 'file', ?, 'once', 0, NULL, NULL, NULL, 0, 25)
+        """,
+        (42, schedule_time.strftime("%Y-%m-%d %H:%M:%S")),
+    )
+    schedule_id = app.cursor.lastrowid
+    app.conn.commit()
+    captured = {}
+
+    def fake_play_item(item_id, item_type, delay, is_schedule=False, volume_percent=100):
+        captured["args"] = (item_id, item_type, delay, is_schedule, volume_percent)
+
+    monkeypatch.setattr(app, "play_item", fake_play_item)
+
+    app.schedule_job(schedule_id)
+
+    assert captured["args"][4] == 25
+    assert captured["args"][3] is True
+
+
+def test_play_item_scales_volume_temporarily(monkeypatch, tmp_path):
+    uploads_dir = Path(app.app.config["UPLOAD_FOLDER"])
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    test_filename = "scheduled.mp3"
+    file_path = uploads_dir / test_filename
+    file_path.write_bytes(b"fake")
+    file_id = _insert_audio_file(test_filename, duration=2.0)
+
+    class DummySegment:
+        def normalize(self, headroom=0.1):
+            return self
+
+        def export(self, dest, format="wav"):
+            Path(dest).write_bytes(b"data")
+
+    monkeypatch.setattr(app.AudioSegment, "from_file", lambda path: DummySegment())
+    monkeypatch.setattr(app, "set_sink", lambda sink: True)
+    monkeypatch.setattr(app, "activate_amplifier", lambda: None)
+    monkeypatch.setattr(app, "deactivate_amplifier", lambda: None)
+    monkeypatch.setattr(app.pygame.mixer.music, "load", lambda path: None)
+    monkeypatch.setattr(app.pygame.mixer.music, "play", lambda: None)
+    monkeypatch.setattr(app.pygame.mixer.music, "get_busy", lambda: False)
+
+    master_volume = 0.8
+    monkeypatch.setattr(app.pygame.mixer.music, "get_volume", lambda: master_volume)
+    recorded = []
+
+    def fake_set_volume(value):
+        recorded.append(value)
+
+    monkeypatch.setattr(app.pygame.mixer.music, "set_volume", fake_set_volume)
+
+    app.play_item(file_id, "file", delay=0, is_schedule=True, volume_percent=50)
+
+    assert len(recorded) >= 2
+    assert recorded[0] == pytest.approx(master_volume * 0.5, rel=1e-3)
+    assert recorded[-1] == pytest.approx(master_volume, rel=1e-3)
+
+    file_path.unlink(missing_ok=True)
