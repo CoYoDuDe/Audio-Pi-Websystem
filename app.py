@@ -2063,6 +2063,46 @@ def _is_hex_psk(candidate: str) -> bool:
     )
 
 
+def _run_wpa_cli(args, expect_ok=True):
+    result = subprocess.run(
+        args,
+        capture_output=True,
+        text=True,
+    )
+
+    stdout = (result.stdout or "").strip()
+    stderr = (result.stderr or "").strip()
+    combined = "\n".join(filter(None, [stdout, stderr]))
+
+    if result.returncode != 0 or "FAIL" in stdout or "FAIL" in stderr:
+        logging.error(
+            "wpa_cli-Aufruf fehlgeschlagen (%s): %s",
+            " ".join(args),
+            combined,
+        )
+        raise subprocess.CalledProcessError(
+            result.returncode or 1,
+            args,
+            output=stdout,
+            stderr=stderr,
+        )
+
+    if expect_ok and "OK" not in stdout:
+        logging.error(
+            "wpa_cli-Antwort ohne OK (%s): %s",
+            " ".join(args),
+            combined,
+        )
+        raise subprocess.CalledProcessError(
+            result.returncode or 1,
+            args,
+            output=stdout,
+            stderr=stderr,
+        )
+
+    return stdout
+
+
 @app.route("/wlan_connect", methods=["POST"])
 @login_required
 def wlan_connect():
@@ -2074,74 +2114,30 @@ def wlan_connect():
         is_blank_password and len(password) < 8
     )
     try:
-        net_id = (
-            subprocess.check_output(["sudo", "wpa_cli", "-i", "wlan0", "add_network"])
-            .decode()
-            .strip()
-        )
-        subprocess.check_call(
-            [
-                "sudo",
-                "wpa_cli",
-                "-i",
-                "wlan0",
-                "set_network",
-                net_id,
-                "ssid",
-                formatted_ssid,
-            ]
-        )
+        base_cmd = ["sudo", "wpa_cli", "-i", "wlan0"]
+        net_id = _run_wpa_cli(base_cmd + ["add_network"], expect_ok=False).strip()
+        _run_wpa_cli(base_cmd + ["set_network", net_id, "ssid", formatted_ssid])
         if is_open_network:
-            subprocess.check_call(
-                [
-                    "sudo",
-                    "wpa_cli",
-                    "-i",
-                    "wlan0",
-                    "set_network",
-                    net_id,
-                    "key_mgmt",
-                    "NONE",
-                ]
-            )
-            subprocess.check_call(
-                [
-                    "sudo",
-                    "wpa_cli",
-                    "-i",
-                    "wlan0",
-                    "set_network",
-                    net_id,
-                    "auth_alg",
-                    "OPEN",
-                ]
-            )
+            _run_wpa_cli(base_cmd + ["set_network", net_id, "key_mgmt", "NONE"])
+            _run_wpa_cli(base_cmd + ["set_network", net_id, "auth_alg", "OPEN"])
         else:
             if _is_hex_psk(password):
                 psk_value = password
             else:
                 psk_value = _quote_wpa_cli(password)
-            subprocess.check_call(
-                [
-                    "sudo",
-                    "wpa_cli",
-                    "-i",
-                    "wlan0",
-                    "set_network",
-                    net_id,
-                    "psk",
-                    psk_value,
-                ]
-            )
-        subprocess.check_call(
-            ["sudo", "wpa_cli", "-i", "wlan0", "enable_network", net_id]
-        )
-        subprocess.check_call(["sudo", "wpa_cli", "-i", "wlan0", "save_config"])
-        subprocess.check_call(["sudo", "wpa_cli", "-i", "wlan0", "reconfigure"])
+            _run_wpa_cli(base_cmd + ["set_network", net_id, "psk", psk_value])
+        _run_wpa_cli(base_cmd + ["enable_network", net_id])
+        _run_wpa_cli(base_cmd + ["save_config"])
+        _run_wpa_cli(base_cmd + ["reconfigure"])
         flash("Versuche, mit WLAN zu verbinden")
     except subprocess.CalledProcessError as e:
-        logging.error(f"Fehler beim WLAN-Verbindungsaufbau: {e}")
-        flash("Fehler beim WLAN-Verbindungsaufbau")
+        logging.error(
+            "Fehler beim WLAN-Verbindungsaufbau: %s (stdout: %s, stderr: %s)",
+            e,
+            getattr(e, "output", ""),
+            getattr(e, "stderr", ""),
+        )
+        flash("Fehler beim WLAN-Verbindungsaufbau. Details im Log einsehbar.")
     return redirect(url_for("index"))
 
 
