@@ -2227,11 +2227,25 @@ def set_time():
         time_str = request.form["datetime"]
         try:
             dt = datetime.fromisoformat(time_str.replace("Z", "+00:00"))
-            subprocess.call(["sudo", "date", "-s", dt.strftime("%Y-%m-%d %H:%M:%S")])
-            set_rtc(dt)
-            flash("Datum und Uhrzeit gesetzt")
-        except (ValueError, RTCUnavailableError, UnsupportedRTCError):
-            flash("Ungültiges Datums-/Zeitformat oder RTC nicht verfügbar/unterstützt")
+        except ValueError:
+            flash("Ungültiges Datums-/Zeitformat")
+        else:
+            try:
+                subprocess.run(
+                    ["sudo", "date", "-s", dt.strftime("%Y-%m-%d %H:%M:%S")],
+                    check=True,
+                )
+            except subprocess.CalledProcessError as exc:
+                logging.error("Systemzeit setzen fehlgeschlagen (%s): %s", exc.cmd, exc)
+                flash("Systemzeit konnte nicht gesetzt werden")
+            else:
+                try:
+                    set_rtc(dt)
+                except (RTCUnavailableError, UnsupportedRTCError) as exc:
+                    logging.error("RTC konnte nicht gesetzt werden: %s", exc)
+                    flash("RTC nicht verfügbar oder wird nicht unterstützt")
+                else:
+                    flash("Datum und Uhrzeit gesetzt")
         return redirect(url_for("index"))
     return render_template("set_time.html")
 
