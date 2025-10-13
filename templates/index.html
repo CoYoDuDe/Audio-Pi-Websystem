@@ -186,6 +186,18 @@
                 <input type="date" name="end_date">
             </label>
         </div>
+        <label class="schedule-volume" style="display:inline-flex;align-items:center;gap:0.5rem;margin-top:0.5rem;">
+            Lautstärke
+            <input
+                type="range"
+                name="volume_percent"
+                id="schedule-volume"
+                min="0"
+                max="100"
+                value="100"
+            >
+            <span id="schedule-volume-value" style="min-width:3ch;text-align:right;">100%</span>
+        </label>
         <input type="number" name="delay" value="5" min="0" max="60" style="width:50px;"> Sek. Verzögerung
         <button type="submit" class="btn">Hinzufügen</button>
     </form>
@@ -196,6 +208,7 @@
         {% for schedule in schedules %}
         <li>
             {{ schedule.name or 'Unbekanntes Element' }} ({{ schedule.item_type }}) - {{ schedule.time }} ({{ schedule.repeat }}) +{{ schedule.delay }}s
+            – Lautstärke {{ schedule.volume_percent }}%
             {% if schedule.start_date or schedule.end_date %}
                 [
                 {{ schedule.start_date or 'ab sofort' }}{% if schedule.end_date %} – {{ schedule.end_date }}{% endif %}
@@ -224,6 +237,8 @@
         const autoRebootWeekdayWrapper = document.getElementById('auto-reboot-weekday-wrapper');
         const volumeSlider = document.getElementById('volume-slider');
         const volumeValue = document.getElementById('volume-value');
+        const scheduleVolumeSlider = document.getElementById('schedule-volume');
+        const scheduleVolumeValue = document.getElementById('schedule-volume-value');
 
         function populate() {
             if (!itemSelect || !typeSelect) {
@@ -319,6 +334,13 @@
             };
             updateVolumeDisplay();
             volumeSlider.addEventListener('input', updateVolumeDisplay);
+        }
+        if (scheduleVolumeSlider && scheduleVolumeValue) {
+            const updateScheduleVolumeDisplay = () => {
+                scheduleVolumeValue.textContent = `${scheduleVolumeSlider.value}%`;
+            };
+            updateScheduleVolumeDisplay();
+            scheduleVolumeSlider.addEventListener('input', updateScheduleVolumeDisplay);
         }
     });
     </script>
