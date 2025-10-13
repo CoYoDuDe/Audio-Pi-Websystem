@@ -2166,20 +2166,44 @@ def set_volume():
     vol = request.form["volume"]
     try:
         int_vol = int(vol)
-        if not 0 <= int_vol <= 100:
-            raise ValueError
+    except (TypeError, ValueError):
+        flash("Ungültiger Lautstärke-Wert")
+        return redirect(url_for("index"))
+
+    if not 0 <= int_vol <= 100:
+        flash("Ungültiger Lautstärke-Wert")
+        return redirect(url_for("index"))
+
+    try:
         pygame.mixer.music.set_volume(int_vol / 100.0)
         current_sink = get_current_sink()
-        subprocess.call(["pactl", "set-sink-volume", current_sink, f"{int_vol}%"])
-        subprocess.call(["amixer", "sset", "Master", f"{int_vol}%"])
-        subprocess.call(["sudo", "alsactl", "store"])
-        logging.info(f"Lautstärke auf {int_vol}% gesetzt (persistent)")
-        flash("Lautstärke persistent gesetzt")
-    except ValueError:
-        flash("Ungültiger Lautstärke-Wert")
+        commands = [
+            ["pactl", "set-sink-volume", current_sink, f"{int_vol}%"],
+            ["amixer", "sset", "Master", f"{int_vol}%"],
+            ["sudo", "alsactl", "store"],
+        ]
+        for command in commands:
+            subprocess.run(
+                command,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+    except subprocess.CalledProcessError as exc:
+        logging.error(
+            "Fehler beim Setzen der Lautstärke über Kommando '%s' (Returncode %s, stdout: %s, stderr: %s)",
+            exc.cmd,
+            exc.returncode,
+            exc.stdout or "",
+            exc.stderr or "",
+        )
+        flash("Fehler beim Setzen der Lautstärke")
     except Exception as e:
         logging.error(f"Fehler beim Setzen der Lautstärke: {e}")
         flash("Fehler beim Setzen der Lautstärke")
+    else:
+        logging.info(f"Lautstärke auf {int_vol}% gesetzt (persistent)")
+        flash("Lautstärke persistent gesetzt")
     return redirect(url_for("index"))
 
 
