@@ -2225,14 +2225,31 @@ def set_time():
 @login_required
 def sync_time_from_internet():
     try:
-        subprocess.call(["sudo", "systemctl", "stop", "systemd-timesyncd"])
-        subprocess.call(["sudo", "ntpdate", "pool.ntp.org"])
-        subprocess.call(["sudo", "systemctl", "start", "systemd-timesyncd"])
-        set_rtc(datetime.now())
-        flash("Zeit vom Internet synchronisiert")
-    except Exception as e:
-        logging.error(f"Fehler bei Zeit-Sync: {e}")
+        subprocess.check_call(["sudo", "systemctl", "stop", "systemd-timesyncd"])
+        subprocess.check_call(["sudo", "ntpdate", "pool.ntp.org"])
+    except subprocess.CalledProcessError as exc:
+        logging.error("Zeit-Synchronisation fehlgeschlagen (%s): %s", exc.cmd, exc)
         flash("Fehler bei der Synchronisation")
+    except Exception as exc:  # pragma: no cover - unerwartete Fehler
+        logging.error("Unerwarteter Fehler bei der Zeit-Synchronisation: %s", exc)
+        flash("Fehler bei der Synchronisation")
+    else:
+        try:
+            set_rtc(datetime.now())
+        except (RTCUnavailableError, UnsupportedRTCError) as exc:
+            logging.error("RTC konnte nach dem Internet-Sync nicht gesetzt werden: %s", exc)
+            flash("RTC konnte nicht aktualisiert werden")
+        else:
+            flash("Zeit vom Internet synchronisiert")
+    finally:
+        try:
+            subprocess.check_call(["sudo", "systemctl", "start", "systemd-timesyncd"])
+        except subprocess.CalledProcessError as exc:
+            logging.error(
+                "systemd-timesyncd konnte nach dem Internet-Sync nicht gestartet werden: %s",
+                exc,
+            )
+            flash("systemd-timesyncd konnte nicht gestartet werden")
     return redirect(url_for("index"))
 
 
