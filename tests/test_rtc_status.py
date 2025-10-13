@@ -1,5 +1,6 @@
 import importlib
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -99,3 +100,71 @@ def test_index_warns_when_hifiberry_missing(client):
 
     response = client.get("/")
     assert b"HiFiBerry DAC nicht erkannt" in response.data
+
+
+def test_ds3231_read_and_write_cycle(app_module):
+    class DummyBus:
+        def __init__(self):
+            self.read_calls = []
+            self.write_calls = []
+
+        def read_i2c_block_data(self, address, register, length):
+            self.read_calls.append((address, register, length))
+            assert address == 0x68
+            assert register == 0x00
+            assert length == 7
+            return [0x45, 0x34, 0x21, 0x06, 0x15, 0x03, 0x24]
+
+        def write_i2c_block_data(self, address, register, data):
+            self.write_calls.append((address, register, data))
+
+    dummy_bus = DummyBus()
+    app_module.bus = dummy_bus
+    app_module.RTC_AVAILABLE = True
+    app_module.RTC_ADDRESS = 0x68
+    app_module.RTC_DETECTED_ADDRESS = 0x68
+
+    dt = app_module.read_rtc()
+    assert dt == datetime(2024, 3, 15, 21, 34, 45)
+    assert dummy_bus.read_calls == [(0x68, 0x00, 7)]
+
+    app_module.set_rtc(dt)
+    assert dummy_bus.write_calls, "Es wurde kein Schreibzugriff auf die RTC registriert"
+    write_address, start_register, payload = dummy_bus.write_calls[-1]
+    assert write_address == 0x68
+    assert start_register == 0x00
+    assert payload == [0x45, 0x34, 0x21, 0x06, 0x15, 0x03, 0x24]
+
+
+def test_pcf8563_read_and_write_cycle(app_module):
+    class DummyBus:
+        def __init__(self):
+            self.read_calls = []
+            self.write_calls = []
+
+        def read_i2c_block_data(self, address, register, length):
+            self.read_calls.append((address, register, length))
+            assert address == 0x51
+            assert register == 0x02
+            assert length == 7
+            return [0x12, 0x34, 0x05, 0x16, 0x00, 0x02, 0x25]
+
+        def write_i2c_block_data(self, address, register, data):
+            self.write_calls.append((address, register, data))
+
+    dummy_bus = DummyBus()
+    app_module.bus = dummy_bus
+    app_module.RTC_AVAILABLE = True
+    app_module.RTC_ADDRESS = 0x51
+    app_module.RTC_DETECTED_ADDRESS = 0x51
+
+    dt = app_module.read_rtc()
+    assert dt == datetime(2025, 2, 16, 5, 34, 12)
+    assert dummy_bus.read_calls == [(0x51, 0x02, 7)]
+
+    app_module.set_rtc(dt)
+    assert dummy_bus.write_calls, "Es wurde kein Schreibzugriff auf die RTC registriert"
+    write_address, start_register, payload = dummy_bus.write_calls[-1]
+    assert write_address == 0x51
+    assert start_register == 0x02
+    assert payload == [0x12, 0x34, 0x05, 0x16, 0x00, 0x02, 0x25]

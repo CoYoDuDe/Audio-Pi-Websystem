@@ -128,6 +128,10 @@ class RTCUnavailableError(Exception):
     """RTC I²C-Bus konnte nicht initialisiert werden."""
 
 
+class UnsupportedRTCError(Exception):
+    """Gefundener RTC-Typ wird derzeit nicht unterstützt."""
+
+
 RTC_CANDIDATE_ADDRESSES = (0x51, 0x68, 0x57, 0x6F)
 RTC_ADDRESS = RTC_CANDIDATE_ADDRESSES[0]
 RTC_AVAILABLE = False
@@ -207,34 +211,117 @@ def dec_to_bcd(val):
     return ((val // 10) << 4) | (val % 10)
 
 
+def _determine_rtc_type(address: int) -> str:
+    if address == 0x51:
+        return "pcf8563"
+    if address == 0x68:
+        return "ds3231"
+    raise UnsupportedRTCError(f"RTC-Typ auf Adresse 0x{address:02X} nicht unterstützt")
+
+
+def _python_weekday_to_rtc(py_weekday: int, rtc_type: str) -> int:
+    if rtc_type == "pcf8563":
+        return (py_weekday + 1) % 7
+    if rtc_type == "ds3231":
+        return ((py_weekday + 1) % 7) + 1 or 1
+    raise UnsupportedRTCError(f"RTC-Typ '{rtc_type}' nicht unterstützt")
+
+
+def _rtc_weekday_to_python(raw_weekday: int, rtc_type: str) -> int:
+    if rtc_type == "pcf8563":
+        return (raw_weekday + 6) % 7
+    if rtc_type == "ds3231":
+        weekday = raw_weekday & 0x07
+        if weekday == 0:
+            weekday = 1
+        return (weekday + 5) % 7
+    raise UnsupportedRTCError(f"RTC-Typ '{rtc_type}' nicht unterstützt")
+
+
 def read_rtc():
     if bus is None or not RTC_AVAILABLE or RTC_ADDRESS is None:
         raise RTCUnavailableError("RTC-Bus nicht initialisiert")
-    data = bus.read_i2c_block_data(RTC_ADDRESS, 0x04, 7)
-    second = bcd_to_dec(data[0] & 0x7F)
-    minute = bcd_to_dec(data[1] & 0x7F)
-    hour = bcd_to_dec(data[2] & 0x3F)
-    date = bcd_to_dec(data[3] & 0x3F)
-    month = bcd_to_dec(data[5] & 0x1F)
-    year = bcd_to_dec(data[6])
+    address = RTC_DETECTED_ADDRESS or RTC_ADDRESS
+    rtc_type = _determine_rtc_type(address)
+    if rtc_type == "pcf8563":
+        data = bus.read_i2c_block_data(address, 0x02, 7)
+        second = bcd_to_dec(data[0] & 0x7F)
+        minute = bcd_to_dec(data[1] & 0x7F)
+        hour = bcd_to_dec(data[2] & 0x3F)
+        day = bcd_to_dec(data[3] & 0x3F)
+        weekday_raw = data[4] & 0x07
+        month = bcd_to_dec(data[5] & 0x1F)
+        year_offset = bcd_to_dec(data[6])
+        century_offset = 2000
+    elif rtc_type == "ds3231":
+        data = bus.read_i2c_block_data(address, 0x00, 7)
+        second = bcd_to_dec(data[0] & 0x7F)
+        minute = bcd_to_dec(data[1] & 0x7F)
+        hour = bcd_to_dec(data[2] & 0x3F)
+        weekday_raw = data[3] & 0x07
+        day = bcd_to_dec(data[4] & 0x3F)
+        month_raw = data[5]
+        month = bcd_to_dec(month_raw & 0x1F)
+        century_offset = 2100 if (month_raw & 0x80) else 2000
+        year_offset = bcd_to_dec(data[6])
+    else:  # pragma: no cover - abgesichert durch _determine_rtc_type
+        raise UnsupportedRTCError(f"RTC-Typ '{rtc_type}' nicht unterstützt")
+
     if month < 1 or month > 12:
         raise ValueError("Ungültiger Monat von RTC – RTC evtl. initialisieren!")
-    return datetime(2000 + year, month, date, hour, minute, second)
+    weekday_python = _rtc_weekday_to_python(weekday_raw, rtc_type)
+    dt_value = datetime(
+        century_offset + year_offset,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+    )
+    if dt_value.weekday() != weekday_python:
+        logging.debug(
+            "RTC-Wochentag unterscheidet sich (RTC=%s, Python=%s)",
+            weekday_raw,
+            dt_value.weekday(),
+        )
+    return dt_value
 
 
 def set_rtc(dt):
     if bus is None or not RTC_AVAILABLE or RTC_ADDRESS is None:
         raise RTCUnavailableError("RTC-Bus nicht initialisiert")
+    address = RTC_DETECTED_ADDRESS or RTC_ADDRESS
+    rtc_type = _determine_rtc_type(address)
     second = dec_to_bcd(dt.second)
     minute = dec_to_bcd(dt.minute)
     hour = dec_to_bcd(dt.hour)
     date = dec_to_bcd(dt.day)
-    weekday = dec_to_bcd(dt.weekday())
-    month = dec_to_bcd(dt.month)
-    year = dec_to_bcd(dt.year - 2000)
-    bus.write_i2c_block_data(
-        RTC_ADDRESS, 0x04, [second, minute, hour, date, weekday, month, year]
-    )
+    weekday_value = _python_weekday_to_rtc(dt.weekday(), rtc_type)
+    if rtc_type == "pcf8563":
+        month = dec_to_bcd(dt.month)
+        year = dec_to_bcd(dt.year - 2000)
+        payload = [second, minute, hour, date, weekday_value, month, year]
+        bus.write_i2c_block_data(address, 0x02, payload)
+    elif rtc_type == "ds3231":
+        month_value = dec_to_bcd(dt.month)
+        year_value = dt.year
+        century_bit = 0
+        if year_value >= 2100:
+            century_bit = 0x80
+            year_value -= 100
+        year = dec_to_bcd(year_value - 2000)
+        payload = [
+            second,
+            minute,
+            hour,
+            weekday_value & 0x07,
+            date,
+            month_value | century_bit,
+            year,
+        ]
+        bus.write_i2c_block_data(address, 0x00, payload)
+    else:  # pragma: no cover - abgesichert durch _determine_rtc_type
+        raise UnsupportedRTCError(f"RTC-Typ '{rtc_type}' nicht unterstützt")
     logging.info(f'RTC gesetzt auf {dt.strftime("%Y-%m-%d %H:%M:%S")}')
 
 
@@ -243,7 +330,7 @@ def sync_rtc_to_system():
         rtc_time = read_rtc()
         subprocess.call(["sudo", "date", "-s", rtc_time.strftime("%Y-%m-%d %H:%M:%S")])
         logging.info("RTC auf Systemzeit synchronisiert")
-    except (ValueError, OSError, RTCUnavailableError) as e:
+    except (ValueError, OSError, RTCUnavailableError, UnsupportedRTCError) as e:
         logging.warning(f"RTC-Sync übersprungen: {e}")
 
 
@@ -2128,8 +2215,8 @@ def set_time():
             subprocess.call(["sudo", "date", "-s", dt.strftime("%Y-%m-%d %H:%M:%S")])
             set_rtc(dt)
             flash("Datum und Uhrzeit gesetzt")
-        except (ValueError, RTCUnavailableError):
-            flash("Ungültiges Datums-/Zeitformat oder RTC nicht verfügbar")
+        except (ValueError, RTCUnavailableError, UnsupportedRTCError):
+            flash("Ungültiges Datums-/Zeitformat oder RTC nicht verfügbar/unterstützt")
         return redirect(url_for("index"))
     return render_template("set_time.html")
 
