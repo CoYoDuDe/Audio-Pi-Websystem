@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from subprocess import CompletedProcess
 
 
 @pytest.fixture
@@ -39,17 +40,15 @@ def test_wlan_connect_quotes_ascii_ssid(client, monkeypatch):
     flask_client, app_module = client
     calls = []
 
-    def fake_check_output(args, **kwargs):
-        assert args == ["sudo", "wpa_cli", "-i", "wlan0", "add_network"]
-        return b"1\n"
-
-    def fake_check_call(args, **kwargs):
+    def fake_run(args, **kwargs):
+        assert args[0:4] == ["sudo", "wpa_cli", "-i", "wlan0"]
         calls.append(args)
-        return 0
+        if args[-1] == "add_network":
+            return CompletedProcess(args, 0, stdout="1\n", stderr="")
+        return CompletedProcess(args, 0, stdout="OK\n", stderr="")
 
     _login_admin(flask_client)
-    monkeypatch.setattr(app_module.subprocess, "check_output", fake_check_output)
-    monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
     response = flask_client.post(
         "/wlan_connect",
         data={"ssid": "My Wifi", "password": "secretpass"},
@@ -58,8 +57,8 @@ def test_wlan_connect_quotes_ascii_ssid(client, monkeypatch):
 
     assert response.status_code == 302
 
-    ssid_call = next(call for call in calls if call[6] == "ssid")
-    password_call = next(call for call in calls if call[6] == "psk")
+    ssid_call = next(call for call in calls if len(call) > 6 and call[6] == "ssid")
+    password_call = next(call for call in calls if len(call) > 6 and call[6] == "psk")
 
     assert ssid_call[7] == '"My Wifi"'
     assert password_call[7] == '"secretpass"'
@@ -69,17 +68,15 @@ def test_wlan_connect_hex_unicode_ssid(client, monkeypatch):
     flask_client, app_module = client
     calls = []
 
-    def fake_check_output(args, **kwargs):
-        assert args == ["sudo", "wpa_cli", "-i", "wlan0", "add_network"]
-        return b"2\n"
-
-    def fake_check_call(args, **kwargs):
+    def fake_run(args, **kwargs):
+        assert args[0:4] == ["sudo", "wpa_cli", "-i", "wlan0"]
         calls.append(args)
-        return 0
+        if args[-1] == "add_network":
+            return CompletedProcess(args, 0, stdout="2\n", stderr="")
+        return CompletedProcess(args, 0, stdout="OK\n", stderr="")
 
     _login_admin(flask_client)
-    monkeypatch.setattr(app_module.subprocess, "check_output", fake_check_output)
-    monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
     response = flask_client.post(
         "/wlan_connect",
         data={"ssid": "Caf\u00e9 Netzwerk", "password": "secretpass"},
@@ -88,8 +85,8 @@ def test_wlan_connect_hex_unicode_ssid(client, monkeypatch):
 
     assert response.status_code == 302
 
-    ssid_call = next(call for call in calls if call[6] == "ssid")
-    password_call = next(call for call in calls if call[6] == "psk")
+    ssid_call = next(call for call in calls if len(call) > 6 and call[6] == "ssid")
+    password_call = next(call for call in calls if len(call) > 6 and call[6] == "psk")
 
     assert ssid_call[7] == "0x436166c3a9204e65747a7765726b"
     assert password_call[7] == '"secretpass"'
@@ -99,17 +96,15 @@ def test_wlan_connect_open_network(client, monkeypatch):
     flask_client, app_module = client
     calls = []
 
-    def fake_check_output(args, **kwargs):
-        assert args == ["sudo", "wpa_cli", "-i", "wlan0", "add_network"]
-        return b"3\n"
-
-    def fake_check_call(args, **kwargs):
+    def fake_run(args, **kwargs):
+        assert args[0:4] == ["sudo", "wpa_cli", "-i", "wlan0"]
         calls.append(args)
-        return 0
+        if args[-1] == "add_network":
+            return CompletedProcess(args, 0, stdout="3\n", stderr="")
+        return CompletedProcess(args, 0, stdout="OK\n", stderr="")
 
     _login_admin(flask_client)
-    monkeypatch.setattr(app_module.subprocess, "check_output", fake_check_output)
-    monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
 
     response = flask_client.post(
         "/wlan_connect",
@@ -134,17 +129,15 @@ def test_wlan_connect_all_space_passphrase(client, monkeypatch):
     flask_client, app_module = client
     calls = []
 
-    def fake_check_output(args, **kwargs):
-        assert args == ["sudo", "wpa_cli", "-i", "wlan0", "add_network"]
-        return b"4\n"
-
-    def fake_check_call(args, **kwargs):
+    def fake_run(args, **kwargs):
+        assert args[0:4] == ["sudo", "wpa_cli", "-i", "wlan0"]
         calls.append(args)
-        return 0
+        if args[-1] == "add_network":
+            return CompletedProcess(args, 0, stdout="4\n", stderr="")
+        return CompletedProcess(args, 0, stdout="OK\n", stderr="")
 
     _login_admin(flask_client)
-    monkeypatch.setattr(app_module.subprocess, "check_output", fake_check_output)
-    monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
 
     response = flask_client.post(
         "/wlan_connect",
@@ -167,17 +160,15 @@ def test_wlan_connect_hex_psk_unquoted(client, monkeypatch):
     calls = []
     hex_psk = "0123456789abcdef" * 4
 
-    def fake_check_output(args, **kwargs):
-        assert args == ["sudo", "wpa_cli", "-i", "wlan0", "add_network"]
-        return b"5\n"
-
-    def fake_check_call(args, **kwargs):
+    def fake_run(args, **kwargs):
+        assert args[0:4] == ["sudo", "wpa_cli", "-i", "wlan0"]
         calls.append(args)
-        return 0
+        if args[-1] == "add_network":
+            return CompletedProcess(args, 0, stdout="5\n", stderr="")
+        return CompletedProcess(args, 0, stdout="OK\n", stderr="")
 
     _login_admin(flask_client)
-    monkeypatch.setattr(app_module.subprocess, "check_output", fake_check_output)
-    monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
 
     response = flask_client.post(
         "/wlan_connect",
@@ -189,3 +180,34 @@ def test_wlan_connect_hex_psk_unquoted(client, monkeypatch):
 
     password_call = next(call for call in calls if len(call) > 6 and call[6] == "psk")
     assert password_call[7] == hex_psk
+
+
+def test_wlan_connect_fail_stops_sequence(client, monkeypatch):
+    flask_client, app_module = client
+    calls = []
+
+    def fake_run(args, **kwargs):
+        assert args[0:4] == ["sudo", "wpa_cli", "-i", "wlan0"]
+        calls.append(args)
+        if args[-1] == "add_network":
+            return CompletedProcess(args, 0, stdout="6\n", stderr="")
+        if args[4:7] == ["set_network", "6", "ssid"]:
+            return CompletedProcess(args, 0, stdout="OK\n", stderr="")
+        if args[4:7] == ["set_network", "6", "psk"]:
+            return CompletedProcess(args, 0, stdout="FAIL invalid", stderr="")
+        return CompletedProcess(args, 0, stdout="OK\n", stderr="")
+
+    _login_admin(flask_client)
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+
+    response = flask_client.post(
+        "/wlan_connect",
+        data={"ssid": "FailNet", "password": "secretpass"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    enable_calls = [
+        call for call in calls if len(call) > 4 and call[4] == "enable_network"
+    ]
+    assert enable_calls == []
