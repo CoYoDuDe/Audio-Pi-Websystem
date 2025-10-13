@@ -328,10 +328,29 @@ def set_rtc(dt):
 def sync_rtc_to_system():
     try:
         rtc_time = read_rtc()
-        subprocess.call(["sudo", "date", "-s", rtc_time.strftime("%Y-%m-%d %H:%M:%S")])
-        logging.info("RTC auf Systemzeit synchronisiert")
     except (ValueError, OSError, RTCUnavailableError, UnsupportedRTCError) as e:
         logging.warning(f"RTC-Sync übersprungen: {e}")
+        return
+
+    date_command = ["sudo", "date", "-s", rtc_time.strftime("%Y-%m-%d %H:%M:%S")]
+
+    try:
+        subprocess.check_call(date_command)
+    except FileNotFoundError as exc:
+        logging.error("RTC-Sync fehlgeschlagen: 'date'-Kommando nicht gefunden (%s)", exc)
+        raise SystemExit(1) from exc
+    except subprocess.CalledProcessError as exc:
+        logging.error(
+            "RTC-Sync fehlgeschlagen: Kommando %s lieferte Rückgabecode %s",
+            " ".join(map(str, date_command)),
+            exc.returncode,
+        )
+        raise SystemExit(1) from exc
+    except Exception as exc:  # pragma: no cover - unerwartete Fehler
+        logging.error("RTC-Sync fehlgeschlagen: %s", exc)
+        raise SystemExit(1) from exc
+
+    logging.info("RTC auf Systemzeit synchronisiert")
 
 
 if not TESTING:
