@@ -2341,11 +2341,62 @@ def change_password():
     return render_template("change_password.html")
 
 
+TIME_SYNC_INTERNET_SETTING_KEY = "time_sync_internet_default"
+
+
+def perform_internet_time_sync():
+    success = False
+    messages = []
+    try:
+        subprocess.check_call(["sudo", "systemctl", "stop", "systemd-timesyncd"])
+        subprocess.check_call(["sudo", "ntpdate", "pool.ntp.org"])
+    except subprocess.CalledProcessError as exc:
+        logging.error("Zeit-Synchronisation fehlgeschlagen (%s): %s", exc.cmd, exc)
+        messages.append("Fehler bei der Synchronisation")
+    except Exception as exc:  # pragma: no cover - unerwartete Fehler
+        logging.error("Unerwarteter Fehler bei der Zeit-Synchronisation: %s", exc)
+        messages.append("Fehler bei der Synchronisation")
+    else:
+        try:
+            set_rtc(datetime.now())
+        except (RTCUnavailableError, UnsupportedRTCError) as exc:
+            logging.error(
+                "RTC konnte nach dem Internet-Sync nicht gesetzt werden: %s", exc
+            )
+            messages.append("RTC konnte nicht aktualisiert werden")
+        else:
+            messages.append("Zeit vom Internet synchronisiert")
+            success = True
+    finally:
+        try:
+            subprocess.check_call(["sudo", "systemctl", "start", "systemd-timesyncd"])
+        except subprocess.CalledProcessError as exc:
+            logging.error(
+                "systemd-timesyncd konnte nach dem Internet-Sync nicht gestartet werden: %s",
+                exc,
+            )
+            messages.append("systemd-timesyncd konnte nicht gestartet werden")
+            success = False
+    return success, messages
+
+
+def _is_checked(value):
+    if value is None:
+        return False
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
 @app.route("/set_time", methods=["GET", "POST"])
 @login_required
 def set_time():
+    stored_sync_default = _is_checked(get_setting(TIME_SYNC_INTERNET_SETTING_KEY, "0"))
     if request.method == "POST":
-        time_str = request.form["datetime"]
+        time_str = request.form.get("datetime")
+        sync_checkbox = _is_checked(request.form.get("sync_internet"))
+        set_setting(TIME_SYNC_INTERNET_SETTING_KEY, "1" if sync_checkbox else "0")
+        if not time_str:
+            flash("Ungültiges Datums-/Zeitformat")
+            return redirect(url_for("index"))
         try:
             dt = datetime.fromisoformat(time_str.replace("Z", "+00:00"))
         except ValueError:
@@ -2367,39 +2418,23 @@ def set_time():
                     flash("RTC nicht verfügbar oder wird nicht unterstützt")
                 else:
                     flash("Datum und Uhrzeit gesetzt")
+                    if sync_checkbox or request.form.get("sync_internet_action"):
+                        _, messages = perform_internet_time_sync()
+                        for message in messages:
+                            flash(message)
         return redirect(url_for("index"))
-    return render_template("set_time.html")
+    return render_template(
+        "set_time.html",
+        sync_internet_default=stored_sync_default,
+    )
 
 
 @app.route("/sync_time_from_internet")
 @login_required
 def sync_time_from_internet():
-    try:
-        subprocess.check_call(["sudo", "systemctl", "stop", "systemd-timesyncd"])
-        subprocess.check_call(["sudo", "ntpdate", "pool.ntp.org"])
-    except subprocess.CalledProcessError as exc:
-        logging.error("Zeit-Synchronisation fehlgeschlagen (%s): %s", exc.cmd, exc)
-        flash("Fehler bei der Synchronisation")
-    except Exception as exc:  # pragma: no cover - unerwartete Fehler
-        logging.error("Unerwarteter Fehler bei der Zeit-Synchronisation: %s", exc)
-        flash("Fehler bei der Synchronisation")
-    else:
-        try:
-            set_rtc(datetime.now())
-        except (RTCUnavailableError, UnsupportedRTCError) as exc:
-            logging.error("RTC konnte nach dem Internet-Sync nicht gesetzt werden: %s", exc)
-            flash("RTC konnte nicht aktualisiert werden")
-        else:
-            flash("Zeit vom Internet synchronisiert")
-    finally:
-        try:
-            subprocess.check_call(["sudo", "systemctl", "start", "systemd-timesyncd"])
-        except subprocess.CalledProcessError as exc:
-            logging.error(
-                "systemd-timesyncd konnte nach dem Internet-Sync nicht gestartet werden: %s",
-                exc,
-            )
-            flash("systemd-timesyncd konnte nicht gestartet werden")
+    _, messages = perform_internet_time_sync()
+    for message in messages:
+        flash(message)
     return redirect(url_for("index"))
 
 
