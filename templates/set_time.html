@@ -2,10 +2,27 @@
 {% block title %}Zeit/Datum setzen{% endblock %}
 {% block content %}
 <h2>Datum und Uhrzeit setzen</h2>
-<form method="POST">
-    <label>Datum/Uhrzeit:</label>
-    <input type="datetime-local" name="datetime" required>
-    <button type="submit" class="btn">Setzen</button>
+<form method="POST" class="time-form">
+    <div class="form-group">
+        <label for="datetime">Datum/Uhrzeit:</label>
+        <input type="datetime-local" id="datetime" name="datetime" required>
+    </div>
+    <div class="form-group checkbox-group">
+        <input
+            type="checkbox"
+            id="sync_internet"
+            name="sync_internet"
+            value="1"
+            {% if sync_internet_default %}checked{% endif %}
+        >
+        <label for="sync_internet">Zeit über Internet synchronisieren</label>
+    </div>
+    <div class="button-group">
+        <button type="submit" class="btn">Setzen</button>
+        <button type="submit" class="btn secondary" name="sync_internet_action" value="1">
+            Setzen &amp; Internet-Sync
+        </button>
+    </div>
 </form>
 <a href="{{ url_for('index') }}">Zurück</a>
 {% endblock %}

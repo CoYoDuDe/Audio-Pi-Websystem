@@ -77,3 +77,36 @@ def test_sync_time_handles_ntp_failure(monkeypatch, client):
     assert ["sudo", "systemctl", "start", "systemd-timesyncd"] in commands
     assert b"Fehler bei der Synchronisation" in response.data
     assert called_set_rtc is False
+
+
+def test_set_time_triggers_internet_sync(monkeypatch, client):
+    client, app_module = client
+    _login(client)
+
+    original_run = app_module.subprocess.run
+
+    def fake_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd[:3] == ["sudo", "date", "-s"]:
+            return app_module.subprocess.CompletedProcess(cmd, 0)
+        return original_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(app_module, "set_rtc", lambda dt: None)
+
+    sync_called = {"value": False}
+
+    def fake_sync():
+        sync_called["value"] = True
+        return True, ["Zeit vom Internet synchronisiert"]
+
+    monkeypatch.setattr(app_module, "perform_internet_time_sync", fake_sync)
+
+    response = client.post(
+        "/set_time",
+        data={"datetime": "2024-01-01T12:00", "sync_internet": "1"},
+        follow_redirects=True,
+    )
+
+    assert sync_called["value"] is True
+    assert b"Zeit vom Internet synchronisiert" in response.data
+    assert app_module.get_setting(app_module.TIME_SYNC_INTERNET_SETTING_KEY, "0") == "1"
