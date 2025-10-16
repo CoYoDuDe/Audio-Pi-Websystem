@@ -14,6 +14,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("FLASK_SECRET_KEY", "testkey")
     monkeypatch.setenv("TESTING", "1")
     monkeypatch.setenv("DB_FILE", str(tmp_path / "test.db"))
+    monkeypatch.setenv("INITIAL_ADMIN_PASSWORD", "password")
 
     repo_root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(repo_root))
@@ -61,7 +62,14 @@ def test_upload_twice_generates_new_name(client):
 
     # Zunächst einloggen
     login_data = {"username": "admin", "password": "password"}
-    client.post("/login", data=login_data, follow_redirects=True)
+    response = client.post("/login", data=login_data, follow_redirects=True)
+    assert response.status_code == 200
+    change_response = client.post(
+        "/change_password",
+        data={"old_password": "password", "new_password": "password1234"},
+        follow_redirects=True,
+    )
+    assert b"Passwort ge\xc3\xa4ndert" in change_response.data
 
     data = {"file": (io.BytesIO(b"data"), "song.mp3")}
     res1 = client.post("/upload", data=data, follow_redirects=True)

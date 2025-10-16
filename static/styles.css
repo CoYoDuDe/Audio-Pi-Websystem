@@ -11,6 +11,14 @@ nav form {
     color: green;
 }
 
+.notice {
+    background: #fff3cd;
+    border: 1px solid #ffeeba;
+    padding: 1em;
+    margin-bottom: 1em;
+    color: #856404;
+}
+
 pre { background: #eee; padding: 1em; }
 
 /* Einheitliches Button-Design */

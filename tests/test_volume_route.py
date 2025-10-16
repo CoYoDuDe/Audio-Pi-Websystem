@@ -10,6 +10,7 @@ def app_module(tmp_path, monkeypatch):
     monkeypatch.setenv("FLASK_SECRET_KEY", "testkey")
     monkeypatch.setenv("TESTING", "1")
     monkeypatch.setenv("DB_FILE", str(tmp_path / "test.db"))
+    monkeypatch.setenv("INITIAL_ADMIN_PASSWORD", "password")
 
     repo_root = Path(__file__).resolve().parents[1]
     repo_root_str = str(repo_root)
@@ -41,11 +42,19 @@ def client(app_module):
 
 
 def _login(client):
-    return client.post(
+    response = client.post(
         "/login",
         data={"username": "admin", "password": "password"},
         follow_redirects=True,
     )
+    assert response.status_code == 200
+    change_response = client.post(
+        "/change_password",
+        data={"old_password": "password", "new_password": "password1234"},
+        follow_redirects=True,
+    )
+    assert b"Passwort ge\xc3\xa4ndert" in change_response.data
+    return change_response
 
 
 def test_volume_command_failure(monkeypatch, client):
