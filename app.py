@@ -34,6 +34,7 @@ from pydub import AudioSegment
 import smbus
 import sys
 import logging
+import secrets
 import re
 from typing import Iterable, Optional
 
@@ -55,6 +56,27 @@ def _env_to_bool(value):
 TESTING = _env_to_bool(TESTING_RAW)
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
+
+@app.before_request
+def enforce_initial_password_change():
+    if not current_user.is_authenticated:
+        return None
+
+    if not getattr(current_user, "must_change_password", False):
+        return None
+
+    endpoint = request.endpoint
+    if endpoint is None:
+        return None
+
+    allowed_endpoints = {"change_password", "logout"}
+    if endpoint == "static" or endpoint.startswith("static"):
+        return None
+
+    if endpoint in allowed_endpoints:
+        return None
+
+    return redirect(url_for("change_password"))
 
 # Konfiguration
 UPLOAD_FOLDER = "uploads"
@@ -383,7 +405,23 @@ AUTO_REBOOT_DEFAULTS = {
 def initialize_database():
     with get_db_connection() as (conn, cursor):
         cursor.execute(
-            """CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, password TEXT)"""
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY,
+                username TEXT,
+                password TEXT,
+                must_change_password INTEGER DEFAULT 0
+            )
+            """
+        )
+        cursor.execute("PRAGMA table_info(users)")
+        user_columns = {row[1] for row in cursor.fetchall()}
+        if "must_change_password" not in user_columns:
+            cursor.execute(
+                "ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0"
+            )
+        cursor.execute(
+            "UPDATE users SET must_change_password = 0 WHERE must_change_password IS NULL"
         )
         cursor.execute(
             """
@@ -480,10 +518,26 @@ def initialize_database():
                 (key, value),
             )
         if not cursor.execute("SELECT * FROM users").fetchone():
+            initial_password = os.environ.get("INITIAL_ADMIN_PASSWORD")
+            generated_password = False
+            if not initial_password:
+                initial_password = secrets.token_urlsafe(16)
+                generated_password = True
+            hashed_password = generate_password_hash(initial_password)
+            must_change_value = 1
             cursor.execute(
-                "INSERT INTO users (username, password) VALUES (?, ?)",
-                ("admin", generate_password_hash("password")),
+                "INSERT INTO users (username, password, must_change_password) VALUES (?, ?, ?)",
+                ("admin", hashed_password, must_change_value),
             )
+            if generated_password:
+                logging.warning(
+                    "Initialpasswort für 'admin' generiert. Bitte sicher verwahren: %s",
+                    initial_password,
+                )
+            else:
+                logging.info(
+                    "Initialpasswort für 'admin' aus Umgebungsvariable INITIAL_ADMIN_PASSWORD übernommen."
+                )
         conn.commit()
 
 
@@ -674,9 +728,10 @@ def _set_amp_output(level, *, keep_claimed=None):
 
 
 class User(UserMixin):
-    def __init__(self, id, username):
+    def __init__(self, id, username, must_change_password=False):
         self.id = id
         self.username = username
+        self.must_change_password = bool(must_change_password)
 
 
 @login_manager.user_loader
@@ -685,7 +740,17 @@ def load_user(user_id):
         cursor.execute("SELECT * FROM users WHERE id=?", (user_id,))
         user_data = cursor.fetchone()
         if user_data:
-            return User(user_data[0], user_data[1])
+            columns = set(user_data.keys())
+            must_change_value = (
+                user_data["must_change_password"]
+                if "must_change_password" in columns
+                else 0
+            )
+            return User(
+                user_data["id"],
+                user_data["username"],
+                must_change_value,
+            )
         return None
 
 
@@ -1682,9 +1747,18 @@ def login():
         with get_db_connection() as (conn, cursor):
             cursor.execute("SELECT * FROM users WHERE username=?", (username,))
             user_data = cursor.fetchone()
-        if user_data and check_password_hash(user_data[2], password):
-            user = User(user_data[0], username)
+        if user_data and check_password_hash(user_data["password"], password):
+            user_columns = set(user_data.keys())
+            must_change_value = (
+                user_data["must_change_password"]
+                if "must_change_password" in user_columns
+                else 0
+            )
+            user = User(user_data["id"], username, must_change_value)
             login_user(user)
+            if user.must_change_password:
+                flash("Bitte ändern Sie das initiale Passwort, bevor Sie fortfahren.")
+                return redirect(url_for("change_password"))
             return redirect(url_for("index"))
         flash("Falsche Anmeldedaten")
     return render_template("login.html")
@@ -2401,27 +2475,33 @@ def logs():
 @app.route("/change_password", methods=["GET", "POST"])
 @login_required
 def change_password():
+    force_change = getattr(current_user, "must_change_password", False)
     if request.method == "POST":
         old_pass = request.form["old_password"]
         new_pass = request.form["new_password"]
-        if not new_pass or len(new_pass) < 4:
+        if not new_pass or len(new_pass) < 8:
             flash("Neues Passwort zu kurz")
-            return render_template("change_password.html")
+            return render_template("change_password.html", force_change=force_change)
+        if new_pass == old_pass:
+            flash("Neues Passwort muss sich vom alten unterscheiden")
+            return render_template("change_password.html", force_change=force_change)
         with get_db_connection() as (conn, cursor):
             cursor.execute("SELECT password FROM users WHERE id=?", (current_user.id,))
             result = cursor.fetchone()
-            if result and check_password_hash(result[0], old_pass):
+            if result and check_password_hash(result["password"], old_pass):
                 new_hashed = generate_password_hash(new_pass)
                 cursor.execute(
-                    "UPDATE users SET password=? WHERE id=?",
+                    "UPDATE users SET password=?, must_change_password=0 WHERE id=?",
                     (new_hashed, current_user.id),
                 )
                 conn.commit()
+                current_user.must_change_password = False
                 flash("Passwort geändert")
             else:
                 flash("Falsches altes Passwort")
-                return render_template("change_password.html")
-    return render_template("change_password.html")
+                return render_template("change_password.html", force_change=force_change)
+        return redirect(url_for("index"))
+    return render_template("change_password.html", force_change=force_change)
 
 
 TIME_SYNC_INTERNET_SETTING_KEY = "time_sync_internet_default"

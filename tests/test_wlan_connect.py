@@ -11,6 +11,7 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setenv("FLASK_SECRET_KEY", "testkey")
     monkeypatch.setenv("TESTING", "1")
     monkeypatch.setenv("DB_FILE", str(tmp_path / "test.db"))
+    monkeypatch.setenv("INITIAL_ADMIN_PASSWORD", "password")
 
     repo_root = Path(__file__).resolve().parents[1]
     repo_path = str(repo_root)
@@ -32,8 +33,14 @@ def client(monkeypatch, tmp_path):
 
 def _login_admin(flask_client):
     login_data = {"username": "admin", "password": "password"}
-    response = flask_client.post("/login", data=login_data, follow_redirects=False)
-    assert response.status_code == 302
+    response = flask_client.post("/login", data=login_data, follow_redirects=True)
+    assert response.status_code == 200
+    change_response = flask_client.post(
+        "/change_password",
+        data={"old_password": "password", "new_password": "password1234"},
+        follow_redirects=True,
+    )
+    assert b"Passwort ge\xc3\xa4ndert" in change_response.data
 
 
 def test_wlan_connect_quotes_ascii_ssid(client, monkeypatch):

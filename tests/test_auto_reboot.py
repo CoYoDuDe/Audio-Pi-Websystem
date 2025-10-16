@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 os.environ.setdefault("FLASK_SECRET_KEY", "test")
 os.environ.setdefault("TESTING", "1")
+os.environ.setdefault("INITIAL_ADMIN_PASSWORD", "password")
 
 import app  # noqa: E402
 
@@ -100,6 +101,12 @@ def test_save_auto_reboot_settings_route_updates_values(app_module, monkeypatch)
             follow_redirects=True,
         )
         assert response.status_code == 200
+        change_response = client.post(
+            "/change_password",
+            data={"old_password": "password", "new_password": "password1234"},
+            follow_redirects=True,
+        )
+        assert b"Passwort ge\xc3\xa4ndert" in change_response.data
         response = client.post(
             "/settings/auto_reboot",
             data={
@@ -130,6 +137,12 @@ def test_save_auto_reboot_settings_rejects_invalid_time(app_module, monkeypatch)
             data={"username": "admin", "password": "password"},
             follow_redirects=True,
         )
+        change_response = client.post(
+            "/change_password",
+            data={"old_password": "password", "new_password": "password1234"},
+            follow_redirects=True,
+        )
+        assert b"Passwort ge\xc3\xa4ndert" in change_response.data
         response = client.post(
             "/settings/auto_reboot",
             data={
