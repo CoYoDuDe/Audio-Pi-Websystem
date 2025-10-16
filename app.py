@@ -572,6 +572,36 @@ def _ensure_local_timezone(dt):
     return dt
 
 
+def _to_local_aware(dt):
+    dt = _ensure_local_timezone(dt)
+    if dt is None:
+        return None
+    try:
+        return dt.astimezone(LOCAL_TZ)
+    except ValueError:
+        return dt
+
+
+def _to_local_naive(dt):
+    aware_dt = _to_local_aware(dt)
+    if aware_dt is None:
+        return None
+    return aware_dt.replace(tzinfo=None)
+
+
+def _format_schedule_time_for_display(time_str, repeat):
+    if repeat != "once":
+        return time_str
+    try:
+        run_dt = parse_once_datetime(time_str)
+    except (TypeError, ValueError):
+        return time_str
+    local_dt = _to_local_aware(run_dt)
+    if local_dt is None:
+        return time_str
+    return local_dt.strftime("%Y-%m-%d %H:%M:%S %Z")
+
+
 def get_setting(key, default=None):
     with get_db_connection() as (conn, cursor):
         row = cursor.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
@@ -770,11 +800,14 @@ def _schedule_interval_on_date(
                 run_dt = parse_once_datetime(schedule_data.get("time"))
             except (TypeError, ValueError):
                 return None
-            if run_dt.date() != effective_date:
+            local_run_dt = _to_local_aware(run_dt)
+            if local_run_dt is None:
                 return None
-            start_dt = run_dt + timedelta(seconds=delay_seconds)
+            if local_run_dt.date() != effective_date:
+                return None
+            start_dt = local_run_dt + timedelta(seconds=delay_seconds)
             end_dt = start_dt + timedelta(seconds=duration)
-            return start_dt, end_dt
+            return _to_local_naive(start_dt), _to_local_naive(end_dt)
         if start_date_obj and effective_date < start_date_obj:
             return None
         if end_date_obj and effective_date > end_date_obj:
@@ -1328,7 +1361,7 @@ def schedule_job(schedule_id):
 
 def skip_past_once_schedules():
     """Markiert abgelaufene Einmal-Zeitpläne als ausgeführt (Grace-Zeit)."""
-    now = datetime.now()
+    now = datetime.now(LOCAL_TZ)
     # Negatives Toleranzfenster, um nur eindeutig vergangene Startzeiten zu überspringen.
     tolerance = timedelta(seconds=1)
     threshold = now - tolerance
@@ -1338,7 +1371,8 @@ def skip_past_once_schedules():
         for sch_id, sch_time in schedules:
             try:
                 run_time = parse_once_datetime(sch_time)
-                if run_time <= threshold:
+                run_time_local = _to_local_aware(run_time)
+                if run_time_local and run_time_local <= threshold:
                     cursor.execute("UPDATE schedules SET executed=1 WHERE id=?", (sch_id,))
                     logging.info(f"Skippe überfälligen 'once' Schedule {sch_id}")
             except ValueError:
@@ -1381,7 +1415,7 @@ def load_schedules():
                 )
                 continue
             if repeat == "once":
-                run_time = _ensure_local_timezone(parse_once_datetime(time_str))
+                run_time = _to_local_aware(parse_once_datetime(time_str))
                 trigger = DateTrigger(run_date=run_time)
             elif repeat == "daily":
                 h, m, s = [int(part) for part in time_str.split(":")]
@@ -1467,8 +1501,17 @@ def load_schedules():
                 misfire_grace_time=misfire_grace_seconds,
                 id=str(sch_id),
             )
+            display_time = (
+                _format_schedule_time_for_display(time_str, repeat)
+                if repeat == "once"
+                else time_str
+            )
             logging.info(
-                f"Geplanter Job {sch_id}: Repeat={repeat}, Time={time_str}, Misfire-Grace={misfire_grace_seconds}"
+                "Geplanter Job %s: Repeat=%s, Time=%s, Misfire-Grace=%s",
+                sch_id,
+                repeat,
+                display_time,
+                misfire_grace_seconds,
             )
         except ValueError:
             logging.warning(f"Ungültige Zeit {time_str} für Schedule {sch_id}")
@@ -1654,6 +1697,7 @@ def index():
             "id": row["id"],
             "name": row["name"],
             "time": row["time"],
+            "time_display": _format_schedule_time_for_display(row["time"], row["repeat"]),
             "repeat": row["repeat"],
             "delay": row["delay"],
             "item_type": row["item_type"],
@@ -2004,7 +2048,10 @@ def add_schedule():
             if repeat == "monthly":
                 day_of_month_value = dt.day
         if repeat == "once":
-            time_only = dt.strftime("%Y-%m-%d %H:%M:%S")
+            if dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None:
+                time_only = dt.isoformat(timespec="seconds")
+            else:
+                time_only = dt.strftime("%Y-%m-%d %H:%M:%S")
         else:
             time_only = dt.strftime("%H:%M:%S")
             if not validate_time(time_only):
