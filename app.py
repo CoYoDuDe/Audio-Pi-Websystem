@@ -111,6 +111,7 @@ else:
         )
         MAX_SCHEDULE_DELAY_SECONDS = DEFAULT_MAX_SCHEDULE_DELAY_SECONDS
 DAC_SINK = "alsa_output.platform-soc_107c000000_sound.stereo-fallback"
+PLAY_NOW_ALLOWED_TYPES = {"file", "playlist"}
 
 # Logging
 logging.basicConfig(
@@ -1964,11 +1965,19 @@ def delete_playlist(playlist_id):
     return redirect(url_for("index"))
 
 
-@app.route("/play_now/<string:item_type>/<int:item_id>")
+@app.route("/play_now/<string:item_type>/<int:item_id>", methods=["POST"])
 @login_required
 def play_now(item_type, item_id):
+    normalized_type = item_type.lower()
+    if normalized_type not in PLAY_NOW_ALLOWED_TYPES:
+        logging.warning("Ungültiger Sofort-Wiedergabe-Typ angefordert: %s", item_type)
+        flash("Ungültiger Elementtyp für Sofort-Wiedergabe")
+        return redirect(url_for("index"))
+
     delay = VERZOEGERUNG_SEC
-    threading.Thread(target=play_item, args=(item_id, item_type, delay, False)).start()
+    threading.Thread(
+        target=play_item, args=(item_id, normalized_type, delay, False)
+    ).start()
     flash("Abspielen gestartet")
     return redirect(url_for("index"))
 
@@ -2595,7 +2604,7 @@ def set_time():
     )
 
 
-@app.route("/sync_time_from_internet")
+@app.route("/sync_time_from_internet", methods=["POST"])
 @login_required
 def sync_time_from_internet():
     _, messages = perform_internet_time_sync()
