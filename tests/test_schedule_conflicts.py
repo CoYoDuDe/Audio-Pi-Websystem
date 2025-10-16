@@ -166,3 +166,39 @@ def test_has_schedule_conflict_detects_cross_midnight_once_events():
             cursor, new_schedule, new_duration, new_first_date
         )
     assert conflict is True
+
+
+def test_once_schedule_preserves_utc_timezone_information():
+    file_id = _insert_audio_file("utc_track.mp3", 30.0)
+    iso_input = "2025-05-10T12:34:56Z"
+
+    with app.app.test_request_context(
+        "/schedule",
+        method="POST",
+        data={
+            "item_type": "file",
+            "item_id": str(file_id),
+            "time": iso_input,
+            "repeat": "once",
+            "delay": "0",
+            "start_date": "",
+            "end_date": "",
+        },
+    ):
+        response = app.add_schedule.__wrapped__()
+        assert response.status_code == 302
+
+    row = app.cursor.execute(
+        "SELECT time FROM schedules WHERE item_id=?", (str(file_id),)
+    ).fetchone()
+    assert row is not None
+    stored_time = row["time"]
+    assert stored_time.endswith("+00:00")
+
+    original_dt = app.parse_once_datetime(iso_input)
+    stored_dt = app.parse_once_datetime(stored_time)
+    assert stored_dt.tzinfo is not None
+    assert (
+        stored_dt.isoformat(timespec="seconds")
+        == original_dt.isoformat(timespec="seconds")
+    )

@@ -207,7 +207,7 @@
     <ul>
         {% for schedule in schedules %}
         <li>
-            {{ schedule.name or 'Unbekanntes Element' }} ({{ schedule.item_type }}) - {{ schedule.time }} ({{ schedule.repeat }}) +{{ schedule.delay }}s
+            {{ schedule.name or 'Unbekanntes Element' }} ({{ schedule.item_type }}) - {{ schedule.time_display }} ({{ schedule.repeat }}) +{{ schedule.delay }}s
             – Lautstärke {{ schedule.volume_percent }}%
             {% if schedule.start_date or schedule.end_date %}
                 [
