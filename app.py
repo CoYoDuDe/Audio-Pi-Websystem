@@ -1401,6 +1401,11 @@ def skip_past_once_schedules():
 
 
 def load_schedules():
+    try:
+        auto_reboot_job_existed = scheduler.get_job(AUTO_REBOOT_JOB_ID) is not None
+    except Exception:
+        auto_reboot_job_existed = False
+
     scheduler.remove_all_jobs()
     # Misfire-Puffer: Default 60 s, optional via Settings-Key 'scheduler_misfire_grace_time'.
     raw_misfire_value = get_setting("scheduler_misfire_grace_time")
@@ -1543,6 +1548,9 @@ def load_schedules():
             )
         except ValueError:
             logging.warning(f"Ungültige Zeit {time_str} für Schedule {sch_id}")
+
+    if auto_reboot_job_existed:
+        update_auto_reboot_job()
 
 
 if not TESTING:

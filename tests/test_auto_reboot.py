@@ -144,3 +144,19 @@ def test_save_auto_reboot_settings_rejects_invalid_time(app_module, monkeypatch)
     assert "Ungültige Uhrzeit" in response.get_data(as_text=True)
     assert app_module.get_setting("auto_reboot_enabled") == "0"
     update_mock.assert_not_called()
+
+
+def test_load_schedules_preserves_auto_reboot_job(app_module):
+    scheduler = app_module.scheduler
+    scheduler.remove_all_jobs()
+
+    app_module.set_setting("auto_reboot_enabled", "1")
+    app_module.set_setting("auto_reboot_mode", "daily")
+    app_module.set_setting("auto_reboot_time", "04:00")
+
+    assert app_module.update_auto_reboot_job() is True
+    assert scheduler.get_job(app_module.AUTO_REBOOT_JOB_ID) is not None
+
+    app_module.load_schedules()
+
+    assert scheduler.get_job(app_module.AUTO_REBOOT_JOB_ID) is not None
