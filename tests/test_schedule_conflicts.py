@@ -157,7 +157,8 @@ def test_has_schedule_conflict_detects_cross_midnight_once_events():
         "end_date": None,
         "day_of_month": None,
     }
-    new_first_date = app.parse_once_datetime(new_schedule["time"]).date()
+    new_once_dt = app.parse_once_datetime(new_schedule["time"])
+    new_first_date = app._to_local_aware(new_once_dt).date()
 
     with app.get_db_connection() as (conn, cursor):
         new_duration = app._get_item_duration(cursor, "file", new_schedule["item_id"])
@@ -193,11 +194,13 @@ def test_once_schedule_preserves_utc_timezone_information():
     ).fetchone()
     assert row is not None
     stored_time = row["time"]
+    assert "T" in stored_time
     assert stored_time.endswith("+00:00")
 
     original_dt = app.parse_once_datetime(iso_input)
     stored_dt = app.parse_once_datetime(stored_time)
     assert stored_dt.tzinfo is not None
+    assert stored_dt.tzinfo.utcoffset(stored_dt) == original_dt.tzinfo.utcoffset(original_dt)
     assert (
         stored_dt.isoformat(timespec="seconds")
         == original_dt.isoformat(timespec="seconds")

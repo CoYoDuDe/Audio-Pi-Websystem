@@ -703,15 +703,27 @@ def validate_time(time_str):
 
 def parse_once_datetime(time_str):
     """Parst einen 'once'-Zeitstempel mit verschiedenen Formaten."""
-    try:
-        return datetime.fromisoformat(time_str.replace("Z", "+00:00"))
-    except ValueError:
-        pass
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+    if not time_str:
+        raise ValueError("Leerer Zeitstempel für 'once'-Zeitplan")
+
+    normalized = time_str.strip()
+    iso_candidates = [normalized]
+    if normalized.endswith("Z"):
+        iso_candidates.append(f"{normalized[:-1]}+00:00")
+
+    for candidate in iso_candidates:
         try:
-            return datetime.strptime(time_str, fmt)
+            return datetime.fromisoformat(candidate)
         except ValueError:
             continue
+
+    relaxed = normalized.replace("T", " ")
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(relaxed, fmt)
+        except ValueError:
+            continue
+
     raise ValueError(f"Ungültige Zeitangabe: {time_str}")
 
 
@@ -867,9 +879,13 @@ def _get_first_occurrence_date(schedule_data):
     repeat = schedule_data.get("repeat")
     if repeat == "once":
         try:
-            return parse_once_datetime(schedule_data.get("time")).date()
+            run_dt = parse_once_datetime(schedule_data.get("time"))
         except (TypeError, ValueError):
             return None
+        local_run_dt = _to_local_aware(run_dt)
+        if local_run_dt is None:
+            return None
+        return local_run_dt.date()
     start_date_obj = parse_schedule_date(schedule_data.get("start_date"))
     if repeat == "monthly" and start_date_obj is not None:
         day_of_month = schedule_data.get("day_of_month")
@@ -930,9 +946,13 @@ def _has_schedule_conflict(cursor, new_schedule_data, new_duration_seconds, new_
             relevant_dates.add(first_date)
         if schedule.get("repeat") == "once":
             try:
-                relevant_dates.add(parse_once_datetime(schedule.get("time")).date())
+                run_dt = parse_once_datetime(schedule.get("time"))
             except (TypeError, ValueError):
-                pass
+                run_dt = None
+            if run_dt is not None:
+                local_run_dt = _to_local_aware(run_dt)
+                if local_run_dt is not None:
+                    relevant_dates.add(local_run_dt.date())
         for candidate_date in relevant_dates:
             new_intervals = _schedule_interval_on_date(
                 new_schedule_data,
@@ -1415,7 +1435,15 @@ def load_schedules():
                 )
                 continue
             if repeat == "once":
-                run_time = _to_local_aware(parse_once_datetime(time_str))
+                run_dt = parse_once_datetime(time_str)
+                run_time = _to_local_aware(run_dt)
+                if run_time is None:
+                    logging.warning(
+                        "Zeitplan %s besitzt keine gültige lokale Ausführungszeit (%s)",
+                        sch_id,
+                        time_str,
+                    )
+                    continue
                 trigger = DateTrigger(run_date=run_time)
             elif repeat == "daily":
                 h, m, s = [int(part) for part in time_str.split(":")]
@@ -2048,10 +2076,7 @@ def add_schedule():
             if repeat == "monthly":
                 day_of_month_value = dt.day
         if repeat == "once":
-            if dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None:
-                time_only = dt.isoformat(timespec="seconds")
-            else:
-                time_only = dt.strftime("%Y-%m-%d %H:%M:%S")
+            time_only = dt.isoformat(timespec="seconds")
         else:
             time_only = dt.strftime("%H:%M:%S")
             if not validate_time(time_only):
@@ -2099,7 +2124,10 @@ def add_schedule():
         else:
             start_date_value = None
             end_date_value = None
-            first_occurrence_date = dt.date()
+            local_dt = _to_local_aware(dt)
+            first_occurrence_date = (
+                local_dt.date() if local_dt is not None else dt.date()
+            )
     except ValueError:
         flash("Ungültiges Start- oder Enddatum")
         return redirect(url_for("index"))
