@@ -3,6 +3,7 @@
 {% block content %}
 <h2>Login</h2>
 <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Benutzername:</label>
     <input type="text" name="username" required>
     <label>Passwort:</label>

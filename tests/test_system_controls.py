@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.csrf_utils import csrf_post
+
 
 @pytest.fixture
 def app_module(tmp_path, monkeypatch):
@@ -42,16 +44,19 @@ def client(app_module):
 
 
 def _login(client):
-    response = client.post(
+    response = csrf_post(
+        client,
         "/login",
         data={"username": "admin", "password": "password"},
         follow_redirects=True,
     )
     assert response.status_code == 200
-    change_response = client.post(
+    change_response = csrf_post(
+        client,
         "/change_password",
         data={"old_password": "password", "new_password": "password1234"},
         follow_redirects=True,
+        source_url="/change_password",
     )
     assert b"Passwort ge\xc3\xa4ndert" in change_response.data
     return change_response
@@ -59,14 +64,14 @@ def _login(client):
 
 def test_reboot_requires_login(client):
     client, _ = client
-    response = client.post("/system/reboot", follow_redirects=False)
+    response = csrf_post(client, "/system/reboot", follow_redirects=False)
     assert response.status_code == 302
     assert "/login" in response.headers.get("Location", "")
 
 
 def test_shutdown_requires_login(client):
     client, _ = client
-    response = client.post("/system/shutdown", follow_redirects=False)
+    response = csrf_post(client, "/system/shutdown", follow_redirects=False)
     assert response.status_code == 302
     assert "/login" in response.headers.get("Location", "")
 
@@ -104,7 +109,7 @@ def test_reboot_triggers_popen(monkeypatch, client):
 
     monkeypatch.setattr(app_module.subprocess, "Popen", fake_popen)
 
-    response = client.post("/system/reboot", follow_redirects=True)
+    response = csrf_post(client, "/system/reboot", follow_redirects=True)
 
     assert commands == [["sudo", "reboot"]]
     assert b"Systemneustart eingeleitet." in response.data
@@ -143,7 +148,7 @@ def test_shutdown_triggers_popen(monkeypatch, client):
 
     monkeypatch.setattr(app_module.subprocess, "Popen", fake_popen)
 
-    response = client.post("/system/shutdown", follow_redirects=True)
+    response = csrf_post(client, "/system/shutdown", follow_redirects=True)
 
     assert commands == [["sudo", "poweroff"]]
     assert b"Herunterfahren eingeleitet." in response.data

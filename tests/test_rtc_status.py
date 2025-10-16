@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.csrf_utils import csrf_post
+
 
 @pytest.fixture
 def app_module(tmp_path, monkeypatch):
@@ -63,16 +65,19 @@ def test_scan_returns_none_when_no_device(app_module):
 
 
 def _login(client):
-    response = client.post(
+    response = csrf_post(
+        client,
         "/login",
         data={"username": "admin", "password": "password"},
         follow_redirects=True,
     )
     assert response.status_code == 200
-    change_response = client.post(
+    change_response = csrf_post(
+        client,
         "/change_password",
         data={"old_password": "password", "new_password": "password1234"},
         follow_redirects=True,
+        source_url="/change_password",
     )
     assert b"Passwort ge\xc3\xa4ndert" in change_response.data
     return change_response

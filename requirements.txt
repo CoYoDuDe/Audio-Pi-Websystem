@@ -1,5 +1,6 @@
 Flask==3.1.1
 Flask-Login==0.6.3
+Flask-WTF==1.2.1
 lgpio==0.2.2.0
 pygame==2.6.1
 pydub==0.25.1

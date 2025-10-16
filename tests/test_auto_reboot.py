@@ -2,6 +2,8 @@ import os
 import pytest
 from unittest.mock import MagicMock
 
+from tests.csrf_utils import csrf_post
+
 os.environ.setdefault("FLASK_SECRET_KEY", "test")
 os.environ.setdefault("TESTING", "1")
 os.environ.setdefault("INITIAL_ADMIN_PASSWORD", "password")
@@ -95,19 +97,23 @@ def test_save_auto_reboot_settings_route_updates_values(app_module, monkeypatch)
 
     client = app_module.app.test_client()
     with client:
-        response = client.post(
+        response = csrf_post(
+            client,
             "/login",
             data={"username": "admin", "password": "password"},
             follow_redirects=True,
         )
         assert response.status_code == 200
-        change_response = client.post(
+        change_response = csrf_post(
+            client,
             "/change_password",
             data={"old_password": "password", "new_password": "password1234"},
             follow_redirects=True,
+            source_url="/change_password",
         )
         assert b"Passwort ge\xc3\xa4ndert" in change_response.data
-        response = client.post(
+        response = csrf_post(
+            client,
             "/settings/auto_reboot",
             data={
                 "auto_reboot_enabled": "on",
@@ -132,18 +138,22 @@ def test_save_auto_reboot_settings_rejects_invalid_time(app_module, monkeypatch)
 
     client = app_module.app.test_client()
     with client:
-        client.post(
+        csrf_post(
+            client,
             "/login",
             data={"username": "admin", "password": "password"},
             follow_redirects=True,
         )
-        change_response = client.post(
+        change_response = csrf_post(
+            client,
             "/change_password",
             data={"old_password": "password", "new_password": "password1234"},
             follow_redirects=True,
+            source_url="/change_password",
         )
         assert b"Passwort ge\xc3\xa4ndert" in change_response.data
-        response = client.post(
+        response = csrf_post(
+            client,
             "/settings/auto_reboot",
             data={
                 "auto_reboot_enabled": "on",

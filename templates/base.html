@@ -2,6 +2,7 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}Audio Pi{% endblock %}</title>
     <link rel="stylesheet" href="https://cdn.simplecss.org/simple.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
@@ -13,6 +14,7 @@
         <a href="{{ url_for('change_password') }}">Passwort ändern</a>
         <a href="{{ url_for('set_time') }}">Zeit/Datum</a>
         <form action="{{ url_for('update') }}" method="post" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn">Update</button>
         </form>
         <a href="{{ url_for('logout') }}">Logout</a>
@@ -27,5 +29,41 @@
       {% endif %}
     {% endwith %}
     {% block content %}{% endblock %}
+    <script>
+    (function () {
+        document.addEventListener('DOMContentLoaded', function () {
+            var meta = document.querySelector('meta[name="csrf-token"]');
+            if (!meta) {
+                return;
+            }
+            var token = meta.getAttribute('content');
+            if (!token) {
+                return;
+            }
+            window.csrfToken = token;
+            if (typeof window.fetch === 'function') {
+                var originalFetch = window.fetch.bind(window);
+                window.fetch = function (input, init) {
+                    init = init || {};
+                    var headers = init.headers;
+                    if (typeof Headers !== 'undefined' && !(headers instanceof Headers)) {
+                        headers = new Headers(headers || {});
+                    } else if (!headers) {
+                        headers = {};
+                    }
+                    if (headers instanceof Headers) {
+                        if (!headers.has('X-CSRFToken')) {
+                            headers.set('X-CSRFToken', token);
+                        }
+                    } else if (!('X-CSRFToken' in headers)) {
+                        headers['X-CSRFToken'] = token;
+                    }
+                    init.headers = headers;
+                    return originalFetch(input, init);
+                };
+            }
+        });
+    })();
+    </script>
 </body>
 </html>
