@@ -8,6 +8,8 @@ import tempfile
 
 import pytest
 
+from tests.csrf_utils import csrf_post
+
 # Hilfsfixture zum Laden der App mit Test-Einstellungen
 @pytest.fixture
 def client(tmp_path, monkeypatch):
@@ -62,17 +64,19 @@ def test_upload_twice_generates_new_name(client):
 
     # Zunächst einloggen
     login_data = {"username": "admin", "password": "password"}
-    response = client.post("/login", data=login_data, follow_redirects=True)
+    response = csrf_post(client, "/login", data=login_data, follow_redirects=True)
     assert response.status_code == 200
-    change_response = client.post(
+    change_response = csrf_post(
+        client,
         "/change_password",
         data={"old_password": "password", "new_password": "password1234"},
         follow_redirects=True,
+        source_url="/change_password",
     )
     assert b"Passwort ge\xc3\xa4ndert" in change_response.data
 
     data = {"file": (io.BytesIO(b"data"), "song.mp3")}
-    res1 = client.post("/upload", data=data, follow_redirects=True)
+    res1 = csrf_post(client, "/upload", data=data, follow_redirects=True)
     assert b"hochgeladen" in res1.data
     files = sorted(upload_dir.iterdir())
     assert len(files) == 1
@@ -80,7 +84,7 @@ def test_upload_twice_generates_new_name(client):
     assert first_name == "song.mp3"
 
     data = {"file": (io.BytesIO(b"data"), "song.mp3")}
-    res2 = client.post("/upload", data=data, follow_redirects=True)
+    res2 = csrf_post(client, "/upload", data=data, follow_redirects=True)
     assert b"bereits vorhanden" in res2.data
     files = sorted(upload_dir.iterdir())
     assert len(files) == 2

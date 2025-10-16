@@ -3,6 +3,7 @@
 {% block content %}
 <h2>Datum und Uhrzeit setzen</h2>
 <form method="POST" class="time-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="form-group">
         <label for="datetime">Datum/Uhrzeit:</label>
         <input type="datetime-local" id="datetime" name="datetime" required>

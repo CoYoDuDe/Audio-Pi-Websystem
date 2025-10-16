@@ -5,6 +5,8 @@ from pathlib import Path
 import pytest
 from subprocess import CompletedProcess
 
+from tests.csrf_utils import csrf_post
+
 
 @pytest.fixture
 def client(monkeypatch, tmp_path):
@@ -33,12 +35,19 @@ def client(monkeypatch, tmp_path):
 
 def _login_admin(flask_client):
     login_data = {"username": "admin", "password": "password"}
-    response = flask_client.post("/login", data=login_data, follow_redirects=True)
+    response = csrf_post(
+        flask_client,
+        "/login",
+        data=login_data,
+        follow_redirects=True,
+    )
     assert response.status_code == 200
-    change_response = flask_client.post(
+    change_response = csrf_post(
+        flask_client,
         "/change_password",
         data={"old_password": "password", "new_password": "password1234"},
         follow_redirects=True,
+        source_url="/change_password",
     )
     assert b"Passwort ge\xc3\xa4ndert" in change_response.data
 
@@ -56,10 +65,12 @@ def test_wlan_connect_quotes_ascii_ssid(client, monkeypatch):
 
     _login_admin(flask_client)
     monkeypatch.setattr(app_module.subprocess, "run", fake_run)
-    response = flask_client.post(
+    response = csrf_post(
+        flask_client,
         "/wlan_connect",
         data={"ssid": "My Wifi", "password": "secretpass"},
         follow_redirects=False,
+        source_url="/change_password",
     )
 
     assert response.status_code == 302
@@ -84,10 +95,12 @@ def test_wlan_connect_hex_unicode_ssid(client, monkeypatch):
 
     _login_admin(flask_client)
     monkeypatch.setattr(app_module.subprocess, "run", fake_run)
-    response = flask_client.post(
+    response = csrf_post(
+        flask_client,
         "/wlan_connect",
         data={"ssid": "Caf\u00e9 Netzwerk", "password": "secretpass"},
         follow_redirects=False,
+        source_url="/change_password",
     )
 
     assert response.status_code == 302
@@ -113,10 +126,12 @@ def test_wlan_connect_open_network(client, monkeypatch):
     _login_admin(flask_client)
     monkeypatch.setattr(app_module.subprocess, "run", fake_run)
 
-    response = flask_client.post(
+    response = csrf_post(
+        flask_client,
         "/wlan_connect",
         data={"ssid": "OpenNetwork", "password": "   "},
         follow_redirects=False,
+        source_url="/change_password",
     )
 
     assert response.status_code == 302
@@ -146,10 +161,12 @@ def test_wlan_connect_all_space_passphrase(client, monkeypatch):
     _login_admin(flask_client)
     monkeypatch.setattr(app_module.subprocess, "run", fake_run)
 
-    response = flask_client.post(
+    response = csrf_post(
+        flask_client,
         "/wlan_connect",
         data={"ssid": "SpacesOnly", "password": " " * 8},
         follow_redirects=False,
+        source_url="/change_password",
     )
 
     assert response.status_code == 302
@@ -177,10 +194,12 @@ def test_wlan_connect_hex_psk_unquoted(client, monkeypatch):
     _login_admin(flask_client)
     monkeypatch.setattr(app_module.subprocess, "run", fake_run)
 
-    response = flask_client.post(
+    response = csrf_post(
+        flask_client,
         "/wlan_connect",
         data={"ssid": "HexNetwork", "password": hex_psk},
         follow_redirects=False,
+        source_url="/change_password",
     )
 
     assert response.status_code == 302
@@ -207,10 +226,12 @@ def test_wlan_connect_fail_stops_sequence(client, monkeypatch):
     _login_admin(flask_client)
     monkeypatch.setattr(app_module.subprocess, "run", fake_run)
 
-    response = flask_client.post(
+    response = csrf_post(
+        flask_client,
         "/wlan_connect",
         data={"ssid": "FailNet", "password": "secretpass"},
         follow_redirects=False,
+        source_url="/change_password",
     )
 
     assert response.status_code == 302

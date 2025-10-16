@@ -26,6 +26,7 @@ from flask_login import (
     logout_user,
     current_user,
 )
+from flask_wtf import CSRFProtect
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import lgpio as GPIO
@@ -44,6 +45,8 @@ if not secret_key:
     logging.error("FLASK_SECRET_KEY nicht gesetzt. Bitte Umgebungsvariable setzen.")
     sys.exit(1)
 app.secret_key = secret_key
+csrf = CSRFProtect()
+csrf.init_app(app)
 TESTING_RAW = os.getenv("TESTING")
 
 

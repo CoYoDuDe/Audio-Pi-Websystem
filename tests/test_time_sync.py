@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.csrf_utils import csrf_post
+
 
 @pytest.fixture
 def app_module(tmp_path, monkeypatch):
@@ -44,16 +46,19 @@ def client(app_module):
 
 
 def _login(client):
-    response = client.post(
+    response = csrf_post(
+        client,
         "/login",
         data={"username": "admin", "password": "password"},
         follow_redirects=True,
     )
     assert response.status_code == 200
-    change_response = client.post(
+    change_response = csrf_post(
+        client,
         "/change_password",
         data={"old_password": "password", "new_password": "password1234"},
         follow_redirects=True,
+        source_url="/change_password",
     )
     assert b"Passwort ge\xc3\xa4ndert" in change_response.data
     return change_response
@@ -110,7 +115,8 @@ def test_set_time_triggers_internet_sync(monkeypatch, client):
 
     monkeypatch.setattr(app_module, "perform_internet_time_sync", fake_sync)
 
-    response = client.post(
+    response = csrf_post(
+        client,
         "/set_time",
         data={"datetime": "2024-01-01T12:00", "sync_internet": "1"},
         follow_redirects=True,
