@@ -84,13 +84,26 @@ def test_sync_time_handles_ntp_failure(monkeypatch, client):
     monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
     monkeypatch.setattr(app_module, "set_rtc", fake_set_rtc)
 
-    response = client.get("/sync_time_from_internet", follow_redirects=True)
+    response = csrf_post(
+        client,
+        "/sync_time_from_internet",
+        follow_redirects=True,
+    )
 
     assert ["sudo", "systemctl", "stop", "systemd-timesyncd"] in commands
     assert ["sudo", "ntpdate", "pool.ntp.org"] in commands
     assert ["sudo", "systemctl", "start", "systemd-timesyncd"] in commands
     assert b"Fehler bei der Synchronisation" in response.data
     assert called_set_rtc is False
+
+
+def test_sync_time_rejects_get_after_login(client):
+    client, _ = client
+    _login(client)
+
+    response = client.get("/sync_time_from_internet")
+
+    assert response.status_code == 405
 
 
 def test_set_time_triggers_internet_sync(monkeypatch, client):
