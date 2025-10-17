@@ -155,14 +155,33 @@
     </form>
 
     <h3>Audio-Dateien</h3>
-    <ul>
-        {% for file in files %}
-        <li>
-            {{ file.filename }}
+    <div class="pagination-container">
+        <form method="get" class="page-size-form">
+            <input type="hidden" name="file_page" value="1">
+            <input type="hidden" name="schedule_page" value="{{ schedules_page.page }}">
+            <input type="hidden" name="schedule_page_size" value="{{ schedules_page.page_size_value }}">
+            <label>
+                Einträge pro Seite
+                <select name="file_page_size" onchange="this.form.submit()">
+                    {% for option in page_size_options %}
+                    <option value="{{ option.value }}" {% if option.value == files_page.page_size_value %}selected{% endif %}>{{ option.label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        </form>
+        <div class="pagination-info" data-target="files">
+            <span>Seite {{ files_page.page }} von {{ files_page.total_pages }}</span>
+            <span>{{ files_total.count }} Dateien gesamt</span>
+        </div>
+    </div>
+    <ul class="item-list file-list">
+        {% for file in files_page['items'] %}
+        <li class="file-entry" data-file-id="{{ file.id }}">
+            <span class="item-title">{{ file.filename }}</span>
             {% if file.duration_seconds is not none %}
-                ({{ '%.2f' % file.duration_seconds }}&nbsp;s)
+                <span class="item-meta">({{ '%.2f' % file.duration_seconds }}&nbsp;s)</span>
             {% else %}
-                (Dauer unbekannt)
+                <span class="item-meta">(Dauer unbekannt)</span>
             {% endif %}
             <form
                 action="{{ url_for('play_now', item_type='file', item_id=file.id) }}"
@@ -177,8 +196,38 @@
                 <button type="submit" class="btn">Löschen</button>
             </form>
         </li>
+        {% else %}
+        <li class="empty-state">Keine Dateien vorhanden.</li>
         {% endfor %}
     </ul>
+    <nav class="pagination-nav" aria-label="Dateiliste">
+        {% if files_page.has_previous %}
+        <a
+            class="page-link"
+            href="{{ build_index_url(file_page=files_page.previous_page, file_page_size=files_page.page_size_value, schedule_page=schedules_page.page, schedule_page_size=schedules_page.page_size_value) }}"
+        >&laquo;</a>
+        {% else %}
+        <span class="page-link disabled">&laquo;</span>
+        {% endif %}
+        {% for page_number in files_page.pages %}
+            {% if page_number == files_page.page %}
+            <span class="page-link active">{{ page_number }}</span>
+            {% else %}
+            <a
+                class="page-link"
+                href="{{ build_index_url(file_page=page_number, file_page_size=files_page.page_size_value, schedule_page=schedules_page.page, schedule_page_size=schedules_page.page_size_value) }}"
+            >{{ page_number }}</a>
+            {% endif %}
+        {% endfor %}
+        {% if files_page.has_next %}
+        <a
+            class="page-link"
+            href="{{ build_index_url(file_page=files_page.next_page, file_page_size=files_page.page_size_value, schedule_page=schedules_page.page, schedule_page_size=schedules_page.page_size_value) }}"
+        >&raquo;</a>
+        {% else %}
+        <span class="page-link disabled">&raquo;</span>
+        {% endif %}
+    </nav>
 </section>
 
 <section id="playlists">
@@ -207,7 +256,7 @@
             <form action="{{ url_for('add_to_playlist') }}" method="POST" style="display:inline;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <select name="file_id">
-                    {% for file in files %}
+                    {% for file in files_all %}
                     <option value="{{ file.id }}">{{ file.filename }}</option>
                     {% endfor %}
                 </select>
@@ -262,29 +311,81 @@
     <p class="hint">
         Hinweis: Überlappende Zeitpläne werden automatisch verhindert. Bei einem Konflikt erscheint eine Fehlermeldung.
     </p>
-    <ul>
-        {% for schedule in schedules %}
-        <li>
-            {{ schedule.name or 'Unbekanntes Element' }} ({{ schedule.item_type }}) - {{ schedule.time_display }} ({{ schedule.repeat }}) +{{ schedule.delay }}s
-            – Lautstärke {{ schedule.volume_percent }}%
+    <div class="pagination-container">
+        <form method="get" class="page-size-form">
+            <input type="hidden" name="schedule_page" value="1">
+            <input type="hidden" name="file_page" value="{{ files_page.page }}">
+            <input type="hidden" name="file_page_size" value="{{ files_page.page_size_value }}">
+            <label>
+                Einträge pro Seite
+                <select name="schedule_page_size" onchange="this.form.submit()">
+                    {% for option in page_size_options %}
+                    <option value="{{ option.value }}" {% if option.value == schedules_page.page_size_value %}selected{% endif %}>{{ option.label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        </form>
+        <div class="pagination-info" data-target="schedules">
+            <span>Seite {{ schedules_page.page }} von {{ schedules_page.total_pages }}</span>
+            <span>{{ schedules_total.count }} Zeitpläne gesamt</span>
+        </div>
+    </div>
+    <ul class="item-list schedule-list">
+        {% for schedule in schedules_page['items'] %}
+        <li class="schedule-entry" data-schedule-id="{{ schedule.id }}">
+            <span class="item-title">{{ schedule.name or 'Unbekanntes Element' }}</span>
+            <span class="item-meta">({{ schedule.item_type }}) – {{ schedule.time_display }} ({{ schedule.repeat }}) +{{ schedule.delay }}s</span>
+            <span class="item-meta">Lautstärke {{ schedule.volume_percent }}%</span>
             {% if schedule.start_date or schedule.end_date %}
-                [
-                {{ schedule.start_date or 'ab sofort' }}{% if schedule.end_date %} – {{ schedule.end_date }}{% endif %}
-                ]
+                <span class="item-meta">
+                    [
+                    {{ schedule.start_date or 'ab sofort' }}{% if schedule.end_date %} – {{ schedule.end_date }}{% endif %}
+                    ]
+                </span>
             {% endif %}
-            {% if schedule.executed and schedule.repeat == 'once' %}- ausgeführt{% endif %}
+            {% if schedule.executed and schedule.repeat == 'once' %}<span class="item-meta">– ausgeführt</span>{% endif %}
             <form action="{{ url_for('delete_schedule', sch_id=schedule.id) }}" method="POST" style="display:inline;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn">Entfernen</button>
             </form>
         </li>
+        {% else %}
+        <li class="empty-state">Keine Zeitpläne vorhanden.</li>
         {% endfor %}
     </ul>
+    <nav class="pagination-nav" aria-label="Zeitpläne">
+        {% if schedules_page.has_previous %}
+        <a
+            class="page-link"
+            href="{{ build_index_url(schedule_page=schedules_page.previous_page, schedule_page_size=schedules_page.page_size_value, file_page=files_page.page, file_page_size=files_page.page_size_value) }}"
+        >&laquo;</a>
+        {% else %}
+        <span class="page-link disabled">&laquo;</span>
+        {% endif %}
+        {% for page_number in schedules_page.pages %}
+            {% if page_number == schedules_page.page %}
+            <span class="page-link active">{{ page_number }}</span>
+            {% else %}
+            <a
+                class="page-link"
+                href="{{ build_index_url(schedule_page=page_number, schedule_page_size=schedules_page.page_size_value, file_page=files_page.page, file_page_size=files_page.page_size_value) }}"
+            >{{ page_number }}</a>
+            {% endif %}
+        {% endfor %}
+        {% if schedules_page.has_next %}
+        <a
+            class="page-link"
+            href="{{ build_index_url(schedule_page=schedules_page.next_page, schedule_page_size=schedules_page.page_size_value, file_page=files_page.page, file_page_size=files_page.page_size_value) }}"
+        >&raquo;</a>
+        {% else %}
+        <span class="page-link disabled">&raquo;</span>
+        {% endif %}
+    </nav>
 
     <script>
     document.addEventListener('DOMContentLoaded', function () {
-        const audioFiles = {{ files | tojson }};
-        const playlists = {{ playlists | tojson }};
+        const audioFiles = {{ files_all | tojson }};
+        const playlists = {{ playlists_all | tojson }};
         const itemSelect = document.getElementById('item-select');
         const typeSelect = document.getElementById('item-type');
         const repeatSelect = document.getElementById('repeat-select');
