@@ -20,14 +20,14 @@ def test_set_sink_detected(monkeypatch):
         calls.append(cmd)
         return 0
 
-    app.audio_status["hifiberry_detected"] = None
+    app.audio_status["dac_sink_detected"] = None
     monkeypatch.setattr(app.subprocess, "check_output", fake_check_output)
     monkeypatch.setattr(app.subprocess, "call", fake_call)
 
     result = app.set_sink(app.DAC_SINK)
 
     assert result is True
-    assert app.audio_status["hifiberry_detected"] is True
+    assert app.audio_status["dac_sink_detected"] is True
     assert calls == [["pactl", "set-default-sink", app.DAC_SINK]]
 
 
@@ -42,14 +42,14 @@ def test_set_sink_missing(monkeypatch):
         calls.append(cmd)
         return 0
 
-    app.audio_status["hifiberry_detected"] = None
+    app.audio_status["dac_sink_detected"] = None
     monkeypatch.setattr(app.subprocess, "check_output", fake_check_output)
     monkeypatch.setattr(app.subprocess, "call", fake_call)
 
     result = app.set_sink(app.DAC_SINK)
 
     assert result is False
-    assert app.audio_status["hifiberry_detected"] is False
+    assert app.audio_status["dac_sink_detected"] is False
     assert calls == []
 
 
@@ -66,29 +66,50 @@ def test_set_sink_keeps_flag_for_non_dac(monkeypatch):
         calls.append(cmd)
         return 0
 
-    app.audio_status["hifiberry_detected"] = False
+    app.audio_status["dac_sink_detected"] = False
+    monkeypatch.setattr(app, "DAC_SINK_LABEL", "HiFiBerry DAC+", raising=False)
     monkeypatch.setattr(app.subprocess, "check_output", fake_check_output)
     monkeypatch.setattr(app.subprocess, "call", fake_call)
 
     result = app.set_sink(bluetooth_sink)
 
     assert result is True
-    assert app.audio_status["hifiberry_detected"] is False
+    assert app.audio_status["dac_sink_detected"] is False
     assert calls == [["pactl", "set-default-sink", bluetooth_sink]]
 
 
 def test_set_sink_resolves_pattern(monkeypatch):
     original_hint = app.DAC_SINK_HINT
     original_sink = app.DAC_SINK
-    original_flag = app.audio_status.get("hifiberry_detected")
-    app.DAC_SINK_HINT = "pattern:alsa_output.pattern_test*"
-    app.DAC_SINK = app.DAC_SINK_HINT
+    original_flag = app.audio_status.get("dac_sink_detected")
+    monkeypatch.setattr(app, "DAC_SINK_HINT", "pattern:alsa_output.pattern_test*", raising=False)
+    monkeypatch.setattr(app, "DAC_SINK", app.DAC_SINK_HINT, raising=False)
 
     calls = []
 
     def fake_check_output(cmd, text=None, encoding=None, errors=None):
         assert cmd == ["pactl", "list", "short", "sinks"]
         return "0\talsa_output.pattern_test-dac\tRUNNING\n"
+
+    def fake_call(cmd):
+        calls.append(cmd)
+        return 0
+
+    monkeypatch.setattr(app.subprocess, "check_output", fake_check_output)
+    monkeypatch.setattr(app.subprocess, "call", fake_call)
+
+    try:
+        result = app.set_sink(app.DAC_SINK_HINT)
+        assert result is True
+        assert app.DAC_SINK == "alsa_output.pattern_test-dac"
+        assert calls == [["pactl", "set-default-sink", "alsa_output.pattern_test-dac"]]
+        assert app.audio_status["dac_sink_detected"] is True
+    finally:
+        app.DAC_SINK_HINT = original_hint
+        app.DAC_SINK = original_sink
+        app.audio_status["dac_sink_detected"] = original_flag
+
+
 def test_set_sink_uses_default_when_name_missing(monkeypatch):
     calls = []
     default_sink = "alsa_output.default"
@@ -104,25 +125,14 @@ def test_set_sink_uses_default_when_name_missing(monkeypatch):
     monkeypatch.setattr(app.subprocess, "check_output", fake_check_output)
     monkeypatch.setattr(app.subprocess, "call", fake_call)
 
-    try:
-        result = app.set_sink(app.DAC_SINK_HINT)
-        assert result is True
-        assert app.DAC_SINK == "alsa_output.pattern_test-dac"
-        assert calls == [["pactl", "set-default-sink", "alsa_output.pattern_test-dac"]]
-        assert app.audio_status["hifiberry_detected"] is True
-    finally:
-        app.DAC_SINK_HINT = original_hint
-        app.DAC_SINK = original_sink
-        app.audio_status["hifiberry_detected"] = original_flag
     monkeypatch.setattr(app, "DAC_SINK", default_sink, raising=False)
-    app.audio_status["hifiberry_detected"] = None
-    monkeypatch.setattr(app.subprocess, "check_output", fake_check_output)
-    monkeypatch.setattr(app.subprocess, "call", fake_call)
+    app.audio_status["dac_sink_detected"] = None
+    monkeypatch.setattr(app, "DAC_SINK_LABEL", None, raising=False)
 
     result = app.set_sink(None)
 
     assert result is True
-    assert app.audio_status["hifiberry_detected"] is True
+    assert app.audio_status["dac_sink_detected"] is True
     assert calls == [["pactl", "set-default-sink", default_sink]]
 
 
@@ -147,7 +157,7 @@ def test_load_dac_sink_from_settings_roundtrip(monkeypatch, tmp_path):
     assert app.CONFIGURED_DAC_SINK is None
 
 
-def test_gather_status_includes_hifiberry_flag(monkeypatch):
+def test_gather_status_includes_dac_sink_flag(monkeypatch):
     class FakeDateTime:
         @staticmethod
         def now():
@@ -166,7 +176,8 @@ def test_gather_status_includes_hifiberry_flag(monkeypatch):
             return "alsa_output.default"
         return ""
 
-    app.audio_status["hifiberry_detected"] = False
+    app.audio_status["dac_sink_detected"] = False
+    monkeypatch.setattr(app, "DAC_SINK_LABEL", "HiFiBerry DAC+", raising=False)
     monkeypatch.setattr(app, "datetime", FakeDateTime)
     monkeypatch.setattr(app.pygame.mixer.music, "get_busy", lambda: True)
     monkeypatch.setattr(app, "is_bt_connected", lambda: True)
@@ -175,7 +186,7 @@ def test_gather_status_includes_hifiberry_flag(monkeypatch):
 
     status = app.gather_status()
 
-    assert status["hifiberry_detected"] is False
+    assert status["dac_sink_detected"] is False
     assert status["wlan_status"] == "TestSSID"
     assert status["current_sink"] == "alsa_output.default"
     assert status["current_volume"] == "55%"
@@ -183,12 +194,15 @@ def test_gather_status_includes_hifiberry_flag(monkeypatch):
     assert status["playing"] is True
     assert status["bluetooth_status"] == "Verbunden"
     assert status["relay_invert"] is True
+    assert status["dac_sink_label"] == "HiFiBerry DAC+"
+    assert status["target_dac_sink"] in {app.DAC_SINK, app.DAC_SINK_HINT}
+    assert status["dac_sink_hint"] == app.DAC_SINK_HINT
     assert "configured_dac_sink" in status
     assert status["default_dac_sink"] == app.DEFAULT_DAC_SINK
 
 
 @pytest.mark.parametrize("sink_available", [False, True])
-def test_gather_status_auto_detects_hifiberry(monkeypatch, sink_available):
+def test_gather_status_auto_detects_dac_sink(monkeypatch, sink_available):
     class FakeDateTime:
         @staticmethod
         def now():
@@ -207,7 +221,8 @@ def test_gather_status_auto_detects_hifiberry(monkeypatch, sink_available):
             return "alsa_output.default"
         return ""
 
-    app.audio_status["hifiberry_detected"] = None
+    app.audio_status["dac_sink_detected"] = None
+    monkeypatch.setattr(app, "DAC_SINK_LABEL", None, raising=False)
     monkeypatch.setattr(app, "_is_sink_available", lambda sink: sink_available)
     monkeypatch.setattr(app, "datetime", FakeDateTime)
     monkeypatch.setattr(app.pygame.mixer.music, "get_busy", lambda: True)
@@ -217,5 +232,7 @@ def test_gather_status_auto_detects_hifiberry(monkeypatch, sink_available):
 
     status = app.gather_status()
 
-    assert status["hifiberry_detected"] is sink_available
-    assert app.audio_status["hifiberry_detected"] is sink_available
+    assert status["dac_sink_detected"] is sink_available
+    assert app.audio_status["dac_sink_detected"] is sink_available
+    assert status["dac_sink_label"] == app.DEFAULT_DAC_SINK_LABEL
+    assert status["target_dac_sink"]
