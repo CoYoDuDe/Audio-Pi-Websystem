@@ -215,6 +215,150 @@ sudo apt install -y pulseaudio-module-bluetooth bluez-tools bluez
 # Hostapd & dnsmasq (WLAN AP)
 sudo apt install -y hostapd dnsmasq wireless-tools iw wpasupplicant
 
+create_hostapd_conf() {
+    local default_ssid="AudioPiAP"
+    local default_channel="6"
+    local default_country="DE"
+    local default_interface="wlan0"
+
+    read -rp "Access-Point-SSID [${default_ssid}]: " HOSTAPD_SSID
+    HOSTAPD_SSID=${HOSTAPD_SSID:-$default_ssid}
+
+    HOSTAPD_PASSPHRASE=""
+    while [ ${#HOSTAPD_PASSPHRASE} -lt 8 ]; do
+        read -rsp "WPA2-Passphrase (mind. 8 Zeichen): " HOSTAPD_PASSPHRASE
+        echo ""
+        if [ ${#HOSTAPD_PASSPHRASE} -lt 8 ]; then
+            echo "Passphrase zu kurz, bitte erneut eingeben."
+        fi
+    done
+
+    read -rp "Funkkanal [${default_channel}]: " HOSTAPD_CHANNEL
+    HOSTAPD_CHANNEL=${HOSTAPD_CHANNEL:-$default_channel}
+
+    read -rp "Ländercode (2-stellig) [${default_country}]: " HOSTAPD_COUNTRY
+    HOSTAPD_COUNTRY=${HOSTAPD_COUNTRY:-$default_country}
+
+    read -rp "WLAN-Interface für den AP [${default_interface}]: " AP_INTERFACE
+    AP_INTERFACE=${AP_INTERFACE:-$default_interface}
+
+    sudo mkdir -p /etc/hostapd
+    sudo tee /etc/hostapd/hostapd.conf >/dev/null <<EOF
+interface=${AP_INTERFACE}
+driver=nl80211
+ssid=${HOSTAPD_SSID}
+hw_mode=g
+channel=${HOSTAPD_CHANNEL}
+wmm_enabled=1
+ieee80211n=1
+ieee80211d=1
+country_code=${HOSTAPD_COUNTRY}
+auth_algs=1
+wpa=2
+wpa_passphrase=${HOSTAPD_PASSPHRASE}
+wpa_key_mgmt=WPA-PSK
+rsn_pairwise=CCMP
+EOF
+
+    echo "hostapd.conf wurde mit SSID '${HOSTAPD_SSID}' erstellt."
+}
+
+create_dnsmasq_conf() {
+    local default_ap_ip="192.168.50.1"
+    local default_dhcp_start="192.168.50.50"
+    local default_dhcp_end="192.168.50.150"
+    local default_dhcp_time="24h"
+
+    read -rp "Statische AP-IP [${default_ap_ip}]: " AP_IPV4
+    AP_IPV4=${AP_IPV4:-$default_ap_ip}
+
+    read -rp "DHCP-Startadresse [${default_dhcp_start}]: " DHCP_RANGE_START
+    DHCP_RANGE_START=${DHCP_RANGE_START:-$default_dhcp_start}
+
+    read -rp "DHCP-Endadresse [${default_dhcp_end}]: " DHCP_RANGE_END
+    DHCP_RANGE_END=${DHCP_RANGE_END:-$default_dhcp_end}
+
+    read -rp "DHCP-Lease-Zeit [${default_dhcp_time}]: " DHCP_LEASE_TIME
+    DHCP_LEASE_TIME=${DHCP_LEASE_TIME:-$default_dhcp_time}
+
+    sudo mkdir -p /etc/dnsmasq.d
+    sudo tee /etc/dnsmasq.d/audio-pi.conf >/dev/null <<EOF
+interface=${AP_INTERFACE}
+bind-interfaces
+domain-needed
+bogus-priv
+server=1.1.1.1
+server=8.8.8.8
+listen-address=127.0.0.1,${AP_IPV4}
+dhcp-range=${DHCP_RANGE_START},${DHCP_RANGE_END},${DHCP_LEASE_TIME}
+dhcp-option=3,${AP_IPV4}
+dhcp-option=6,${AP_IPV4}
+EOF
+
+    if ! sudo grep -q '^conf-file=/etc/dnsmasq.d/audio-pi.conf' /etc/dnsmasq.conf; then
+        sudo cp /etc/dnsmasq.conf "/etc/dnsmasq.conf.bak.$(date +%s)"
+        echo "conf-file=/etc/dnsmasq.d/audio-pi.conf" | sudo tee -a /etc/dnsmasq.conf >/dev/null
+    fi
+
+    echo "dnsmasq-Konfiguration /etc/dnsmasq.d/audio-pi.conf wurde erstellt."
+}
+
+configure_ap_networking() {
+    local default_wan_interface="eth0"
+    read -rp "Uplink-Interface für NAT (z.B. eth0) [${default_wan_interface}]: " WAN_INTERFACE
+    WAN_INTERFACE=${WAN_INTERFACE:-$default_wan_interface}
+
+    echo "Aktiviere WLAN-Sendeeinheit..."
+    sudo rfkill unblock wlan || true
+
+    echo "Aktiviere IPv4-Forwarding..."
+    if sudo grep -q '^[[:space:]]*#\?net\.ipv4\.ip_forward' /etc/sysctl.conf; then
+        sudo sed -i 's|^[[:space:]]*#\?net\.ipv4\.ip_forward=.*|net.ipv4.ip_forward=1|' /etc/sysctl.conf
+    else
+        echo 'net.ipv4.ip_forward=1' | sudo tee -a /etc/sysctl.conf >/dev/null
+    fi
+    sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null
+
+    echo "Setze iptables-Regeln für NAT..."
+    sudo iptables -t nat -C POSTROUTING -o "$WAN_INTERFACE" -j MASQUERADE 2>/dev/null || sudo iptables -t nat -A POSTROUTING -o "$WAN_INTERFACE" -j MASQUERADE
+    sudo iptables -C FORWARD -i "$WAN_INTERFACE" -o "$AP_INTERFACE" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || sudo iptables -A FORWARD -i "$WAN_INTERFACE" -o "$AP_INTERFACE" -m state --state RELATED,ESTABLISHED -j ACCEPT
+    sudo iptables -C FORWARD -i "$AP_INTERFACE" -o "$WAN_INTERFACE" -j ACCEPT 2>/dev/null || sudo iptables -A FORWARD -i "$AP_INTERFACE" -o "$WAN_INTERFACE" -j ACCEPT
+    sudo sh -c 'iptables-save > /etc/iptables.ipv4.nat'
+
+    if [ -f /etc/rc.local ]; then
+        if ! sudo grep -q 'iptables-restore < /etc/iptables.ipv4.nat' /etc/rc.local; then
+            sudo sed -i 's|^exit 0||' /etc/rc.local
+            echo 'iptables-restore < /etc/iptables.ipv4.nat' | sudo tee -a /etc/rc.local >/dev/null
+            echo 'exit 0' | sudo tee -a /etc/rc.local >/dev/null
+        fi
+    fi
+
+    echo "NAT-Konfiguration abgeschlossen (WAN: ${WAN_INTERFACE}, AP: ${AP_INTERFACE})."
+}
+
+ensure_hostapd_daemon_conf() {
+    if sudo grep -q '^DAEMON_CONF=' /etc/default/hostapd; then
+        sudo sed -i 's|^#\?DAEMON_CONF=.*|DAEMON_CONF="/etc/hostapd/hostapd.conf"|' /etc/default/hostapd
+    else
+        echo 'DAEMON_CONF="/etc/hostapd/hostapd.conf"' | sudo tee -a /etc/default/hostapd >/dev/null
+    fi
+}
+
+AP_CONFIGURED=0
+read -rp "Soll der Access-Point-Modus eingerichtet werden? [j/N]: " AP_CONFIRM
+AP_CONFIRM=${AP_CONFIRM,,}
+if [ "$AP_CONFIRM" = "j" ] || [ "$AP_CONFIRM" = "ja" ]; then
+    create_hostapd_conf
+    ensure_hostapd_daemon_conf
+    create_dnsmasq_conf
+    configure_ap_networking
+    sudo systemctl enable --now hostapd
+    sudo systemctl enable --now dnsmasq
+    AP_CONFIGURED=1
+else
+    echo "Access-Point-Konfiguration wurde übersprungen."
+fi
+
 # ALSA für Mixer/Fallback
 sudo apt install -y alsa-utils
 
@@ -254,4 +398,11 @@ echo ""
 echo "Öffne im Browser: http://<RaspberryPi-IP>:8080"
 echo ""
 echo "Default Login: admin / password"
+echo ""
+if [ "$AP_CONFIGURED" -eq 1 ]; then
+    echo "Hinweis: WLAN-Access-Point ist aktiv."
+    echo "Passe SSID/Passwort in /etc/hostapd/hostapd.conf sowie DHCP-Einstellungen in /etc/dnsmasq.d/audio-pi.conf an."
+    echo "Die NAT-Regeln wurden nach /etc/iptables.ipv4.nat geschrieben und können dort angepasst werden."
+fi
+
 echo ""
