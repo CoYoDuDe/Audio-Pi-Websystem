@@ -77,6 +77,38 @@ def test_set_sink_keeps_flag_for_non_dac(monkeypatch):
     assert calls == [["pactl", "set-default-sink", bluetooth_sink]]
 
 
+def test_set_sink_resolves_pattern(monkeypatch):
+    original_hint = app.DAC_SINK_HINT
+    original_sink = app.DAC_SINK
+    original_flag = app.audio_status.get("hifiberry_detected")
+    app.DAC_SINK_HINT = "pattern:alsa_output.pattern_test*"
+    app.DAC_SINK = app.DAC_SINK_HINT
+
+    calls = []
+
+    def fake_check_output(cmd, text=None, encoding=None, errors=None):
+        assert cmd == ["pactl", "list", "short", "sinks"]
+        return "0\talsa_output.pattern_test-dac\tRUNNING\n"
+
+    def fake_call(cmd):
+        calls.append(cmd)
+        return 0
+
+    monkeypatch.setattr(app.subprocess, "check_output", fake_check_output)
+    monkeypatch.setattr(app.subprocess, "call", fake_call)
+
+    try:
+        result = app.set_sink(app.DAC_SINK_HINT)
+        assert result is True
+        assert app.DAC_SINK == "alsa_output.pattern_test-dac"
+        assert calls == [["pactl", "set-default-sink", "alsa_output.pattern_test-dac"]]
+        assert app.audio_status["hifiberry_detected"] is True
+    finally:
+        app.DAC_SINK_HINT = original_hint
+        app.DAC_SINK = original_sink
+        app.audio_status["hifiberry_detected"] = original_flag
+
+
 def test_gather_status_includes_hifiberry_flag(monkeypatch):
     class FakeDateTime:
         @staticmethod

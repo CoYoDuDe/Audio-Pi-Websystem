@@ -209,6 +209,110 @@ sudo usermod -aG pulse "$TARGET_USER"
 sudo usermod -aG pulse-access "$TARGET_USER"
 sudo usermod -aG audio "$TARGET_USER"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HAT_DEFAULT_SINK_HINT="alsa_output.platform-soc_107c000000_sound.stereo-fallback"
+
+apply_hat_overlay() {
+    local overlay_name="$1"
+    local overlay_opts="$2"
+    if [ -z "$overlay_name" ]; then
+        return 0
+    fi
+
+    local overlay_line="dtoverlay=${overlay_name}"
+    if [ -n "$overlay_opts" ]; then
+        overlay_line+=",$overlay_opts"
+    fi
+
+    local tmp_file
+    tmp_file=$(mktemp)
+    sudo cp /boot/config.txt "/boot/config.txt.hat.bak.$(date +%s)"
+    sudo awk -v overlay="$overlay_name" '
+        BEGIN { pattern = "^dtoverlay=" overlay "([[:space:]],|$)" }
+        $0 ~ pattern { next }
+        { print }
+    ' /boot/config.txt > "$tmp_file"
+    sudo mv "$tmp_file" /boot/config.txt
+    sudo chmod 644 /boot/config.txt
+    echo "$overlay_line" | sudo tee -a /boot/config.txt >/dev/null
+    echo "dtoverlay in /boot/config.txt gesetzt: $overlay_line"
+}
+
+ensure_audio_dtparam() {
+    local disable="$1"
+    if [ "$disable" = "1" ]; then
+        sudo sed -i '/^dtparam=audio=/d' /boot/config.txt
+        if ! sudo grep -q '^dtparam=audio=off' /boot/config.txt; then
+            echo "dtparam=audio=off" | sudo tee -a /boot/config.txt >/dev/null
+        fi
+        echo "Onboard-Audio (dtparam=audio=off) gesetzt."
+    else
+        sudo sed -i '/^dtparam=audio=/d' /boot/config.txt
+        echo "dtparam=audio=on" | sudo tee -a /boot/config.txt >/dev/null
+        echo "Onboard-Audio aktiviert (dtparam=audio=on)."
+    fi
+}
+
+HAT_SELECTED_KEY=""
+HAT_SELECTED_LABEL=""
+HAT_SELECTED_OVERLAY=""
+HAT_SELECTED_OPTIONS=""
+HAT_SELECTED_SINK_HINT="$HAT_DEFAULT_SINK_HINT"
+HAT_SELECTED_DISABLE_ONBOARD=0
+HAT_SELECTED_NOTES=""
+
+if [ -f "$SCRIPT_DIR/scripts/hat_config.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$SCRIPT_DIR/scripts/hat_config.sh"
+    hat_select_profile
+else
+    echo "Warnung: scripts/hat_config.sh nicht gefunden – HAT-Auswahl übersprungen."
+    HAT_SELECTED_KEY="skip"
+    HAT_SELECTED_LABEL="Nicht verfügbar"
+    HAT_SELECTED_NOTES="Hilfsskript fehlt."
+fi
+
+if [ "$HAT_SELECTED_KEY" != "skip" ]; then
+    if [ -n "$HAT_SELECTED_OVERLAY" ]; then
+        apply_hat_overlay "$HAT_SELECTED_OVERLAY" "$HAT_SELECTED_OPTIONS"
+    fi
+    ensure_audio_dtparam "$HAT_SELECTED_DISABLE_ONBOARD"
+else
+    echo "Audio-HAT-Konfiguration unverändert."
+fi
+
+echo "--- Zusammenfassung Audio-HAT ---"
+echo "Auswahl: $HAT_SELECTED_LABEL"
+if [ -n "$HAT_SELECTED_OVERLAY" ]; then
+    if [ -n "$HAT_SELECTED_OPTIONS" ]; then
+        echo "dtoverlay: ${HAT_SELECTED_OVERLAY}, Optionen: ${HAT_SELECTED_OPTIONS}"
+    else
+        echo "dtoverlay: ${HAT_SELECTED_OVERLAY}"
+    fi
+else
+    echo "dtoverlay: (keiner)"
+fi
+echo "PulseAudio-Sink/Muster: $HAT_SELECTED_SINK_HINT"
+if [ -n "$HAT_SELECTED_NOTES" ]; then
+    echo "Hinweis: $HAT_SELECTED_NOTES"
+fi
+echo "Nicht-interaktiv: setze z.B. HAT_MODEL=hifiberry_dacplus oder HAT_MODEL=manual mit HAT_DTOOVERLAY/HAT_SINK_NAME."
+echo "Anpassung später: /boot/config.txt und sqlite3 audio.db 'UPDATE settings SET value=... WHERE key=\'dac_sink_name\';'"
+echo "Alternativ kann DAC_SINK_NAME in ~/.profile überschrieben werden."
+
+if [ "$HAT_SELECTED_KEY" != "skip" ]; then
+    if command -v sqlite3 >/dev/null 2>&1; then
+        DAC_SINK_ESC=$(printf '%s' "$HAT_SELECTED_SINK_HINT" | sed "s/'/''/g")
+        sqlite3 audio.db <<SQL
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
+INSERT OR REPLACE INTO settings (key, value) VALUES ('dac_sink_name', '$DAC_SINK_ESC');
+SQL
+        echo "DAC-Sink-Vorgabe wurde in audio.db gespeichert."
+    else
+        echo "Warnung: sqlite3 nicht verfügbar – DAC-Sink konnte nicht gespeichert werden."
+    fi
+fi
+
 # Bluetooth Audio Setup – Nur SINK (kein Agent)
 sudo apt install -y pulseaudio-module-bluetooth bluez-tools bluez
 

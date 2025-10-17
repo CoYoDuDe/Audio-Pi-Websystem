@@ -8,6 +8,7 @@ from apscheduler.triggers.date import DateTrigger
 import sqlite3
 import tempfile
 import calendar
+import fnmatch
 from datetime import date, datetime, timedelta
 from flask import (
     Flask,
@@ -110,7 +111,11 @@ else:
             DEFAULT_MAX_SCHEDULE_DELAY_SECONDS,
         )
         MAX_SCHEDULE_DELAY_SECONDS = DEFAULT_MAX_SCHEDULE_DELAY_SECONDS
-DAC_SINK = "alsa_output.platform-soc_107c000000_sound.stereo-fallback"
+DEFAULT_DAC_SINK = "alsa_output.platform-soc_107c000000_sound.stereo-fallback"
+DEFAULT_DAC_SINK_HINT = DEFAULT_DAC_SINK
+DAC_SINK_SETTING_KEY = "dac_sink_name"
+DAC_SINK_HINT = os.environ.get("DAC_SINK_NAME", DEFAULT_DAC_SINK_HINT)
+DAC_SINK = DAC_SINK_HINT
 PLAY_NOW_ALLOWED_TYPES = {"file", "playlist"}
 
 # Logging
@@ -1240,7 +1245,7 @@ def get_current_sink():
     return subprocess.getoutput("pactl get-default-sink")
 
 
-def _is_sink_available(sink_name):
+def _list_pulse_sinks():
     try:
         output = subprocess.check_output(
             ["pactl", "list", "short", "sinks"],
@@ -1250,24 +1255,136 @@ def _is_sink_available(sink_name):
         )
     except (subprocess.CalledProcessError, FileNotFoundError) as exc:
         logging.warning("Konnte PulseAudio-Sinks nicht abfragen: %s", exc)
+        return []
+    sinks = []
+    for line in output.splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 2:
+            sinks.append(parts[1])
+    return sinks
+
+
+def _sink_matches_hint(sink_name: str, hint: str) -> bool:
+    if not sink_name or not hint:
         return False
-    return any(sink_name in line for line in output.splitlines())
+    if sink_name == hint:
+        return True
+    if hint.startswith("pattern:"):
+        return fnmatch.fnmatch(sink_name, hint[len("pattern:") :])
+    if hint.startswith("regex:"):
+        pattern = hint[len("regex:") :]
+        try:
+            return re.search(pattern, sink_name) is not None
+        except re.error as exc:
+            logging.warning("Ungültiges Regex-Muster für PulseAudio-Sink '%s': %s", hint, exc)
+            return False
+    if any(ch in hint for ch in "*?[]"):
+        return fnmatch.fnmatch(sink_name, hint)
+    return False
+
+
+def _resolve_sink_name(sink_hint: str, *, sinks=None):
+    if not sink_hint:
+        return None
+    hint = sink_hint.strip()
+    if not hint:
+        return None
+    if sinks is None:
+        sinks = _list_pulse_sinks()
+    if hint in sinks:
+        return hint
+    if hint.startswith("pattern:"):
+        pattern = hint[len("pattern:") :]
+        for sink in sinks:
+            if fnmatch.fnmatch(sink, pattern):
+                return sink
+        return None
+    if hint.startswith("regex:"):
+        pattern = hint[len("regex:") :]
+        try:
+            regex = re.compile(pattern)
+        except re.error as exc:
+            logging.warning("Ungültiges Regex-Muster '%s': %s", pattern, exc)
+            return None
+        for sink in sinks:
+            if regex.search(sink):
+                return sink
+        return None
+    if any(ch in hint for ch in "*?[]"):
+        for sink in sinks:
+            if fnmatch.fnmatch(sink, hint):
+                return sink
+        return None
+    for sink in sinks:
+        if hint in sink:
+            return sink
+    return None
+
+
+def _is_sink_available(sink_name):
+    sinks = _list_pulse_sinks()
+    resolved = _resolve_sink_name(sink_name, sinks=sinks)
+    return resolved is not None
 
 
 def set_sink(sink_name):
-    if not _is_sink_available(sink_name):
-        if sink_name == DAC_SINK:
+    global DAC_SINK
+
+    sinks = _list_pulse_sinks()
+    resolved = _resolve_sink_name(sink_name, sinks=sinks)
+    if resolved is None:
+        if sink_name in {DAC_SINK, DAC_SINK_HINT} or _sink_matches_hint(sink_name, DAC_SINK_HINT):
             audio_status["hifiberry_detected"] = False
         logging.warning(
             "Sink '%s' nicht gefunden. Behalte aktuellen Standardsink bei.",
             sink_name,
         )
         return False
-    subprocess.call(["pactl", "set-default-sink", sink_name])
-    if sink_name == DAC_SINK:
+    subprocess.call(["pactl", "set-default-sink", resolved])
+    if sink_name in {DAC_SINK, DAC_SINK_HINT} or _sink_matches_hint(resolved, DAC_SINK_HINT):
+        DAC_SINK = resolved
         audio_status["hifiberry_detected"] = True
-    logging.info(f"Switch zu Sink: {sink_name}")
+    logging.info(f"Switch zu Sink: {resolved}")
     return True
+
+
+def load_dac_sink_configuration():
+    global DAC_SINK, DAC_SINK_HINT
+
+    env_value = os.environ.get("DAC_SINK_NAME")
+    if env_value:
+        DAC_SINK_HINT = env_value.strip()
+        logging.info("DAC_SINK_NAME aus Umgebungsvariable übernommen: %s", DAC_SINK_HINT)
+    else:
+        stored_value = get_setting(DAC_SINK_SETTING_KEY, None)
+        if stored_value and stored_value.strip():
+            DAC_SINK_HINT = stored_value.strip()
+            logging.info("DAC-Sink aus Einstellungen geladen: %s", DAC_SINK_HINT)
+        elif stored_value is None:
+            logging.info(
+                "Kein gespeicherter DAC-Sink gefunden. Verwende Standard: %s",
+                DEFAULT_DAC_SINK_HINT,
+            )
+            DAC_SINK_HINT = DEFAULT_DAC_SINK_HINT
+        else:
+            DAC_SINK_HINT = DEFAULT_DAC_SINK_HINT
+
+    resolved = _resolve_sink_name(DAC_SINK_HINT)
+    if resolved:
+        DAC_SINK = resolved
+    else:
+        DAC_SINK = DAC_SINK_HINT
+
+
+load_dac_sink_configuration()
+
+
+def _sink_is_configured(sink_name: str) -> bool:
+    if not sink_name:
+        return False
+    if sink_name == DAC_SINK:
+        return True
+    return _sink_matches_hint(sink_name, DAC_SINK_HINT)
 
 
 def gather_status():
@@ -1830,7 +1947,7 @@ def resume_bt_audio():
         bt_sink = sink_lines[0].split()[1]
         previous_detection = audio_status.get("hifiberry_detected")
         set_sink(bt_sink)
-        if bt_sink != DAC_SINK:
+        if not _sink_is_configured(bt_sink):
             # Sicherstellen, dass der HiFiBerry-Status durch Fremd-Sinks unverändert bleibt.
             audio_status["hifiberry_detected"] = previous_detection
         logging.info(f"Bluetooth-Sink {bt_sink} wieder aktiv")
@@ -1842,8 +1959,19 @@ def load_loopback():
     """Aktiviert PulseAudio-Loopback von der Bluetooth-Quelle zum DAC."""
     try:
         modules = subprocess.getoutput("pactl list short modules").splitlines()
+        target_sink = (
+            _resolve_sink_name(DAC_SINK)
+            or _resolve_sink_name(DAC_SINK_HINT)
+            or DAC_SINK
+        )
+        if not target_sink:
+            logging.warning(
+                "Kein PulseAudio-Zielsink für Loopback gefunden (Konfiguration: %s)",
+                DAC_SINK_HINT,
+            )
+            return
         for mod in modules:
-            if "module-loopback" in mod and DAC_SINK in mod:
+            if "module-loopback" in mod and target_sink in mod:
                 logging.info("Loopback bereits aktiv")
                 return
         sources = subprocess.getoutput(
@@ -1859,11 +1987,11 @@ def load_loopback():
                 "load-module",
                 "module-loopback",
                 f"source={bt_source}",
-                f"sink={DAC_SINK}",
+                f"sink={target_sink}",
                 "latency_msec=30",
             ]
         )
-        logging.info(f"Loopback geladen: {bt_source} -> {DAC_SINK}")
+        logging.info(f"Loopback geladen: {bt_source} -> {target_sink}")
     except Exception as e:
         logging.error(f"Fehler beim Laden des Loopback-Moduls: {e}")
 
