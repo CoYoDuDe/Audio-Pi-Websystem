@@ -25,5 +25,36 @@
         </button>
     </div>
 </form>
+<section class="rtc-settings">
+    <h3>RTC-Konfiguration</h3>
+    <form method="POST" action="{{ url_for('save_rtc_settings') }}" class="rtc-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group">
+            <label for="rtc_module">RTC-Modul:</label>
+            <select id="rtc_module" name="rtc_module">
+                {% for key, info in rtc_options.items() %}
+                    <option value="{{ key }}" {% if rtc_state.module == key %}selected{% endif %}>
+                        {{ info.label }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="rtc_addresses">Bevorzugte I²C-Adressen (optional):</label>
+            <input
+                type="text"
+                id="rtc_addresses"
+                name="rtc_addresses"
+                placeholder="z. B. 0x51, 0x68"
+                value="{{ rtc_state.configured_addresses_raw }}"
+            >
+            <small class="hint">Kommagetrennt, hexadezimal (0x..) oder dezimal. Leer lassen für Standardwerte des Moduls.</small>
+        </div>
+        <p class="hint">
+            Aktuell genutzte Adressen: {{ rtc_state.effective_addresses_display or 'keine' }}.
+        </p>
+        <button type="submit" class="btn">RTC speichern</button>
+    </form>
+</section>
 <a href="{{ url_for('index') }}">Zurück</a>
 {% endblock %}

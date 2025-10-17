@@ -182,3 +182,42 @@ def test_pcf8563_read_and_write_cycle(app_module):
     assert write_address == 0x51
     assert start_register == 0x02
     assert payload == [0x12, 0x34, 0x05, 0x16, 0x00, 0x02, 0x25]
+
+
+def test_rtc_settings_update_configuration(client):
+    client, app_module = client
+    _login(client)
+
+    response = csrf_post(
+        client,
+        "/rtc_settings",
+        data={"rtc_module": "ds3231", "rtc_addresses": "0x68, 0x69"},
+        follow_redirects=True,
+        source_url="/set_time",
+    )
+
+    assert response.status_code == 200
+    assert b"RTC-Konfiguration gespeichert" in response.data
+    assert app_module.get_setting(app_module.RTC_MODULE_SETTING_KEY) == "ds3231"
+    assert app_module.get_setting(app_module.RTC_ADDRESS_SETTING_KEY) == "0x68, 0x69"
+    assert app_module.RTC_FORCED_TYPE == "ds3231"
+    assert app_module.RTC_CANDIDATE_ADDRESSES[:2] == (0x68, 0x69)
+
+
+def test_rtc_settings_reject_invalid_address(client):
+    client, app_module = client
+    _login(client)
+
+    response = csrf_post(
+        client,
+        "/rtc_settings",
+        data={"rtc_module": "pcf8563", "rtc_addresses": "0xZZ"},
+        follow_redirects=True,
+        source_url="/set_time",
+    )
+
+    assert response.status_code == 200
+    assert b"Ung\xc3\xbcltige I\xc2\xb2C-Adresse" in response.data
+    assert (
+        app_module.get_setting(app_module.RTC_MODULE_SETTING_KEY, "auto") == "auto"
+    )
