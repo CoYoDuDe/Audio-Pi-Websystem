@@ -44,8 +44,7 @@ def test_sync_rtc_logs_error_on_subprocess_failure(app_module, monkeypatch, capl
 
     caplog.clear()
     with caplog.at_level(logging.INFO):
-        with pytest.raises(SystemExit):
-            app_module.sync_rtc_to_system()
+        result = app_module.sync_rtc_to_system()
 
     assert executed_commands == [["sudo", "date", "-s", "2024-01-02 03:04:05"]]
 
@@ -54,3 +53,23 @@ def test_sync_rtc_logs_error_on_subprocess_failure(app_module, monkeypatch, capl
 
     success_messages = [record.getMessage() for record in caplog.records if "RTC auf Systemzeit synchronisiert" in record.getMessage()]
     assert not success_messages
+    assert result is False
+
+
+def test_sync_rtc_failure_does_not_raise_system_exit(app_module, monkeypatch):
+    fake_time = datetime(2025, 5, 4, 3, 2, 1)
+    monkeypatch.setattr(app_module, "read_rtc", lambda: fake_time)
+
+    def fake_check_call(cmd, *args, **kwargs):
+        raise app_module.subprocess.CalledProcessError(5, cmd)
+
+    monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
+
+    try:
+        result = app_module.sync_rtc_to_system()
+    except SystemExit:  # pragma: no cover - sollte nicht passieren
+        pytest.fail("sync_rtc_to_system darf keinen SystemExit auslösen")
+
+    assert result is False
+    assert app_module.RTC_SYNC_STATUS["success"] is False
+    assert "Rückgabecode" in app_module.RTC_SYNC_STATUS["last_error"]
