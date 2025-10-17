@@ -208,8 +208,18 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 if not TESTING:
-    gpio_handle = GPIO.gpiochip_open(4)  # Pi 5 = Chip 4
-    logging.info("GPIO initialisiert für Verstärker (OUTPUT/HIGH = an, LOW = aus)")
+    try:
+        gpio_handle = GPIO.gpiochip_open(4)  # Pi 5 = Chip 4
+    except (GPIO.error, OSError) as exc:
+        gpio_handle = None
+        logging.warning(
+            "GPIO-Chip konnte nicht geöffnet werden, starte ohne Verstärkersteuerung: %s",
+            exc,
+        )
+    else:
+        logging.info(
+            "GPIO initialisiert für Verstärker (OUTPUT/HIGH = an, LOW = aus)"
+        )
 else:
     gpio_handle = None
 amplifier_claimed = False
@@ -1006,6 +1016,12 @@ def _set_amp_output(level, *, keep_claimed=None):
     if keep_claimed is None:
         keep_claimed = amplifier_claimed
 
+    if gpio_handle is None:
+        logging.warning(
+            "GPIO-Handle nicht verfügbar, überspringe Setzen des Endstufenpegels"
+        )
+        return False
+
     try:
         if amplifier_claimed:
             GPIO.gpio_write(gpio_handle, GPIO_PIN_ENDSTUFE, level)
@@ -1656,6 +1672,11 @@ def update_auto_reboot_job():
 # GPIO für Endstufe
 def activate_amplifier():
     global amplifier_claimed
+    if gpio_handle is None:
+        logging.warning(
+            "GPIO-Handle nicht verfügbar, überspringe Aktivierung der Endstufe"
+        )
+        return
     was_claimed = amplifier_claimed
     try:
         if not was_claimed:
@@ -1676,6 +1697,11 @@ def activate_amplifier():
 
 def deactivate_amplifier():
     global amplifier_claimed
+    if gpio_handle is None:
+        logging.warning(
+            "GPIO-Handle nicht verfügbar, überspringe Deaktivierung der Endstufe"
+        )
+        return
     if not amplifier_claimed:
         _set_amp_output(AMP_OFF_LEVEL, keep_claimed=False)
         return
