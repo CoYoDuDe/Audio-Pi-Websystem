@@ -8,6 +8,7 @@ from apscheduler.triggers.date import DateTrigger
 import sqlite3
 import tempfile
 import calendar
+import math
 from datetime import date, datetime, timedelta
 from flask import (
     Flask,
@@ -112,6 +113,77 @@ else:
         MAX_SCHEDULE_DELAY_SECONDS = DEFAULT_MAX_SCHEDULE_DELAY_SECONDS
 DAC_SINK = "alsa_output.platform-soc_107c000000_sound.stereo-fallback"
 PLAY_NOW_ALLOWED_TYPES = {"file", "playlist"}
+
+PAGE_SIZE_DEFAULT = 10
+PAGE_SIZE_ALLOWED = {10, 25, 50}
+PAGE_SIZE_OPTIONS = [
+    {"value": "10", "label": "10"},
+    {"value": "25", "label": "25"},
+    {"value": "50", "label": "50"},
+    {"value": "all", "label": "Alle"},
+]
+
+
+def _parse_page_size(raw_value: Optional[str]) -> int | str:
+    if raw_value is None:
+        return PAGE_SIZE_DEFAULT
+    normalized = raw_value.strip().lower()
+    if normalized == "all":
+        return "all"
+    try:
+        numeric = int(normalized)
+    except (TypeError, ValueError):
+        return PAGE_SIZE_DEFAULT
+    if numeric in PAGE_SIZE_ALLOWED:
+        return numeric
+    return PAGE_SIZE_DEFAULT
+
+
+def _parse_page_number(raw_value: Optional[str]) -> int:
+    try:
+        page = int(raw_value)
+    except (TypeError, ValueError):
+        return 1
+    return page if page > 0 else 1
+
+
+def _compute_pagination_meta(total_count: int, page_number: int, page_size: int | str) -> dict:
+    if page_size == "all":
+        total_pages = 1 if total_count else 1
+        page = 1
+        limit = None
+        offset = 0
+        pages = [1]
+    else:
+        total_pages = max(1, math.ceil(total_count / page_size)) if total_count else 1
+        page = min(page_number, total_pages)
+        limit = page_size
+        offset = (page - 1) * page_size
+        pages = list(range(1, total_pages + 1))
+    return {
+        "page": page,
+        "page_size": page_size,
+        "page_size_value": "all" if page_size == "all" else str(page_size),
+        "limit": limit,
+        "offset": offset,
+        "total_count": total_count,
+        "total_pages": total_pages,
+        "has_previous": page > 1,
+        "has_next": page < total_pages,
+        "previous_page": page - 1 if page > 1 else None,
+        "next_page": page + 1 if page < total_pages else None,
+        "pages": pages,
+    }
+
+
+def build_index_url(**kwargs):
+    params = request.args.to_dict()
+    for key, value in kwargs.items():
+        if value is None:
+            params.pop(key, None)
+        else:
+            params[key] = value
+    return url_for("index", **params)
 
 # Logging
 logging.basicConfig(
@@ -1956,15 +2028,47 @@ def logout():
 @app.route("/")
 @login_required
 def index():
+    file_page_size = _parse_page_size(request.args.get("file_page_size"))
+    schedule_page_size = _parse_page_size(request.args.get("schedule_page_size"))
+    file_page_number = _parse_page_number(request.args.get("file_page"))
+    schedule_page_number = _parse_page_number(request.args.get("schedule_page"))
+
     with get_db_connection() as (conn, cursor):
+        cursor.execute("SELECT COUNT(*) FROM audio_files")
+        files_total_count = cursor.fetchone()[0]
+        files_meta = _compute_pagination_meta(
+            files_total_count, file_page_number, file_page_size
+        )
+        if files_meta["limit"] is None:
+            cursor.execute(
+                "SELECT id, filename, duration_seconds FROM audio_files ORDER BY filename"
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT id, filename, duration_seconds
+                FROM audio_files
+                ORDER BY filename
+                LIMIT ? OFFSET ?
+                """,
+                (files_meta["limit"], files_meta["offset"]),
+            )
+        files_page_items = [dict(row) for row in cursor.fetchall()]
+
         cursor.execute(
             "SELECT id, filename, duration_seconds FROM audio_files ORDER BY filename"
         )
-        files = [dict(row) for row in cursor.fetchall()]
+        files_all = [dict(row) for row in cursor.fetchall()]
+
         cursor.execute("SELECT id, name FROM playlists ORDER BY name")
-        playlists = [dict(row) for row in cursor.fetchall()]
-        cursor.execute(
-            """
+        playlists_all = [dict(row) for row in cursor.fetchall()]
+
+        cursor.execute("SELECT COUNT(*) FROM schedules")
+        schedules_total_count = cursor.fetchone()[0]
+        schedules_meta = _compute_pagination_meta(
+            schedules_total_count, schedule_page_number, schedule_page_size
+        )
+        schedule_query = """
             SELECT
                 s.id,
                 CASE WHEN s.item_type='file' THEN f.filename ELSE p.name END as name,
@@ -1981,8 +2085,15 @@ def index():
             FROM schedules s
             LEFT JOIN audio_files f ON s.item_id = f.id AND s.item_type='file'
             LEFT JOIN playlists p ON s.item_id = p.id AND s.item_type='playlist'
-            """
-        )
+            ORDER BY s.time
+        """
+        if schedules_meta["limit"] is None:
+            cursor.execute(schedule_query)
+        else:
+            cursor.execute(
+                schedule_query + " LIMIT ? OFFSET ?",
+                (schedules_meta["limit"], schedules_meta["offset"]),
+            )
         schedule_rows = cursor.fetchall()
     schedules = [
         {
@@ -2002,6 +2113,10 @@ def index():
         }
         for row in schedule_rows
     ]
+    files_page = {**files_meta, "items": files_page_items}
+    schedules_page = {**schedules_meta, "items": schedules}
+    files_total = {"count": files_total_count}
+    schedules_total = {"count": schedules_total_count}
     status = gather_status()
     rtc_state = get_rtc_configuration_state()
     status.update(
@@ -2029,12 +2144,20 @@ def index():
     }
     return render_template(
         "index.html",
-        files=files,
-        playlists=playlists,
+        files=files_page_items,
+        files_all=files_all,
+        files_page=files_page,
+        files_total=files_total,
+        playlists=playlists_all,
+        playlists_all=playlists_all,
         schedules=schedules,
+        schedules_page=schedules_page,
+        schedules_total=schedules_total,
         status=status,
         auto_reboot_settings=auto_reboot_settings,
         auto_reboot_weekdays=AUTO_REBOOT_WEEKDAYS,
+        page_size_options=PAGE_SIZE_OPTIONS,
+        build_index_url=build_index_url,
     )
 
 
