@@ -42,6 +42,30 @@
     {% endif %}
 </section>
 
+<section id="audio-sink-settings">
+    <h3>Audio-Sink Konfiguration</h3>
+    <form action="{{ url_for('save_dac_sink') }}" method="POST" class="dac-sink-form" style="display:flex;flex-direction:column;gap:0.5rem;max-width:32rem;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label for="dac-sink-name" style="display:flex;flex-direction:column;gap:0.25rem;">
+            Bevorzugter PulseAudio-Sink
+            <input
+                type="text"
+                id="dac-sink-name"
+                name="dac_sink_name"
+                value="{{ status['configured_dac_sink'] or '' }}"
+                placeholder="z.B. alsa_output.platform-soc_107c000000_sound.stereo-fallback"
+            >
+        </label>
+        <small>
+            Leer lassen, um den Standardsink
+            <code>{{ status['default_dac_sink'] }}</code>
+            zu verwenden.
+            Aktuell aktiv: <code>{{ status['current_sink'] }}</code>
+        </small>
+        <button type="submit" class="btn" style="align-self:flex-start;">Speichern</button>
+    </form>
+</section>
+
 <section id="auto-reboot">
     <h3>Automatischer Neustart</h3>
     <form action="{{ url_for('save_auto_reboot_settings') }}" method="POST" class="auto-reboot-form">

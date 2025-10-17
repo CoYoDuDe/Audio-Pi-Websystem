@@ -90,6 +90,13 @@ DB_FILE = os.getenv("DB_FILE", "audio.db")
 GPIO_PIN_ENDSTUFE = 17
 VERZOEGERUNG_SEC = 5
 DEFAULT_MAX_SCHEDULE_DELAY_SECONDS = 60
+DAC_SINK_SETTING_KEY = "dac_sink_name"
+DEFAULT_DAC_SINK = os.getenv(
+    "DAC_SINK_NAME",
+    "alsa_output.platform-soc_107c000000_sound.stereo-fallback",
+)
+DAC_SINK = DEFAULT_DAC_SINK
+CONFIGURED_DAC_SINK: Optional[str] = None
 raw_max_schedule_delay = os.getenv(
     "MAX_SCHEDULE_DELAY_SECONDS", str(DEFAULT_MAX_SCHEDULE_DELAY_SECONDS)
 )
@@ -110,7 +117,6 @@ else:
             DEFAULT_MAX_SCHEDULE_DELAY_SECONDS,
         )
         MAX_SCHEDULE_DELAY_SECONDS = DEFAULT_MAX_SCHEDULE_DELAY_SECONDS
-DAC_SINK = "alsa_output.platform-soc_107c000000_sound.stereo-fallback"
 PLAY_NOW_ALLOWED_TYPES = {"file", "playlist"}
 
 # Logging
@@ -641,6 +647,10 @@ def initialize_database():
                 )
         conn.commit()
 
+    loader = globals().get("load_dac_sink_from_settings")
+    if callable(loader):
+        loader()
+
 
 initialize_database()
 
@@ -778,6 +788,26 @@ def set_setting(key, value):
         conn.commit()
 
 
+def load_dac_sink_from_settings():
+    global DAC_SINK, CONFIGURED_DAC_SINK
+
+    stored_value = get_setting(DAC_SINK_SETTING_KEY, None)
+    normalized_value = stored_value.strip() if stored_value else ""
+    previous_sink = DAC_SINK
+
+    if normalized_value:
+        DAC_SINK = normalized_value
+        CONFIGURED_DAC_SINK = normalized_value
+    else:
+        DAC_SINK = DEFAULT_DAC_SINK
+        CONFIGURED_DAC_SINK = None
+
+    if DAC_SINK != previous_sink:
+        logging.info("DAC-Sink aktualisiert: %s", DAC_SINK)
+
+    audio_status["hifiberry_detected"] = None
+
+
 def _parse_rtc_address_string(value: Optional[str]) -> Tuple[int, ...]:
     if not value:
         return tuple()
@@ -856,6 +886,7 @@ def get_rtc_configuration_state() -> dict:
     }
 
 
+load_dac_sink_from_settings()
 load_rtc_configuration_from_settings()
 
 
@@ -1241,6 +1272,8 @@ def get_current_sink():
 
 
 def _is_sink_available(sink_name):
+    if not sink_name:
+        return False
     try:
         output = subprocess.check_output(
             ["pactl", "list", "short", "sinks"],
@@ -1255,18 +1288,22 @@ def _is_sink_available(sink_name):
 
 
 def set_sink(sink_name):
-    if not _is_sink_available(sink_name):
-        if sink_name == DAC_SINK:
+    effective_sink = sink_name or DAC_SINK
+    if not effective_sink:
+        logging.warning("Kein Ziel-Sink angegeben und kein Standard konfiguriert.")
+        return False
+    if not _is_sink_available(effective_sink):
+        if effective_sink == DAC_SINK:
             audio_status["hifiberry_detected"] = False
         logging.warning(
             "Sink '%s' nicht gefunden. Behalte aktuellen Standardsink bei.",
-            sink_name,
+            effective_sink,
         )
         return False
-    subprocess.call(["pactl", "set-default-sink", sink_name])
-    if sink_name == DAC_SINK:
+    subprocess.call(["pactl", "set-default-sink", effective_sink])
+    if effective_sink == DAC_SINK:
         audio_status["hifiberry_detected"] = True
-    logging.info(f"Switch zu Sink: {sink_name}")
+    logging.info(f"Switch zu Sink: {effective_sink}")
     return True
 
 
@@ -1279,7 +1316,7 @@ def gather_status():
         )
         or "Unbekannt"
     )
-    if audio_status.get("hifiberry_detected") is None:
+    if audio_status.get("hifiberry_detected") is None and DAC_SINK:
         audio_status["hifiberry_detected"] = _is_sink_available(DAC_SINK)
     return {
         "playing": pygame.mixer.music.get_busy(),
@@ -1291,6 +1328,8 @@ def gather_status():
         "relay_invert": RELAY_INVERT,
         "current_volume": current_volume,
         "hifiberry_detected": audio_status.get("hifiberry_detected"),
+        "configured_dac_sink": CONFIGURED_DAC_SINK,
+        "default_dac_sink": DEFAULT_DAC_SINK,
     }
 
 
@@ -2315,6 +2354,20 @@ def save_auto_reboot_settings():
     flash(
         "Automatischer Neustart aktiviert." if enabled else "Automatischer Neustart deaktiviert."
     )
+    return redirect(url_for("index"))
+
+
+@app.route("/settings/dac_sink", methods=["POST"])
+@login_required
+def save_dac_sink():
+    new_sink = request.form.get("dac_sink_name", "")
+    normalized_sink = new_sink.strip()
+    set_setting(DAC_SINK_SETTING_KEY, normalized_sink if normalized_sink else None)
+    load_dac_sink_from_settings()
+    if normalized_sink:
+        flash(f"Audio-Sink '{normalized_sink}' gespeichert.")
+    else:
+        flash("Audio-Sink auf Standardsink zurückgesetzt.")
     return redirect(url_for("index"))
 
 
