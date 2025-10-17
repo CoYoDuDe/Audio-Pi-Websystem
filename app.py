@@ -9,6 +9,7 @@ import sqlite3
 import tempfile
 import calendar
 import fnmatch
+import math
 from datetime import date, datetime, timedelta
 from flask import (
     Flask,
@@ -91,6 +92,13 @@ DB_FILE = os.getenv("DB_FILE", "audio.db")
 GPIO_PIN_ENDSTUFE = 17
 VERZOEGERUNG_SEC = 5
 DEFAULT_MAX_SCHEDULE_DELAY_SECONDS = 60
+DAC_SINK_SETTING_KEY = "dac_sink_name"
+DEFAULT_DAC_SINK = os.getenv(
+    "DAC_SINK_NAME",
+    "alsa_output.platform-soc_107c000000_sound.stereo-fallback",
+)
+DAC_SINK = DEFAULT_DAC_SINK
+CONFIGURED_DAC_SINK: Optional[str] = None
 raw_max_schedule_delay = os.getenv(
     "MAX_SCHEDULE_DELAY_SECONDS", str(DEFAULT_MAX_SCHEDULE_DELAY_SECONDS)
 )
@@ -116,7 +124,79 @@ DEFAULT_DAC_SINK_HINT = DEFAULT_DAC_SINK
 DAC_SINK_SETTING_KEY = "dac_sink_name"
 DAC_SINK_HINT = os.environ.get("DAC_SINK_NAME", DEFAULT_DAC_SINK_HINT)
 DAC_SINK = DAC_SINK_HINT
+
 PLAY_NOW_ALLOWED_TYPES = {"file", "playlist"}
+
+PAGE_SIZE_DEFAULT = 10
+PAGE_SIZE_ALLOWED = {10, 25, 50}
+PAGE_SIZE_OPTIONS = [
+    {"value": "10", "label": "10"},
+    {"value": "25", "label": "25"},
+    {"value": "50", "label": "50"},
+    {"value": "all", "label": "Alle"},
+]
+
+
+def _parse_page_size(raw_value: Optional[str]) -> int | str:
+    if raw_value is None:
+        return PAGE_SIZE_DEFAULT
+    normalized = raw_value.strip().lower()
+    if normalized == "all":
+        return "all"
+    try:
+        numeric = int(normalized)
+    except (TypeError, ValueError):
+        return PAGE_SIZE_DEFAULT
+    if numeric in PAGE_SIZE_ALLOWED:
+        return numeric
+    return PAGE_SIZE_DEFAULT
+
+
+def _parse_page_number(raw_value: Optional[str]) -> int:
+    try:
+        page = int(raw_value)
+    except (TypeError, ValueError):
+        return 1
+    return page if page > 0 else 1
+
+
+def _compute_pagination_meta(total_count: int, page_number: int, page_size: int | str) -> dict:
+    if page_size == "all":
+        total_pages = 1 if total_count else 1
+        page = 1
+        limit = None
+        offset = 0
+        pages = [1]
+    else:
+        total_pages = max(1, math.ceil(total_count / page_size)) if total_count else 1
+        page = min(page_number, total_pages)
+        limit = page_size
+        offset = (page - 1) * page_size
+        pages = list(range(1, total_pages + 1))
+    return {
+        "page": page,
+        "page_size": page_size,
+        "page_size_value": "all" if page_size == "all" else str(page_size),
+        "limit": limit,
+        "offset": offset,
+        "total_count": total_count,
+        "total_pages": total_pages,
+        "has_previous": page > 1,
+        "has_next": page < total_pages,
+        "previous_page": page - 1 if page > 1 else None,
+        "next_page": page + 1 if page < total_pages else None,
+        "pages": pages,
+    }
+
+
+def build_index_url(**kwargs):
+    params = request.args.to_dict()
+    for key, value in kwargs.items():
+        if value is None:
+            params.pop(key, None)
+        else:
+            params[key] = value
+    return url_for("index", **params)
 
 # Logging
 logging.basicConfig(
@@ -646,6 +726,10 @@ def initialize_database():
                 )
         conn.commit()
 
+    loader = globals().get("load_dac_sink_from_settings")
+    if callable(loader):
+        loader()
+
 
 initialize_database()
 
@@ -783,6 +867,26 @@ def set_setting(key, value):
         conn.commit()
 
 
+def load_dac_sink_from_settings():
+    global DAC_SINK, CONFIGURED_DAC_SINK
+
+    stored_value = get_setting(DAC_SINK_SETTING_KEY, None)
+    normalized_value = stored_value.strip() if stored_value else ""
+    previous_sink = DAC_SINK
+
+    if normalized_value:
+        DAC_SINK = normalized_value
+        CONFIGURED_DAC_SINK = normalized_value
+    else:
+        DAC_SINK = DEFAULT_DAC_SINK
+        CONFIGURED_DAC_SINK = None
+
+    if DAC_SINK != previous_sink:
+        logging.info("DAC-Sink aktualisiert: %s", DAC_SINK)
+
+    audio_status["hifiberry_detected"] = None
+
+
 def _parse_rtc_address_string(value: Optional[str]) -> Tuple[int, ...]:
     if not value:
         return tuple()
@@ -861,6 +965,7 @@ def get_rtc_configuration_state() -> dict:
     }
 
 
+load_dac_sink_from_settings()
 load_rtc_configuration_from_settings()
 
 
@@ -1246,6 +1351,9 @@ def get_current_sink():
 
 
 def _list_pulse_sinks():
+def _is_sink_available(sink_name):
+    if not sink_name:
+        return False
     try:
         output = subprocess.check_output(
             ["pactl", "list", "short", "sinks"],
@@ -1334,10 +1442,16 @@ def set_sink(sink_name):
     resolved = _resolve_sink_name(sink_name, sinks=sinks)
     if resolved is None:
         if sink_name in {DAC_SINK, DAC_SINK_HINT} or _sink_matches_hint(sink_name, DAC_SINK_HINT):
+    effective_sink = sink_name or DAC_SINK
+    if not effective_sink:
+        logging.warning("Kein Ziel-Sink angegeben und kein Standard konfiguriert.")
+        return False
+    if not _is_sink_available(effective_sink):
+        if effective_sink == DAC_SINK:
             audio_status["hifiberry_detected"] = False
         logging.warning(
             "Sink '%s' nicht gefunden. Behalte aktuellen Standardsink bei.",
-            sink_name,
+            effective_sink,
         )
         return False
     subprocess.call(["pactl", "set-default-sink", resolved])
@@ -1345,6 +1459,10 @@ def set_sink(sink_name):
         DAC_SINK = resolved
         audio_status["hifiberry_detected"] = True
     logging.info(f"Switch zu Sink: {resolved}")
+    subprocess.call(["pactl", "set-default-sink", effective_sink])
+    if effective_sink == DAC_SINK:
+        audio_status["hifiberry_detected"] = True
+    logging.info(f"Switch zu Sink: {effective_sink}")
     return True
 
 
@@ -1396,7 +1514,7 @@ def gather_status():
         )
         or "Unbekannt"
     )
-    if audio_status.get("hifiberry_detected") is None:
+    if audio_status.get("hifiberry_detected") is None and DAC_SINK:
         audio_status["hifiberry_detected"] = _is_sink_available(DAC_SINK)
     return {
         "playing": pygame.mixer.music.get_busy(),
@@ -1408,6 +1526,8 @@ def gather_status():
         "relay_invert": RELAY_INVERT,
         "current_volume": current_volume,
         "hifiberry_detected": audio_status.get("hifiberry_detected"),
+        "configured_dac_sink": CONFIGURED_DAC_SINK,
+        "default_dac_sink": DEFAULT_DAC_SINK,
     }
 
 
@@ -2084,15 +2204,47 @@ def logout():
 @app.route("/")
 @login_required
 def index():
+    file_page_size = _parse_page_size(request.args.get("file_page_size"))
+    schedule_page_size = _parse_page_size(request.args.get("schedule_page_size"))
+    file_page_number = _parse_page_number(request.args.get("file_page"))
+    schedule_page_number = _parse_page_number(request.args.get("schedule_page"))
+
     with get_db_connection() as (conn, cursor):
+        cursor.execute("SELECT COUNT(*) FROM audio_files")
+        files_total_count = cursor.fetchone()[0]
+        files_meta = _compute_pagination_meta(
+            files_total_count, file_page_number, file_page_size
+        )
+        if files_meta["limit"] is None:
+            cursor.execute(
+                "SELECT id, filename, duration_seconds FROM audio_files ORDER BY filename"
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT id, filename, duration_seconds
+                FROM audio_files
+                ORDER BY filename
+                LIMIT ? OFFSET ?
+                """,
+                (files_meta["limit"], files_meta["offset"]),
+            )
+        files_page_items = [dict(row) for row in cursor.fetchall()]
+
         cursor.execute(
             "SELECT id, filename, duration_seconds FROM audio_files ORDER BY filename"
         )
-        files = [dict(row) for row in cursor.fetchall()]
+        files_all = [dict(row) for row in cursor.fetchall()]
+
         cursor.execute("SELECT id, name FROM playlists ORDER BY name")
-        playlists = [dict(row) for row in cursor.fetchall()]
-        cursor.execute(
-            """
+        playlists_all = [dict(row) for row in cursor.fetchall()]
+
+        cursor.execute("SELECT COUNT(*) FROM schedules")
+        schedules_total_count = cursor.fetchone()[0]
+        schedules_meta = _compute_pagination_meta(
+            schedules_total_count, schedule_page_number, schedule_page_size
+        )
+        schedule_query = """
             SELECT
                 s.id,
                 CASE WHEN s.item_type='file' THEN f.filename ELSE p.name END as name,
@@ -2109,8 +2261,15 @@ def index():
             FROM schedules s
             LEFT JOIN audio_files f ON s.item_id = f.id AND s.item_type='file'
             LEFT JOIN playlists p ON s.item_id = p.id AND s.item_type='playlist'
-            """
-        )
+            ORDER BY s.time
+        """
+        if schedules_meta["limit"] is None:
+            cursor.execute(schedule_query)
+        else:
+            cursor.execute(
+                schedule_query + " LIMIT ? OFFSET ?",
+                (schedules_meta["limit"], schedules_meta["offset"]),
+            )
         schedule_rows = cursor.fetchall()
     schedules = [
         {
@@ -2130,6 +2289,10 @@ def index():
         }
         for row in schedule_rows
     ]
+    files_page = {**files_meta, "items": files_page_items}
+    schedules_page = {**schedules_meta, "items": schedules}
+    files_total = {"count": files_total_count}
+    schedules_total = {"count": schedules_total_count}
     status = gather_status()
     rtc_state = get_rtc_configuration_state()
     status.update(
@@ -2157,12 +2320,20 @@ def index():
     }
     return render_template(
         "index.html",
-        files=files,
-        playlists=playlists,
+        files=files_page_items,
+        files_all=files_all,
+        files_page=files_page,
+        files_total=files_total,
+        playlists=playlists_all,
+        playlists_all=playlists_all,
         schedules=schedules,
+        schedules_page=schedules_page,
+        schedules_total=schedules_total,
         status=status,
         auto_reboot_settings=auto_reboot_settings,
         auto_reboot_weekdays=AUTO_REBOOT_WEEKDAYS,
+        page_size_options=PAGE_SIZE_OPTIONS,
+        build_index_url=build_index_url,
     )
 
 
@@ -2443,6 +2614,20 @@ def save_auto_reboot_settings():
     flash(
         "Automatischer Neustart aktiviert." if enabled else "Automatischer Neustart deaktiviert."
     )
+    return redirect(url_for("index"))
+
+
+@app.route("/settings/dac_sink", methods=["POST"])
+@login_required
+def save_dac_sink():
+    new_sink = request.form.get("dac_sink_name", "")
+    normalized_sink = new_sink.strip()
+    set_setting(DAC_SINK_SETTING_KEY, normalized_sink if normalized_sink else None)
+    load_dac_sink_from_settings()
+    if normalized_sink:
+        flash(f"Audio-Sink '{normalized_sink}' gespeichert.")
+    else:
+        flash("Audio-Sink auf Standardsink zurückgesetzt.")
     return redirect(url_for("index"))
 
 

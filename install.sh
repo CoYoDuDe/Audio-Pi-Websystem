@@ -15,10 +15,6 @@ sudo apt install -y python3 python3-pip python3-venv sqlite3
 python3 -m venv venv
 source venv/bin/activate
 
-TARGET_USER=${SUDO_USER:-$USER}
-TARGET_GROUP=$(id -gn "$TARGET_USER")
-
-
 # Dev-Packages (für pydub/pygame etc.)
 sudo apt install -y libasound2-dev libpulse-dev libportaudio2 ffmpeg libffi-dev libjpeg-dev libbluetooth-dev
 
@@ -30,8 +26,12 @@ SECRET=""
 while [ -z "$SECRET" ]; do
     read -rp "FLASK_SECRET_KEY (darf nicht leer sein): " SECRET
 done
-ESCAPED_SECRET=$(printf '%s\n' "$SECRET" | sed 's/[&/]/\\&/g')
-echo "export FLASK_SECRET_KEY=\"$SECRET\"" >> ~/.profile
+TARGET_USER=${SUDO_USER:-$USER}
+TARGET_GROUP=$(id -gn "$TARGET_USER")
+TARGET_HOME=$(eval echo "~$TARGET_USER")
+printf 'export FLASK_SECRET_KEY=%q\n' "$SECRET" | sudo tee -a "$TARGET_HOME/.profile"
+echo "FLASK_SECRET_KEY wurde in $TARGET_HOME/.profile hinterlegt."
+SYSTEMD_ESCAPED_SECRET=$(systemd-escape -- "$SECRET")
 
 # I²C für RTC aktivieren
 sudo raspi-config nonint do_i2c 0
@@ -480,12 +480,14 @@ chmod 666 app.log
 # systemd-Dienst einrichten
 sudo cp audio-pi.service /etc/systemd/system/
 sudo sed -i "s|/opt/Audio-Pi-Websystem|$(pwd)|g" /etc/systemd/system/audio-pi.service
-sudo sed -i "s|Environment=FLASK_SECRET_KEY=.*|Environment=FLASK_SECRET_KEY=$ESCAPED_SECRET|" /etc/systemd/system/audio-pi.service
+sudo sed -i "s|Environment=FLASK_SECRET_KEY=.*|Environment=FLASK_SECRET_KEY=$SYSTEMD_ESCAPED_SECRET|" /etc/systemd/system/audio-pi.service
 sudo sed -i "s|^User=.*|User=$TARGET_USER|" /etc/systemd/system/audio-pi.service
 sudo sed -i "s|^Group=.*|Group=$TARGET_GROUP|" /etc/systemd/system/audio-pi.service
 echo "Systemd-Dienst wird für Benutzer $TARGET_USER und Gruppe $TARGET_GROUP konfiguriert."
 sudo systemctl daemon-reload
 sudo systemctl enable --now audio-pi.service
+echo "Aktuelle audio-pi.service Unit-Datei:"
+sudo systemctl cat audio-pi.service
 
 # Hinweis für Bluetooth-SINK Setup
 echo ""
