@@ -163,6 +163,7 @@ RTC_ADDRESS = RTC_CANDIDATE_ADDRESSES[0]
 RTC_AVAILABLE = False
 RTC_DETECTED_ADDRESS: Optional[int] = None
 RTC_MISSING_FLAG = False
+RTC_SYNC_STATUS = {"success": None, "last_error": None}
 
 
 def scan_i2c_addresses_for_rtc(
@@ -351,12 +352,18 @@ def set_rtc(dt):
     logging.info(f'RTC gesetzt auf {dt.strftime("%Y-%m-%d %H:%M:%S")}')
 
 
-def sync_rtc_to_system():
+def _update_rtc_sync_status(success: bool, error: Optional[str] = None) -> None:
+    RTC_SYNC_STATUS["success"] = success
+    RTC_SYNC_STATUS["last_error"] = error
+
+
+def sync_rtc_to_system() -> bool:
     try:
         rtc_time = read_rtc()
     except (ValueError, OSError, RTCUnavailableError, UnsupportedRTCError) as e:
         logging.warning(f"RTC-Sync übersprungen: {e}")
-        return
+        _update_rtc_sync_status(False, str(e))
+        return False
 
     date_command = ["sudo", "date", "-s", rtc_time.strftime("%Y-%m-%d %H:%M:%S")]
 
@@ -364,19 +371,24 @@ def sync_rtc_to_system():
         subprocess.check_call(date_command)
     except FileNotFoundError as exc:
         logging.error("RTC-Sync fehlgeschlagen: 'date'-Kommando nicht gefunden (%s)", exc)
-        raise SystemExit(1) from exc
+        _update_rtc_sync_status(False, str(exc))
+        return False
     except subprocess.CalledProcessError as exc:
         logging.error(
             "RTC-Sync fehlgeschlagen: Kommando %s lieferte Rückgabecode %s",
             " ".join(map(str, date_command)),
             exc.returncode,
         )
-        raise SystemExit(1) from exc
+        _update_rtc_sync_status(False, f"Rückgabecode {exc.returncode}")
+        return False
     except Exception as exc:  # pragma: no cover - unerwartete Fehler
         logging.error("RTC-Sync fehlgeschlagen: %s", exc)
-        raise SystemExit(1) from exc
+        _update_rtc_sync_status(False, str(exc))
+        return False
 
     logging.info("RTC auf Systemzeit synchronisiert")
+    _update_rtc_sync_status(True, None)
+    return True
 
 
 if not TESTING:
