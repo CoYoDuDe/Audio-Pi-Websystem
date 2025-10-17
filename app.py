@@ -93,12 +93,15 @@ GPIO_PIN_ENDSTUFE = 17
 VERZOEGERUNG_SEC = 5
 DEFAULT_MAX_SCHEDULE_DELAY_SECONDS = 60
 DAC_SINK_SETTING_KEY = "dac_sink_name"
+DAC_SINK_LABEL_SETTING_KEY = "dac_sink_label"
 DEFAULT_DAC_SINK = os.getenv(
     "DAC_SINK_NAME",
     "alsa_output.platform-soc_107c000000_sound.stereo-fallback",
 )
+DEFAULT_DAC_SINK_LABEL = "Konfigurierter DAC"
 DAC_SINK = DEFAULT_DAC_SINK
 CONFIGURED_DAC_SINK: Optional[str] = None
+DAC_SINK_LABEL: Optional[str] = None
 raw_max_schedule_delay = os.getenv(
     "MAX_SCHEDULE_DELAY_SECONDS", str(DEFAULT_MAX_SCHEDULE_DELAY_SECONDS)
 )
@@ -216,7 +219,7 @@ is_paused = False
 
 
 # Globale Statusinformationen für Audiofunktionen
-audio_status = {"hifiberry_detected": None}
+audio_status = {"dac_sink_detected": None}
 
 # Pygame Audio und Lautstärke nur initialisieren, wenn nicht im Test
 if not TESTING:
@@ -867,8 +870,23 @@ def set_setting(key, value):
         conn.commit()
 
 
+def _normalize_optional(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _load_configured_dac_label() -> Optional[str]:
+    env_label = _normalize_optional(os.environ.get("DAC_SINK_LABEL"))
+    if env_label:
+        return env_label
+    stored_label = get_setting(DAC_SINK_LABEL_SETTING_KEY, None)
+    return _normalize_optional(stored_label)
+
+
 def load_dac_sink_from_settings():
-    global DAC_SINK, CONFIGURED_DAC_SINK
+    global DAC_SINK, CONFIGURED_DAC_SINK, DAC_SINK_LABEL
 
     stored_value = get_setting(DAC_SINK_SETTING_KEY, None)
     normalized_value = stored_value.strip() if stored_value else ""
@@ -884,7 +902,8 @@ def load_dac_sink_from_settings():
     if DAC_SINK != previous_sink:
         logging.info("DAC-Sink aktualisiert: %s", DAC_SINK)
 
-    audio_status["hifiberry_detected"] = None
+    DAC_SINK_LABEL = _load_configured_dac_label()
+    audio_status["dac_sink_detected"] = None
 
 
 def _parse_rtc_address_string(value: Optional[str]) -> Tuple[int, ...]:
@@ -1351,9 +1370,6 @@ def get_current_sink():
 
 
 def _list_pulse_sinks():
-def _is_sink_available(sink_name):
-    if not sink_name:
-        return False
     try:
         output = subprocess.check_output(
             ["pactl", "list", "short", "sinks"],
@@ -1370,6 +1386,12 @@ def _is_sink_available(sink_name):
         if len(parts) >= 2:
             sinks.append(parts[1])
     return sinks
+
+
+def _is_sink_available(sink_name):
+    sinks = _list_pulse_sinks()
+    resolved = _resolve_sink_name(sink_name, sinks=sinks)
+    return resolved is not None
 
 
 def _sink_matches_hint(sink_name: str, hint: str) -> bool:
@@ -1439,35 +1461,31 @@ def set_sink(sink_name):
     global DAC_SINK
 
     sinks = _list_pulse_sinks()
-    resolved = _resolve_sink_name(sink_name, sinks=sinks)
-    if resolved is None:
-        if sink_name in {DAC_SINK, DAC_SINK_HINT} or _sink_matches_hint(sink_name, DAC_SINK_HINT):
-    effective_sink = sink_name or DAC_SINK
-    if not effective_sink:
+    target_name = sink_name or DAC_SINK
+    if not target_name:
         logging.warning("Kein Ziel-Sink angegeben und kein Standard konfiguriert.")
         return False
-    if not _is_sink_available(effective_sink):
-        if effective_sink == DAC_SINK:
-            audio_status["hifiberry_detected"] = False
+
+    resolved = _resolve_sink_name(target_name, sinks=sinks)
+    if resolved is None:
+        if _sink_is_configured(target_name):
+            audio_status["dac_sink_detected"] = False
         logging.warning(
             "Sink '%s' nicht gefunden. Behalte aktuellen Standardsink bei.",
-            effective_sink,
+            target_name,
         )
         return False
+
     subprocess.call(["pactl", "set-default-sink", resolved])
-    if sink_name in {DAC_SINK, DAC_SINK_HINT} or _sink_matches_hint(resolved, DAC_SINK_HINT):
+    if _sink_is_configured(resolved):
         DAC_SINK = resolved
-        audio_status["hifiberry_detected"] = True
-    logging.info(f"Switch zu Sink: {resolved}")
-    subprocess.call(["pactl", "set-default-sink", effective_sink])
-    if effective_sink == DAC_SINK:
-        audio_status["hifiberry_detected"] = True
-    logging.info(f"Switch zu Sink: {effective_sink}")
+        audio_status["dac_sink_detected"] = True
+    logging.info("Switch zu Sink: %s", resolved)
     return True
 
 
 def load_dac_sink_configuration():
-    global DAC_SINK, DAC_SINK_HINT
+    global DAC_SINK, DAC_SINK_HINT, DAC_SINK_LABEL
 
     env_value = os.environ.get("DAC_SINK_NAME")
     if env_value:
@@ -1493,6 +1511,8 @@ def load_dac_sink_configuration():
     else:
         DAC_SINK = DAC_SINK_HINT
 
+    DAC_SINK_LABEL = _load_configured_dac_label()
+
 
 load_dac_sink_configuration()
 
@@ -1514,8 +1534,11 @@ def gather_status():
         )
         or "Unbekannt"
     )
-    if audio_status.get("hifiberry_detected") is None and DAC_SINK:
-        audio_status["hifiberry_detected"] = _is_sink_available(DAC_SINK)
+    if audio_status.get("dac_sink_detected") is None and DAC_SINK:
+        audio_status["dac_sink_detected"] = _is_sink_available(DAC_SINK)
+
+    effective_label = DAC_SINK_LABEL or DEFAULT_DAC_SINK_LABEL
+    target_dac_sink = DAC_SINK or DAC_SINK_HINT
     return {
         "playing": pygame.mixer.music.get_busy(),
         "bluetooth_status": "Verbunden" if is_bt_connected() else "Nicht verbunden",
@@ -1525,7 +1548,10 @@ def gather_status():
         "amplifier_status": "An" if amplifier_claimed else "Aus",
         "relay_invert": RELAY_INVERT,
         "current_volume": current_volume,
-        "hifiberry_detected": audio_status.get("hifiberry_detected"),
+        "dac_sink_detected": audio_status.get("dac_sink_detected"),
+        "dac_sink_label": effective_label,
+        "target_dac_sink": target_dac_sink,
+        "dac_sink_hint": DAC_SINK_HINT,
         "configured_dac_sink": CONFIGURED_DAC_SINK,
         "default_dac_sink": DEFAULT_DAC_SINK,
     }
@@ -2065,11 +2091,11 @@ def resume_bt_audio():
             logging.info("Kein Bluetooth-Sink zum Resume gefunden")
             return
         bt_sink = sink_lines[0].split()[1]
-        previous_detection = audio_status.get("hifiberry_detected")
+        previous_detection = audio_status.get("dac_sink_detected")
         set_sink(bt_sink)
         if not _sink_is_configured(bt_sink):
             # Sicherstellen, dass der HiFiBerry-Status durch Fremd-Sinks unverändert bleibt.
-            audio_status["hifiberry_detected"] = previous_detection
+            audio_status["dac_sink_detected"] = previous_detection
         logging.info(f"Bluetooth-Sink {bt_sink} wieder aktiv")
     except Exception as e:
         logging.error(f"Fehler beim Aktivieren des Bluetooth-Sinks: {e}")

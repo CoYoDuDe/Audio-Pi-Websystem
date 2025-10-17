@@ -107,13 +107,16 @@ def test_index_shows_address_when_rtc_available(client):
     assert b"Keine RTC erkannt" not in response.data
 
 
-def test_index_warns_when_hifiberry_missing(client):
+def test_index_warns_when_dac_sink_missing(client):
     client, app_module = client
     _login(client)
-    app_module.audio_status["hifiberry_detected"] = False
+    app_module.audio_status["dac_sink_detected"] = False
+    app_module.DAC_SINK_LABEL = "HiFiBerry DAC"
+    app_module.DAC_SINK = "alsa_output.expected_sink"
 
     response = client.get("/")
     assert b"HiFiBerry DAC nicht erkannt" in response.data
+    assert b"Gepr\xc3\xbcfter Sink: alsa_output.expected_sink" in response.data
 
 
 def test_ds3231_read_and_write_cycle(app_module):
