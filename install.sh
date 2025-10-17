@@ -27,6 +27,7 @@ while [ -z "$SECRET" ]; do
     read -rp "FLASK_SECRET_KEY (darf nicht leer sein): " SECRET
 done
 TARGET_USER=${SUDO_USER:-$USER}
+TARGET_UID=$(id -u "$TARGET_USER")
 TARGET_GROUP=$(id -gn "$TARGET_USER")
 TARGET_HOME=$(eval echo "~$TARGET_USER")
 printf 'export FLASK_SECRET_KEY=%q\n' "$SECRET" | sudo tee -a "$TARGET_HOME/.profile"
@@ -483,11 +484,17 @@ sudo sed -i "s|/opt/Audio-Pi-Websystem|$(pwd)|g" /etc/systemd/system/audio-pi.se
 sudo sed -i "s|Environment=FLASK_SECRET_KEY=.*|Environment=FLASK_SECRET_KEY=$SYSTEMD_ESCAPED_SECRET|" /etc/systemd/system/audio-pi.service
 sudo sed -i "s|^User=.*|User=$TARGET_USER|" /etc/systemd/system/audio-pi.service
 sudo sed -i "s|^Group=.*|Group=$TARGET_GROUP|" /etc/systemd/system/audio-pi.service
+sudo sed -i "s/__UID__/$TARGET_UID/" /etc/systemd/system/audio-pi.service
 echo "Systemd-Dienst wird für Benutzer $TARGET_USER und Gruppe $TARGET_GROUP konfiguriert."
+sudo install -d -m 0700 -o "$TARGET_USER" -g "$TARGET_GROUP" "/run/user/$TARGET_UID"
+echo "Hinweis: systemd legt /run/user/$TARGET_UID beim Boot automatisch neu an."
 sudo systemctl daemon-reload
-sudo systemctl enable --now audio-pi.service
+sudo systemctl enable audio-pi.service
+sudo systemctl restart audio-pi.service
 echo "Aktuelle audio-pi.service Unit-Datei:"
 sudo systemctl cat audio-pi.service
+echo "Journal-Einträge für audio-pi.service:"
+sudo journalctl -u audio-pi.service --no-pager | tail -n 20
 
 # Hinweis für Bluetooth-SINK Setup
 echo ""
