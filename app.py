@@ -183,7 +183,13 @@ RTC_DETECTED_ADDRESS: Optional[int] = None
 RTC_FORCED_TYPE: Optional[str] = None
 RTC_MISSING_FLAG = False
 RTC_SYNC_STATUS = {"success": None, "last_error": None}
-RTC_KNOWN_ADDRESS_TYPES = {0x51: "pcf8563", 0x68: "ds3231", 0x57: "ds3231"}
+RTC_KNOWN_ADDRESS_TYPES = {
+    0x51: "pcf8563",
+    0x57: "ds3231",
+    0x68: "ds3231",
+    0x69: "ds3231",
+    0x6F: "ds3231",
+}
 
 
 def scan_i2c_addresses_for_rtc(
@@ -277,14 +283,28 @@ def refresh_rtc_detection(candidate_addresses: Optional[Iterable[int]] = None):
 
 
 bus = None
-try:
-    bus = smbus.SMBus(1) if not TESTING else None
-except (FileNotFoundError, OSError) as e:
-    logging.warning(f"RTC SMBus nicht verfügbar: {e}")
-    bus = None
-    RTC_MISSING_FLAG = True
+if not TESTING:
+    try:
+        bus = smbus.SMBus(1)
+    except (FileNotFoundError, OSError) as first_exc:
+        logging.debug("RTC SMBus 1 nicht verfügbar: %s", first_exc)
+        try:
+            bus = smbus.SMBus(0)
+            logging.info("RTC nutzt I²C-Bus 0 als Fallback")
+        except (FileNotFoundError, OSError) as second_exc:
+            logging.warning(
+                "RTC SMBus nicht verfügbar (Bus 1 und 0 fehlgeschlagen): %s / %s",
+                first_exc,
+                second_exc,
+            )
+            bus = None
+            RTC_MISSING_FLAG = True
+        else:
+            RTC_MISSING_FLAG = False
+    else:
+        RTC_MISSING_FLAG = bus is None
 else:
-    RTC_MISSING_FLAG = bus is None
+    RTC_MISSING_FLAG = True
 
 refresh_rtc_detection()
 

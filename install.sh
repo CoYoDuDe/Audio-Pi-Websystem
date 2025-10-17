@@ -34,27 +34,144 @@ echo "export FLASK_SECRET_KEY=\"$SECRET\"" >> ~/.profile
 sudo raspi-config nonint do_i2c 0
 echo "i2c-dev" | sudo tee -a /etc/modules
 
+# Werkzeuge für die automatische RTC-Erkennung bereitstellen
+sudo apt install -y i2c-tools
+
+detect_rtc_devices() {
+    RTC_DETECTED_BUS=""
+    RTC_DETECTED_ADDRESSES=()
+    if ! command -v i2cdetect >/dev/null 2>&1; then
+        return 1
+    fi
+
+    local bus
+    for bus in 1 0; do
+        local output
+        output=$(sudo i2cdetect -y "$bus" 2>/dev/null || true)
+        if [ -z "$output" ]; then
+            continue
+        fi
+        mapfile -t addresses < <(printf '%s\n' "$output" | awk 'NR>1 {for (i=2; i<=NF; i++) if ($i != "--") printf("0x%s\n", $i)}')
+        if [ "${#addresses[@]}" -gt 0 ]; then
+            RTC_DETECTED_BUS="$bus"
+            RTC_DETECTED_ADDRESSES=("${addresses[@]}")
+            return 0
+        fi
+    done
+    return 1
+}
+
+infer_rtc_from_addresses() {
+    RTC_AUTODETECT_MODULE=""
+    RTC_AUTODETECT_LABEL=""
+    RTC_AUTODETECT_OVERLAY="pcf8563"
+
+    local addr
+    for addr in "${RTC_DETECTED_ADDRESSES[@]}"; do
+        local addr_lower
+        addr_lower=$(printf '%s' "$addr" | tr 'A-F' 'a-f')
+        case "$addr_lower" in
+            0x51)
+                RTC_AUTODETECT_MODULE="pcf8563"
+                RTC_AUTODETECT_LABEL="PCF8563 (0x51)"
+                RTC_AUTODETECT_OVERLAY="pcf8563"
+                return 0
+                ;;
+        esac
+    done
+
+    for addr in "${RTC_DETECTED_ADDRESSES[@]}"; do
+        local addr_lower
+        addr_lower=$(printf '%s' "$addr" | tr 'A-F' 'a-f')
+        case "$addr_lower" in
+            0x68|0x69|0x57|0x6f)
+                RTC_AUTODETECT_MODULE="ds3231"
+                RTC_AUTODETECT_LABEL="DS3231 / DS1307 (0x68)"
+                RTC_AUTODETECT_OVERLAY="ds3231"
+                return 0
+                ;;
+        esac
+    done
+
+    return 1
+}
+
+format_detected_addresses() {
+    local formatted=""
+    local addr
+    for addr in "${RTC_DETECTED_ADDRESSES[@]}"; do
+        local value formatted_addr
+        value=$((16#${addr#0x}))
+        printf -v formatted_addr '0x%02X' "$value"
+        if [ -n "$formatted" ]; then
+            formatted+=", "
+        fi
+        formatted+="$formatted_addr"
+    done
+    printf '%s' "$formatted"
+}
+
 echo ""
 echo "RTC-Konfiguration"
-echo "1) Automatische Erkennung (Standard)"
-echo "2) PCF8563 (0x51)"
-echo "3) DS3231 / DS1307 (0x68)"
-read -rp "Auswahl [1-3]: " RTC_CHOICE
 
 RTC_MODULE="auto"
 RTC_OVERLAY_DEFAULT="pcf8563"
-case "$RTC_CHOICE" in
-    2)
-        RTC_MODULE="pcf8563"
-        RTC_OVERLAY_DEFAULT="pcf8563"
-        ;;
-    3)
-        RTC_MODULE="ds3231"
-        RTC_OVERLAY_DEFAULT="ds3231"
-        ;;
-esac
+RTC_ADDRESS_INPUT=""
+RTC_AUTODETECT_ACCEPTED=0
 
-read -rp "Eigene I²C-Adressen (optional, Kommagetrennt, z.B. 0x51,0x68): " RTC_ADDRESS_INPUT
+if detect_rtc_devices; then
+    RTC_DETECTED_ADDRESS_STRING=$(format_detected_addresses)
+    echo "Automatische Erkennung: Gefundene I²C-Adresse(n) auf Bus ${RTC_DETECTED_BUS}: $RTC_DETECTED_ADDRESS_STRING"
+    if infer_rtc_from_addresses; then
+        echo "Vermutetes RTC-Modul: $RTC_AUTODETECT_LABEL"
+    else
+        echo "Hinweis: Gefundene Adresse(n) konnten keinem bekannten RTC-Typ eindeutig zugeordnet werden."
+    fi
+    read -rp "Automatische Erkennung übernehmen? [J/n]: " RTC_AUTODETECT_CONFIRM
+    RTC_AUTODETECT_CONFIRM=${RTC_AUTODETECT_CONFIRM,,}
+    if [ "$RTC_AUTODETECT_CONFIRM" != "n" ] && [ "$RTC_AUTODETECT_CONFIRM" != "nein" ]; then
+        RTC_AUTODETECT_ACCEPTED=1
+        if [ -n "$RTC_AUTODETECT_MODULE" ]; then
+            RTC_MODULE="$RTC_AUTODETECT_MODULE"
+        fi
+        RTC_OVERLAY_DEFAULT="$RTC_AUTODETECT_OVERLAY"
+        RTC_ADDRESS_INPUT="$RTC_DETECTED_ADDRESS_STRING"
+    fi
+fi
+
+if [ "$RTC_AUTODETECT_ACCEPTED" -eq 0 ]; then
+    echo "1) Automatische Erkennung (Standard)"
+    echo "2) PCF8563 (0x51)"
+    echo "3) DS3231 / DS1307 (0x68)"
+    read -rp "Auswahl [1-3]: " RTC_CHOICE
+
+    case "$RTC_CHOICE" in
+        2)
+            RTC_MODULE="pcf8563"
+            RTC_OVERLAY_DEFAULT="pcf8563"
+            ;;
+        3)
+            RTC_MODULE="ds3231"
+            RTC_OVERLAY_DEFAULT="ds3231"
+            ;;
+        *)
+            RTC_MODULE="auto"
+            RTC_OVERLAY_DEFAULT="pcf8563"
+            ;;
+    esac
+
+    read -rp "Eigene I²C-Adressen (optional, Kommagetrennt, z.B. 0x51,0x68): " RTC_ADDRESS_INPUT
+else
+    if [ -n "$RTC_ADDRESS_INPUT" ]; then
+        read -rp "Eigene I²C-Adressen (Enter übernimmt '$RTC_ADDRESS_INPUT'): " RTC_ADDRESS_OVERRIDE
+        if [ -n "$RTC_ADDRESS_OVERRIDE" ]; then
+            RTC_ADDRESS_INPUT="$RTC_ADDRESS_OVERRIDE"
+        fi
+    else
+        read -rp "Eigene I²C-Adressen (optional, Kommagetrennt, z.B. 0x51,0x68): " RTC_ADDRESS_INPUT
+    fi
+fi
+
 read -rp "dtoverlay für RTC (leer für '$RTC_OVERLAY_DEFAULT', '-' zum Überspringen): " RTC_OVERLAY_INPUT
 
 if [ -z "$RTC_OVERLAY_INPUT" ]; then

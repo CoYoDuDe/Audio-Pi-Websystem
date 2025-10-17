@@ -221,3 +221,9 @@ def test_rtc_settings_reject_invalid_address(client):
     assert (
         app_module.get_setting(app_module.RTC_MODULE_SETTING_KEY, "auto") == "auto"
     )
+
+
+def test_determine_rtc_type_supports_additional_addresses(app_module):
+    app_module.RTC_FORCED_TYPE = None
+    assert app_module._determine_rtc_type(0x6F) == "ds3231"
+    assert app_module._determine_rtc_type(0x69) == "ds3231"
