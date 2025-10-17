@@ -15,6 +15,9 @@ sudo apt install -y python3 python3-pip python3-venv sqlite3
 python3 -m venv venv
 source venv/bin/activate
 
+TARGET_USER=${SUDO_USER:-$USER}
+TARGET_GROUP=$(id -gn "$TARGET_USER")
+
 
 # Dev-Packages (für pydub/pygame etc.)
 sudo apt install -y libasound2-dev libpulse-dev libportaudio2 ffmpeg libffi-dev libjpeg-dev libbluetooth-dev
@@ -202,7 +205,9 @@ fi
 
 # PulseAudio Setup für Pi (z.B. HiFiBerry DAC)
 sudo apt install -y pulseaudio pulseaudio-utils
-sudo usermod -aG pulse,pulse-access,audio "$USER"
+sudo usermod -aG pulse "$TARGET_USER"
+sudo usermod -aG pulse-access "$TARGET_USER"
+sudo usermod -aG audio "$TARGET_USER"
 
 # Bluetooth Audio Setup – Nur SINK (kein Agent)
 sudo apt install -y pulseaudio-module-bluetooth bluez-tools bluez
@@ -228,6 +233,9 @@ chmod 666 app.log
 sudo cp audio-pi.service /etc/systemd/system/
 sudo sed -i "s|/opt/Audio-Pi-Websystem|$(pwd)|g" /etc/systemd/system/audio-pi.service
 sudo sed -i "s|Environment=FLASK_SECRET_KEY=.*|Environment=FLASK_SECRET_KEY=$ESCAPED_SECRET|" /etc/systemd/system/audio-pi.service
+sudo sed -i "s|^User=.*|User=$TARGET_USER|" /etc/systemd/system/audio-pi.service
+sudo sed -i "s|^Group=.*|Group=$TARGET_GROUP|" /etc/systemd/system/audio-pi.service
+echo "Systemd-Dienst wird für Benutzer $TARGET_USER und Gruppe $TARGET_GROUP konfiguriert."
 sudo systemctl daemon-reload
 sudo systemctl enable --now audio-pi.service
 
