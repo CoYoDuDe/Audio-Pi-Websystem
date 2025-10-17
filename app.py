@@ -37,7 +37,7 @@ import sys
 import logging
 import secrets
 import re
-from typing import Iterable, Optional
+from typing import Iterable, List, Optional, Tuple
 
 app = Flask(__name__)
 secret_key = os.environ.get("FLASK_SECRET_KEY")
@@ -158,12 +158,32 @@ class UnsupportedRTCError(Exception):
     """Gefundener RTC-Typ wird derzeit nicht unterstützt."""
 
 
-RTC_CANDIDATE_ADDRESSES = (0x51, 0x68, 0x57, 0x6F)
-RTC_ADDRESS = RTC_CANDIDATE_ADDRESSES[0]
+RTC_SUPPORTED_TYPES = {
+    "auto": {
+        "label": "Automatische Erkennung",
+        "default_addresses": (0x51, 0x68, 0x57, 0x6F),
+    },
+    "pcf8563": {
+        "label": "PCF8563 (0x51)",
+        "default_addresses": (0x51,),
+    },
+    "ds3231": {
+        "label": "DS3231 / DS1307 (0x68)",
+        "default_addresses": (0x68, 0x57),
+    },
+}
+RTC_MODULE_SETTING_KEY = "rtc_module_type"
+RTC_ADDRESS_SETTING_KEY = "rtc_addresses"
+
+RTC_DEFAULT_CANDIDATE_ADDRESSES = RTC_SUPPORTED_TYPES["auto"]["default_addresses"]
+RTC_CANDIDATE_ADDRESSES: Tuple[int, ...] = RTC_DEFAULT_CANDIDATE_ADDRESSES
+RTC_ADDRESS = RTC_DEFAULT_CANDIDATE_ADDRESSES[0]
 RTC_AVAILABLE = False
 RTC_DETECTED_ADDRESS: Optional[int] = None
+RTC_FORCED_TYPE: Optional[str] = None
 RTC_MISSING_FLAG = False
 RTC_SYNC_STATUS = {"success": None, "last_error": None}
+RTC_KNOWN_ADDRESS_TYPES = {0x51: "pcf8563", 0x68: "ds3231", 0x57: "ds3231"}
 
 
 def scan_i2c_addresses_for_rtc(
@@ -193,6 +213,70 @@ def scan_i2c_addresses_for_rtc(
     return None
 
 
+def _normalize_rtc_addresses(addresses: Iterable[int]) -> Tuple[int, ...]:
+    normalized = []
+    for address in addresses:
+        if not isinstance(address, int):
+            continue
+        if address < 0 or address > 0x7F:
+            continue
+        if address not in normalized:
+            normalized.append(address)
+    return tuple(normalized)
+
+
+def _set_rtc_candidate_addresses(addresses: Iterable[int]) -> Tuple[int, ...]:
+    global RTC_CANDIDATE_ADDRESSES, RTC_ADDRESS
+    normalized = _normalize_rtc_addresses(addresses)
+    if not normalized:
+        normalized = RTC_DEFAULT_CANDIDATE_ADDRESSES
+    RTC_CANDIDATE_ADDRESSES = normalized
+    RTC_ADDRESS = normalized[0]
+    return normalized
+
+
+def refresh_rtc_detection(candidate_addresses: Optional[Iterable[int]] = None):
+    global RTC_AVAILABLE, RTC_DETECTED_ADDRESS, RTC_MISSING_FLAG, bus, RTC_ADDRESS
+
+    if candidate_addresses is None:
+        candidate_addresses = RTC_CANDIDATE_ADDRESSES
+
+    candidates = _set_rtc_candidate_addresses(candidate_addresses)
+    if not candidates:
+        RTC_ADDRESS = None
+    if bus is None:
+        RTC_AVAILABLE = False
+        RTC_DETECTED_ADDRESS = None
+        RTC_MISSING_FLAG = True
+        return
+
+    try:
+        detected_address = scan_i2c_addresses_for_rtc(bus, candidates)
+    except Exception as exc:  # pragma: no cover - hardwareabhängig
+        logging.warning(f"RTC-Scan fehlgeschlagen: {exc}")
+        RTC_DETECTED_ADDRESS = None
+        RTC_AVAILABLE = False
+        RTC_MISSING_FLAG = True
+        return
+
+    if detected_address is not None:
+        RTC_ADDRESS = detected_address
+        RTC_DETECTED_ADDRESS = detected_address
+        RTC_AVAILABLE = True
+        RTC_MISSING_FLAG = False
+        logging.info("RTC auf I²C-Adresse 0x%02X erkannt.", detected_address)
+        return
+
+    RTC_DETECTED_ADDRESS = None
+    RTC_AVAILABLE = False
+    RTC_MISSING_FLAG = True
+    logging.warning(
+        "Keine RTC auf den bekannten I²C-Adressen gefunden (%s).",
+        ", ".join(f"0x{addr:02X}" for addr in candidates) or "(keine)",
+    )
+
+
+bus = None
 try:
     bus = smbus.SMBus(1) if not TESTING else None
 except (FileNotFoundError, OSError) as e:
@@ -200,34 +284,9 @@ except (FileNotFoundError, OSError) as e:
     bus = None
     RTC_MISSING_FLAG = True
 else:
-    if bus is None:
-        RTC_MISSING_FLAG = True
-    else:
-        try:
-            _detected_address = scan_i2c_addresses_for_rtc(
-                bus, RTC_CANDIDATE_ADDRESSES
-            )
-        except Exception as exc:  # pragma: no cover - hardwareabhängig
-            logging.warning(f"RTC-Scan fehlgeschlagen: {exc}")
-            RTC_MISSING_FLAG = True
-        else:
-            if _detected_address is not None:
-                RTC_ADDRESS = _detected_address
-                RTC_DETECTED_ADDRESS = _detected_address
-                RTC_AVAILABLE = True
-                RTC_MISSING_FLAG = False
-                logging.info(
-                    "RTC auf I²C-Adresse 0x%02X erkannt.", _detected_address
-                )
-            else:
-                RTC_DETECTED_ADDRESS = None
-                RTC_AVAILABLE = False
-                RTC_MISSING_FLAG = True
-                bus = None
-                logging.warning(
-                    "Keine RTC auf den bekannten I²C-Adressen gefunden (%s).",
-                    ", ".join(f"0x{addr:02X}" for addr in RTC_CANDIDATE_ADDRESSES),
-                )
+    RTC_MISSING_FLAG = bus is None
+
+refresh_rtc_detection()
 
 
 def bcd_to_dec(val):
@@ -239,10 +298,16 @@ def dec_to_bcd(val):
 
 
 def _determine_rtc_type(address: int) -> str:
-    if address == 0x51:
-        return "pcf8563"
-    if address == 0x68:
-        return "ds3231"
+    if RTC_FORCED_TYPE:
+        if RTC_FORCED_TYPE not in RTC_SUPPORTED_TYPES or RTC_FORCED_TYPE == "auto":
+            raise UnsupportedRTCError(
+                f"RTC-Typ '{RTC_FORCED_TYPE}' wird nicht unterstützt"
+            )
+        return RTC_FORCED_TYPE
+
+    rtc_type = RTC_KNOWN_ADDRESS_TYPES.get(address)
+    if rtc_type:
+        return rtc_type
     raise UnsupportedRTCError(f"RTC-Typ auf Adresse 0x{address:02X} nicht unterstützt")
 
 
@@ -691,6 +756,87 @@ def set_setting(key, value):
             (key, "" if value is None else str(value)),
         )
         conn.commit()
+
+
+def _parse_rtc_address_string(value: Optional[str]) -> Tuple[int, ...]:
+    if not value:
+        return tuple()
+    parts = value.replace(";", ",").split(",")
+    parsed: List[int] = []
+    for raw_part in parts:
+        part = raw_part.strip()
+        if not part:
+            continue
+        try:
+            address = int(part, 0)
+        except ValueError as exc:
+            raise ValueError(f"Ungültige I²C-Adresse: {part}") from exc
+        if address < 0 or address > 0x7F:
+            raise ValueError(
+                f"I²C-Adresse {part} außerhalb des gültigen Bereichs (0x00-0x7F)"
+            )
+        if address not in parsed:
+            parsed.append(address)
+    return tuple(parsed)
+
+
+def _format_rtc_addresses(addresses: Iterable[int]) -> str:
+    return ", ".join(f"0x{address:02X}" for address in _normalize_rtc_addresses(addresses))
+
+
+def load_rtc_configuration_from_settings():
+    global RTC_FORCED_TYPE
+
+    module_type = (get_setting(RTC_MODULE_SETTING_KEY, "auto") or "auto").strip().lower()
+    if module_type not in RTC_SUPPORTED_TYPES:
+        logging.warning(
+            "Unbekannter RTC-Modultyp '%s' in den Einstellungen. Fallback auf Auto.",
+            module_type,
+        )
+        module_type = "auto"
+
+    RTC_FORCED_TYPE = None if module_type == "auto" else module_type
+
+    raw_addresses = get_setting(RTC_ADDRESS_SETTING_KEY, "")
+    try:
+        configured_addresses = _parse_rtc_address_string(raw_addresses)
+    except ValueError as exc:
+        logging.warning("RTC-Adressen aus Einstellungen konnten nicht geparst werden: %s", exc)
+        configured_addresses = tuple()
+
+    if configured_addresses:
+        candidate_addresses = configured_addresses
+    else:
+        candidate_addresses = RTC_SUPPORTED_TYPES[module_type]["default_addresses"]
+
+    refresh_rtc_detection(candidate_addresses)
+
+
+def get_rtc_configuration_state() -> dict:
+    module_type = (get_setting(RTC_MODULE_SETTING_KEY, "auto") or "auto").strip().lower()
+    if module_type not in RTC_SUPPORTED_TYPES:
+        module_type = "auto"
+    raw_addresses = get_setting(RTC_ADDRESS_SETTING_KEY, "") or ""
+    try:
+        configured_addresses = _parse_rtc_address_string(raw_addresses)
+    except ValueError:
+        configured_addresses = tuple()
+    return {
+        "module": module_type,
+        "module_label": RTC_SUPPORTED_TYPES[module_type]["label"],
+        "configured_addresses": configured_addresses,
+        "configured_addresses_raw": raw_addresses,
+        "effective_addresses": RTC_CANDIDATE_ADDRESSES,
+        "configured_addresses_display": _format_rtc_addresses(configured_addresses)
+        if configured_addresses
+        else "",
+        "effective_addresses_display": _format_rtc_addresses(
+            RTC_CANDIDATE_ADDRESSES
+        ),
+    }
+
+
+load_rtc_configuration_from_settings()
 
 
 RELAY_INVERT = get_setting("relay_invert", "0") == "1"
@@ -1837,11 +1983,16 @@ def index():
         for row in schedule_rows
     ]
     status = gather_status()
+    rtc_state = get_rtc_configuration_state()
     status.update(
         {
             "rtc_available": RTC_AVAILABLE,
             "rtc_address": RTC_DETECTED_ADDRESS,
             "rtc_missing_flag": RTC_MISSING_FLAG,
+            "rtc_module": rtc_state["module"],
+            "rtc_module_label": rtc_state["module_label"],
+            "rtc_candidates": rtc_state["effective_addresses"],
+            "rtc_candidates_display": rtc_state["effective_addresses_display"],
         }
     )
     auto_reboot_settings = {
@@ -2613,7 +2764,47 @@ def set_time():
     return render_template(
         "set_time.html",
         sync_internet_default=stored_sync_default,
+        rtc_state=get_rtc_configuration_state(),
+        rtc_options=RTC_SUPPORTED_TYPES,
     )
+
+
+@app.route("/rtc_settings", methods=["POST"])
+@login_required
+def save_rtc_settings():
+    selected_module = (request.form.get("rtc_module") or "auto").strip().lower()
+    if selected_module not in RTC_SUPPORTED_TYPES:
+        flash("Unbekanntes RTC-Modul ausgewählt. Es wird zur automatischen Erkennung gewechselt.")
+        selected_module = "auto"
+
+    raw_addresses = (request.form.get("rtc_addresses") or "").strip()
+    try:
+        parsed_addresses = _parse_rtc_address_string(raw_addresses)
+    except ValueError as exc:
+        flash(str(exc))
+        return redirect(url_for("set_time"))
+
+    set_setting(RTC_MODULE_SETTING_KEY, selected_module)
+    if parsed_addresses:
+        set_setting(RTC_ADDRESS_SETTING_KEY, _format_rtc_addresses(parsed_addresses))
+    else:
+        set_setting(RTC_ADDRESS_SETTING_KEY, "")
+
+    load_rtc_configuration_from_settings()
+
+    if RTC_AVAILABLE and RTC_DETECTED_ADDRESS is not None:
+        flash(
+            "RTC-Konfiguration gespeichert. Erkannt auf Adresse "
+            f"0x{RTC_DETECTED_ADDRESS:02X}."
+        )
+    elif RTC_AVAILABLE:
+        flash("RTC-Konfiguration gespeichert. RTC erkannt.")
+    else:
+        flash("RTC-Konfiguration gespeichert. Keine RTC gefunden.")
+        if bus is None:
+            flash("Hinweis: I²C-Bus nicht verfügbar oder Testmodus aktiv.")
+
+    return redirect(url_for("set_time"))
 
 
 @app.route("/sync_time_from_internet", methods=["POST"])

@@ -21,10 +21,17 @@
         <li>Time: {{ status['current_time'] }}</li>
         <li>
             RTC:
+            {{ status['rtc_module_label'] }}
             {% if status['rtc_available'] %}
-                Verfügbar (Adresse {{ '0x%02X'|format(status['rtc_address']) }})
+                – verfügbar
+                {% if status['rtc_address'] is not none %}
+                    (Adresse {{ '0x%02X'|format(status['rtc_address']) }})
+                {% endif %}
             {% else %}
-                Nicht verfügbar
+                – Nicht verfügbar
+            {% endif %}
+            {% if status['rtc_candidates_display'] %}
+                <br><small>Durchsuchte Adressen: {{ status['rtc_candidates_display'] }}</small>
             {% endif %}
         </li>
     </ul>
