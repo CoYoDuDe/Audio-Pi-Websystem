@@ -89,6 +89,10 @@ def test_set_time_handles_called_process_error(monkeypatch, client):
         follow_redirects=True,
     )
 
-    assert b"Systemzeit konnte nicht gesetzt werden" in response.data
+    expected_message = (
+        "Ausführung von &#39;sudo date -s 2024-01-01 12:00:00&#39; ist fehlgeschlagen. "
+        "Systemzeit konnte nicht gesetzt werden."
+    )
+    assert expected_message.encode("utf-8") in response.data
     assert b"Datum und Uhrzeit gesetzt" not in response.data
     assert set_rtc_called is False

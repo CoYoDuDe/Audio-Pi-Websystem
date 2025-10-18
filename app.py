@@ -3299,14 +3299,36 @@ def set_time():
         except ValueError:
             flash("Ungültiges Datums-/Zeitformat")
         else:
+            command = ["sudo", "date", "-s", dt.strftime("%Y-%m-%d %H:%M:%S")]
             try:
-                subprocess.run(
-                    ["sudo", "date", "-s", dt.strftime("%Y-%m-%d %H:%M:%S")],
-                    check=True,
+                subprocess.run(command, check=True)
+            except FileNotFoundError as exc:
+                missing_command = exc.filename or command[0]
+                logging.error(
+                    "Kommando zum Setzen der Systemzeit nicht gefunden (%s): %s",
+                    missing_command,
+                    exc,
+                )
+                flash(
+                    f"Kommando '{missing_command}' wurde nicht gefunden. Systemzeit konnte nicht gesetzt werden."
                 )
             except subprocess.CalledProcessError as exc:
                 logging.error("Systemzeit setzen fehlgeschlagen (%s): %s", exc.cmd, exc)
-                flash("Systemzeit konnte nicht gesetzt werden")
+                executed_command = (
+                    " ".join(map(str, exc.cmd))
+                    if isinstance(exc.cmd, (list, tuple))
+                    else str(exc.cmd)
+                )
+                flash(
+                    f"Ausführung von '{executed_command}' ist fehlgeschlagen. Systemzeit konnte nicht gesetzt werden."
+                )
+            except Exception as exc:  # Fallback, um unerwartete Fehler abzufangen
+                logging.exception(
+                    "Unerwarteter Fehler beim Setzen der Systemzeit (%s): %s",
+                    command,
+                    exc,
+                )
+                flash("Unerwarteter Fehler beim Setzen der Systemzeit.")
             else:
                 try:
                     set_rtc(dt)
