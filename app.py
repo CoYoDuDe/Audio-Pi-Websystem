@@ -34,6 +34,7 @@ from werkzeug.utils import secure_filename
 import lgpio as GPIO
 import pygame
 from pydub import AudioSegment
+from pydub.exceptions import CouldntDecodeError
 import smbus
 import sys
 import logging
@@ -1810,6 +1811,48 @@ def _temporary_volume_scale(volume_percent):
 
 
 # Wiedergabe Funktion
+def _handle_audio_decode_failure(file_path: str, error: Exception) -> None:
+    logging.error("Konnte Audiodatei %s nicht dekodieren: %s", file_path, error)
+    if has_request_context():
+        try:
+            flash(
+                "Audio-Datei konnte nicht dekodiert werden: "
+                f"{os.path.basename(file_path)}"
+            )
+        except Exception:
+            logging.debug(
+                "Konnte Flash-Nachricht für Dekodierfehler nicht senden.",
+                exc_info=True,
+            )
+
+
+def _prepare_audio_for_playback(file_path: str, temp_path: str) -> bool:
+    try:
+        sound = AudioSegment.from_file(file_path)
+        normalized = sound.normalize(headroom=0.1)
+        normalized.export(temp_path, format="wav")
+    except CouldntDecodeError as exc:
+        _handle_audio_decode_failure(file_path, exc)
+        return False
+    except Exception as exc:
+        logging.exception(
+            "Unerwarteter Fehler beim Vorbereiten der Audiodatei %s", file_path
+        )
+        if has_request_context():
+            try:
+                flash(
+                    "Beim Vorbereiten der Audio-Datei ist ein Fehler aufgetreten: "
+                    f"{os.path.basename(file_path)}"
+                )
+            except Exception:
+                logging.debug(
+                    "Konnte Flash-Nachricht für allgemeinen Dekodierfehler nicht senden.",
+                    exc_info=True,
+                )
+        return False
+    return True
+
+
 def play_item(item_id, item_type, delay, is_schedule=False, volume_percent=100):
     global is_paused
     if not pygame_available:
@@ -1856,9 +1899,8 @@ def play_item(item_id, item_type, delay, is_schedule=False, volume_percent=100):
                         except Exception:
                             pass
                     return
-                sound = AudioSegment.from_file(file_path)
-                normalized = sound.normalize(headroom=0.1)
-                normalized.export(temp_path, format="wav")
+                if not _prepare_audio_for_playback(file_path, temp_path):
+                    return
                 with _temporary_volume_scale(sanitized_volume):
                     pygame.mixer.music.load(temp_path)
                     pygame.mixer.music.play()
@@ -1896,9 +1938,8 @@ def play_item(item_id, item_type, delay, is_schedule=False, volume_percent=100):
                                 except Exception:
                                     pass
                             continue
-                        sound = AudioSegment.from_file(file_path)
-                        normalized = sound.normalize(headroom=0.1)
-                        normalized.export(temp_path, format="wav")
+                        if not _prepare_audio_for_playback(file_path, temp_path):
+                            return
                         pygame.mixer.music.load(temp_path)
                         pygame.mixer.music.play()
                         if duration_seconds is not None:
