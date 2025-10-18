@@ -138,3 +138,22 @@ def test_set_time_triggers_internet_sync(monkeypatch, client):
     assert sync_called["value"] is True
     assert b"Zeit vom Internet synchronisiert" in response.data
     assert app_module.get_setting(app_module.TIME_SYNC_INTERNET_SETTING_KEY, "0") == "1"
+
+
+def test_perform_internet_time_sync_handles_missing_systemctl(monkeypatch, app_module):
+    commands = []
+
+    def fake_check_call(cmd, *args, **kwargs):
+        commands.append(cmd)
+        if cmd == ["sudo", "systemctl", "start", "systemd-timesyncd"]:
+            raise FileNotFoundError("sudo not found")
+        return 0
+
+    monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
+    monkeypatch.setattr(app_module, "set_rtc", lambda dt: None)
+
+    success, messages = app_module.perform_internet_time_sync()
+
+    assert ["sudo", "systemctl", "start", "systemd-timesyncd"] in commands
+    assert success is False
+    assert any("sudo" in message.lower() or "systemctl" in message.lower() for message in messages)
