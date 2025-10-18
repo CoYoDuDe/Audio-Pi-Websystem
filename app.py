@@ -2240,14 +2240,69 @@ if not TESTING:
 
 
 # --- Bluetooth-Hilfsfunktionen ---
+_PACTL_MISSING_MESSAGE = (
+    "PulseAudio-Werkzeuge (pactl) wurden nicht gefunden. Bitte Installation prüfen."
+)
+_PACTL_MISSING_LOGGED = False
+
+
+def _notify_missing_pactl() -> None:
+    """Informiert über fehlende PulseAudio-Kommandos."""
+
+    global _PACTL_MISSING_LOGGED
+
+    if not _PACTL_MISSING_LOGGED:
+        logging.error(_PACTL_MISSING_MESSAGE)
+        _PACTL_MISSING_LOGGED = True
+
+    if has_request_context():
+        flash(_PACTL_MISSING_MESSAGE)
+
+
+def _run_pactl_command(*args: str) -> Optional[str]:
+    """Führt einen pactl-Befehl aus und fängt häufige Fehler ab."""
+
+    command = ["pactl", *args]
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        _notify_missing_pactl()
+        return None
+    except subprocess.CalledProcessError as exc:  # pragma: no cover - defensiv
+        logging.error("Fehler beim Ausführen von %s: %s", " ".join(command), exc)
+        return None
+
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        if stderr:
+            logging.error(
+                "pactl-Befehl '%s' fehlgeschlagen (Code %s): %s",
+                " ".join(command[1:]),
+                result.returncode,
+                stderr,
+            )
+        else:
+            logging.error(
+                "pactl-Befehl '%s' fehlgeschlagen (Code %s).",
+                " ".join(command[1:]),
+                result.returncode,
+            )
+        return None
+
+    return result.stdout
+
+
 def is_bt_connected():
     """Prüft, ob ein Bluetooth-Gerät verbunden ist."""
-    try:
-        sinks = subprocess.getoutput("pactl list short sinks | grep bluez")
-        return bool(sinks.strip())
-    except Exception as e:
-        logging.error(f"Fehler beim Prüfen der Bluetooth-Verbindung: {e}")
+    sinks_output = _run_pactl_command("list", "short", "sinks")
+    if sinks_output is None:
         return False
+    return any("bluez" in line for line in sinks_output.splitlines())
 
 
 def resume_bt_audio():
@@ -2255,79 +2310,92 @@ def resume_bt_audio():
     if not pygame_available:
         _notify_audio_unavailable("Bluetooth-Wiedergabe kann nicht reaktiviert werden")
         return
-    try:
-        sink_lines = subprocess.getoutput(
-            "pactl list short sinks | grep bluez"
-        ).splitlines()
-        if not sink_lines:
-            logging.info("Kein Bluetooth-Sink zum Resume gefunden")
-            return
-        bt_sink = sink_lines[0].split()[1]
-        previous_detection = audio_status.get("dac_sink_detected")
-        set_sink(bt_sink)
-        if not _sink_is_configured(bt_sink):
-            # Sicherstellen, dass der HiFiBerry-Status durch Fremd-Sinks unverändert bleibt.
-            audio_status["dac_sink_detected"] = previous_detection
-        logging.info(f"Bluetooth-Sink {bt_sink} wieder aktiv")
-    except Exception as e:
-        logging.error(f"Fehler beim Aktivieren des Bluetooth-Sinks: {e}")
+    sinks_output = _run_pactl_command("list", "short", "sinks")
+    if sinks_output is None:
+        return False
+
+    sink_lines = [line for line in sinks_output.splitlines() if "bluez" in line]
+    if not sink_lines:
+        logging.info("Kein Bluetooth-Sink zum Resume gefunden")
+        return False
+
+    bt_sink = sink_lines[0].split()[1]
+    previous_detection = audio_status.get("dac_sink_detected")
+    set_sink(bt_sink)
+    if not _sink_is_configured(bt_sink):
+        # Sicherstellen, dass der HiFiBerry-Status durch Fremd-Sinks unverändert bleibt.
+        audio_status["dac_sink_detected"] = previous_detection
+    logging.info(f"Bluetooth-Sink {bt_sink} wieder aktiv")
+    return True
 
 
 def load_loopback():
     """Aktiviert PulseAudio-Loopback von der Bluetooth-Quelle zum DAC."""
-    try:
-        modules = subprocess.getoutput("pactl list short modules").splitlines()
-        target_sink = (
-            _resolve_sink_name(DAC_SINK)
-            or _resolve_sink_name(DAC_SINK_HINT)
-            or DAC_SINK
+    modules_output = _run_pactl_command("list", "short", "modules")
+    if modules_output is None:
+        return False
+
+    target_sink = (
+        _resolve_sink_name(DAC_SINK)
+        or _resolve_sink_name(DAC_SINK_HINT)
+        or DAC_SINK
+    )
+    if not target_sink:
+        logging.warning(
+            "Kein PulseAudio-Zielsink für Loopback gefunden (Konfiguration: %s)",
+            DAC_SINK_HINT,
         )
-        if not target_sink:
-            logging.warning(
-                "Kein PulseAudio-Zielsink für Loopback gefunden (Konfiguration: %s)",
-                DAC_SINK_HINT,
-            )
-            return
-        for mod in modules:
-            if "module-loopback" in mod and target_sink in mod:
-                logging.info("Loopback bereits aktiv")
-                return
-        sources = subprocess.getoutput(
-            "pactl list short sources | grep bluez"
-        ).splitlines()
-        if not sources:
-            logging.info("Kein Bluetooth-Source für Loopback gefunden")
-            return
-        bt_source = sources[0].split()[1]
-        subprocess.call(
-            [
-                "pactl",
-                "load-module",
-                "module-loopback",
-                f"source={bt_source}",
-                f"sink={target_sink}",
-                "latency_msec=30",
-            ]
-        )
-        logging.info(f"Loopback geladen: {bt_source} -> {target_sink}")
-    except Exception as e:
-        logging.error(f"Fehler beim Laden des Loopback-Moduls: {e}")
+        return False
+
+    for mod in modules_output.splitlines():
+        if "module-loopback" in mod and target_sink in mod:
+            logging.info("Loopback bereits aktiv")
+            return True
+
+    sources_output = _run_pactl_command("list", "short", "sources")
+    if sources_output is None:
+        return False
+
+    sources = [line for line in sources_output.splitlines() if "bluez" in line]
+    if not sources:
+        logging.info("Kein Bluetooth-Source für Loopback gefunden")
+        return False
+
+    bt_source = sources[0].split()[1]
+    load_result = _run_pactl_command(
+        "load-module",
+        "module-loopback",
+        f"source={bt_source}",
+        f"sink={target_sink}",
+        "latency_msec=30",
+    )
+    if load_result is None:
+        return False
+
+    logging.info(f"Loopback geladen: {bt_source} -> {target_sink}")
+    return True
 
 
 # --- Bluetooth Audio Monitor (A2DP-Sink Erkennung & Verstärkersteuerung) ---
 def is_bt_audio_active():
     # Prüft, ob ein Bluetooth-Audio-Stream anliegt (A2DP)
-    sinks = subprocess.getoutput("pactl list short sinks | grep bluez").splitlines()
+    sinks_output = _run_pactl_command("list", "short", "sinks")
+    if sinks_output is None:
+        return False
+
+    sinks = [line for line in sinks_output.splitlines() if "bluez" in line]
     if not sinks:
         return False
+
+    sink_inputs_output = _run_pactl_command("list", "short", "sink-inputs")
+    if sink_inputs_output is None:
+        return False
+
     for sink in sinks:
         sink_name = sink.split()[1]
-        # Gibt es einen aktiven Stream auf diesem Sink?
-        inputs = subprocess.getoutput(
-            f"pactl list short sink-inputs | grep {sink_name}"
-        )
-        if inputs.strip():
-            return True
+        for sink_input in sink_inputs_output.splitlines():
+            if sink_name in sink_input:
+                return True
     return False
 
 
