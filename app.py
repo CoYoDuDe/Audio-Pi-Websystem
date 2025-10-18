@@ -3248,11 +3248,31 @@ def perform_internet_time_sync():
         try:
             subprocess.check_call(["sudo", "systemctl", "start", "systemd-timesyncd"])
         except subprocess.CalledProcessError as exc:
-            logging.error(
-                "systemd-timesyncd konnte nach dem Internet-Sync nicht gestartet werden: %s",
+            logging.warning(
+                "systemd-timesyncd konnte nach dem Internet-Sync nicht gestartet werden (Exit-Code): %s",
                 exc,
             )
-            messages.append("systemd-timesyncd konnte nicht gestartet werden")
+            messages.append(
+                "systemd-timesyncd konnte nicht gestartet werden (siehe Logs für Details)"
+            )
+            success = False
+        except FileNotFoundError as exc:
+            logging.warning(
+                "systemd-timesyncd konnte nicht gestartet werden, da sudo/systemctl fehlen: %s",
+                exc,
+            )
+            messages.append(
+                "systemd-timesyncd konnte nicht gestartet werden, da sudo oder systemctl nicht verfügbar sind"
+            )
+            success = False
+        except Exception as exc:  # pragma: no cover - unerwartete Fehler
+            logging.warning(
+                "Unerwarteter Fehler beim Starten von systemd-timesyncd nach dem Internet-Sync: %s",
+                exc,
+            )
+            messages.append(
+                "systemd-timesyncd konnte nicht gestartet werden (unerwarteter Fehler, bitte Logs prüfen)"
+            )
             success = False
     return success, messages
 
