@@ -231,21 +231,50 @@ is_paused = False
 # Globale Statusinformationen für Audiofunktionen
 audio_status = {"dac_sink_detected": None}
 
+pygame_available = TESTING
+
+
+def load_initial_volume():
+    output = subprocess.getoutput("pactl get-sink-volume @DEFAULT_SINK@")
+    match = re.search(r"(\d+)%", output)
+    if match:
+        initial_vol = int(match.group(1))
+        pygame.mixer.music.set_volume(initial_vol / 100.0)
+        logging.info(f"Initiale Lautstärke geladen: {initial_vol}%")
+
+
+# Nutzerhinweis, wenn Audio-Funktionen nicht verfügbar sind
+AUDIO_UNAVAILABLE_MESSAGE = (
+    "Audio-Wiedergabe nicht verfügbar, da pygame nicht initialisiert werden konnte."
+)
+
+
+def _notify_audio_unavailable(action: str) -> None:
+    message = f"{action}: {AUDIO_UNAVAILABLE_MESSAGE}" if action else AUDIO_UNAVAILABLE_MESSAGE
+    logging.warning(message)
+    if has_request_context():
+        try:
+            flash(message)
+        except Exception:
+            logging.debug(
+                "Konnte Flash-Nachricht für nicht verfügbare Audio-Funktion nicht senden.",
+                exc_info=True,
+            )
+
+
 # Pygame Audio und Lautstärke nur initialisieren, wenn nicht im Test
 if not TESTING:
-    pygame.mixer.init()
-
-
-    def load_initial_volume():
-        output = subprocess.getoutput("pactl get-sink-volume @DEFAULT_SINK@")
-        match = re.search(r"(\d+)%", output)
-        if match:
-            initial_vol = int(match.group(1))
-            pygame.mixer.music.set_volume(initial_vol / 100.0)
-            logging.info(f"Initiale Lautstärke geladen: {initial_vol}%")
-
-
-    load_initial_volume()
+    try:
+        pygame.mixer.init()
+    except pygame.error as exc:
+        pygame_available = False
+        logging.warning(
+            "pygame.mixer konnte nicht initialisiert werden. Audio-Funktionen werden deaktiviert: %s",
+            exc,
+        )
+    else:
+        pygame_available = True
+        load_initial_volume()
 
 # RTC (Echtzeituhr) Setup
 class RTCUnavailableError(Exception):
@@ -1555,8 +1584,9 @@ def gather_status():
 
     effective_label = DAC_SINK_LABEL or DEFAULT_DAC_SINK_LABEL
     target_dac_sink = DAC_SINK or DAC_SINK_HINT
+    is_playing = pygame.mixer.music.get_busy() if pygame_available else False
     return {
-        "playing": pygame.mixer.music.get_busy(),
+        "playing": is_playing,
         "bluetooth_status": "Verbunden" if is_bt_connected() else "Nicht verbunden",
         "wlan_status": wlan_ssid,
         "current_sink": get_current_sink(),
@@ -1734,6 +1764,8 @@ def _coerce_volume_percent(raw_value, *, default=100):
 
 
 def _get_master_volume():
+    if not pygame_available:
+        return 1.0
     try:
         volume = float(pygame.mixer.music.get_volume())
     except Exception as exc:  # pragma: no cover - defensive Schutz für pygame
@@ -1743,6 +1775,9 @@ def _get_master_volume():
 
 
 def _set_volume_safe(value):
+    if not pygame_available:
+        _notify_audio_unavailable("Lautstärkeanpassung nicht möglich")
+        return False
     clamped = max(0.0, min(1.0, float(value)))
     try:
         pygame.mixer.music.set_volume(clamped)
@@ -1753,6 +1788,8 @@ def _set_volume_safe(value):
 
 
 def _temporary_volume_scale(volume_percent):
+    if not pygame_available:
+        return nullcontext()
     sanitized = _coerce_volume_percent(volume_percent, default=None)
     if sanitized is None or sanitized == 100:
         return nullcontext()
@@ -1775,6 +1812,9 @@ def _temporary_volume_scale(volume_percent):
 # Wiedergabe Funktion
 def play_item(item_id, item_type, delay, is_schedule=False, volume_percent=100):
     global is_paused
+    if not pygame_available:
+        _notify_audio_unavailable("Wiedergabe kann nicht gestartet werden")
+        return
     with play_lock:
         if pygame.mixer.music.get_busy():
             logging.info(
@@ -2109,6 +2149,9 @@ def is_bt_connected():
 
 def resume_bt_audio():
     """Stellt den Bluetooth-Sink wieder als Standard ein."""
+    if not pygame_available:
+        _notify_audio_unavailable("Bluetooth-Wiedergabe kann nicht reaktiviert werden")
+        return
     try:
         sink_lines = subprocess.getoutput(
             "pactl list short sinks | grep bluez"
@@ -2502,6 +2545,9 @@ def delete_playlist(playlist_id):
 @app.route("/play_now/<string:item_type>/<int:item_id>", methods=["POST"])
 @login_required
 def play_now(item_type, item_id):
+    if not pygame_available:
+        _notify_audio_unavailable("Sofort-Wiedergabe nicht möglich")
+        return redirect(url_for("index"))
     normalized_type = item_type.lower()
     if normalized_type not in PLAY_NOW_ALLOWED_TYPES:
         logging.warning("Ungültiger Sofort-Wiedergabe-Typ angefordert: %s", item_type)
@@ -2520,6 +2566,9 @@ def play_now(item_type, item_id):
 @login_required
 def toggle_pause():
     global is_paused
+    if not pygame_available:
+        _notify_audio_unavailable("Pausenstatus kann nicht geändert werden")
+        return redirect(url_for("index"))
     if pygame.mixer.music.get_busy() or is_paused:
         if is_paused:
             pygame.mixer.music.unpause()
@@ -2535,6 +2584,9 @@ def toggle_pause():
 @app.route("/stop_playback", methods=["POST"])
 @login_required
 def stop_playback():
+    if not pygame_available:
+        _notify_audio_unavailable("Wiedergabe kann nicht gestoppt werden")
+        return redirect(url_for("index"))
     pygame.mixer.music.stop()
     global is_paused
     is_paused = False
@@ -2977,7 +3029,11 @@ def wlan_connect():
 @app.route("/volume", methods=["POST"])
 @login_required
 def set_volume():
-    vol = request.form["volume"]
+    if not pygame_available:
+        _notify_audio_unavailable("Lautstärke kann nicht gesetzt werden")
+        return redirect(url_for("index"))
+
+    vol = request.form.get("volume")
     try:
         int_vol = int(vol)
     except (TypeError, ValueError):
