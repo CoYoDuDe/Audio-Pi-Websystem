@@ -20,6 +20,7 @@ from flask import (
     url_for,
     flash,
     has_request_context,
+    g,
 )
 from flask_login import (
     LoginManager,
@@ -60,7 +61,7 @@ else:
 import sys
 import secrets
 import re
-from typing import Iterable, List, Optional, Tuple
+from typing import Iterable, List, Optional, Tuple, Literal
 
 if GPIO_AVAILABLE:
     GPIOError = GPIO.error
@@ -3415,24 +3416,68 @@ def update():
     return redirect(url_for("index"))
 
 
-def enable_bluetooth():
-    subprocess.check_call(["sudo", "bluetoothctl", "power", "on"])
-    bluetooth_auto_accept()
+BLUETOOTH_MISSING_CLI_FLASH_KEY = "_bluetooth_missing_cli_flashed"
+BLUETOOTH_MISSING_CLI_MESSAGE = (
+    "sudo oder bluetoothctl nicht gefunden. Bitte Installation überprüfen."
+)
 
 
-def disable_bluetooth():
-    subprocess.check_call(["sudo", "bluetoothctl", "power", "off"])
+def _flash_missing_bluetooth_cli_message():
+    if not has_request_context():
+        return
+    if getattr(g, BLUETOOTH_MISSING_CLI_FLASH_KEY, False):
+        return
+    flash(BLUETOOTH_MISSING_CLI_MESSAGE)
+    setattr(g, BLUETOOTH_MISSING_CLI_FLASH_KEY, True)
+
+
+def _handle_missing_bluetooth_command(
+    error: FileNotFoundError, *, flash_user: bool = True, log_error: bool = True
+) -> None:
+    if log_error:
+        logging.error("Bluetooth-Steuerung nicht verfügbar: %s", error)
+    if flash_user:
+        _flash_missing_bluetooth_cli_message()
+
+
+BluetoothActionResult = Literal["success", "missing_cli", "error"]
+
+
+def enable_bluetooth() -> BluetoothActionResult:
+    try:
+        subprocess.check_call(["sudo", "bluetoothctl", "power", "on"])
+    except FileNotFoundError as exc:
+        _handle_missing_bluetooth_command(exc)
+        return "missing_cli"
+    auto_accept_result = bluetooth_auto_accept()
+    return auto_accept_result
+
+
+def disable_bluetooth() -> BluetoothActionResult:
+    try:
+        subprocess.check_call(["sudo", "bluetoothctl", "power", "off"])
+    except FileNotFoundError as exc:
+        _handle_missing_bluetooth_command(exc)
+        return "missing_cli"
+    return "success"
 
 
 @app.route("/bluetooth_on", methods=["POST"])
 @login_required
 def bluetooth_on():
     try:
-        enable_bluetooth()
-        flash("Bluetooth aktiviert")
+        result = enable_bluetooth()
+        if result == "success":
+            flash("Bluetooth aktiviert")
+        elif result == "missing_cli":
+            _flash_missing_bluetooth_cli_message()
+        else:
+            flash("Bluetooth konnte nicht aktiviert werden")
     except subprocess.CalledProcessError as e:
         logging.error(f"Bluetooth einschalten fehlgeschlagen: {e}")
         flash("Bluetooth konnte nicht aktiviert werden")
+    except FileNotFoundError as exc:
+        _handle_missing_bluetooth_command(exc, log_error=False)
     return redirect(url_for("index"))
 
 
@@ -3440,22 +3485,37 @@ def bluetooth_on():
 @login_required
 def bluetooth_off():
     try:
-        disable_bluetooth()
-        flash("Bluetooth deaktiviert")
+        result = disable_bluetooth()
+        if result == "success":
+            flash("Bluetooth deaktiviert")
+        elif result == "missing_cli":
+            _flash_missing_bluetooth_cli_message()
+        else:
+            flash("Bluetooth konnte nicht deaktiviert werden")
     except subprocess.CalledProcessError as e:
         logging.error(f"Bluetooth ausschalten fehlgeschlagen: {e}")
         flash("Bluetooth konnte nicht deaktiviert werden")
+    except FileNotFoundError as exc:
+        _handle_missing_bluetooth_command(exc, log_error=False)
     return redirect(url_for("index"))
 
 
-def bluetooth_auto_accept():
-    p = subprocess.Popen(
-        ["sudo", "bluetoothctl"],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        universal_newlines=True,
-    )
+def bluetooth_auto_accept() -> BluetoothActionResult:
+    try:
+        p = subprocess.Popen(
+            ["sudo", "bluetoothctl"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+        )
+    except FileNotFoundError as exc:
+        _handle_missing_bluetooth_command(exc)
+        return "missing_cli"
+    except Exception as exc:  # pragma: no cover - Schutz vor unerwarteten Fehlern
+        logging.error("Bluetooth auto-accept konnte nicht gestartet werden: %s", exc)
+        return "error"
+
     commands = [
         "power on",
         "discoverable on",
@@ -3463,8 +3523,18 @@ def bluetooth_auto_accept():
         "agent on",
         "default-agent",
     ]
-    stdout, stderr = p.communicate("\n".join(commands) + "\nexit\n")
+
+    try:
+        stdout, stderr = p.communicate("\n".join(commands) + "\nexit\n")
+    except FileNotFoundError as exc:
+        _handle_missing_bluetooth_command(exc)
+        return "missing_cli"
+    except Exception as exc:
+        logging.error("Bluetooth auto-accept Kommunikation fehlgeschlagen: %s", exc)
+        return "error"
+
     logging.info(f"Bluetooth auto-accept setup: {stdout} {stderr}")
+    return "success"
 
 
 if not TESTING:
