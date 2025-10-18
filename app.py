@@ -1564,7 +1564,17 @@ def set_sink(sink_name):
         )
         return False
 
-    subprocess.call(["pactl", "set-default-sink", resolved])
+    try:
+        subprocess.call(["pactl", "set-default-sink", resolved])
+    except (FileNotFoundError, OSError) as exc:
+        logging.warning(
+            "PulseAudio-Sink konnte nicht gesetzt werden, 'pactl' fehlt oder ist nicht aufrufbar: %s",
+            exc,
+        )
+        audio_status["dac_sink_detected"] = False
+        if has_request_context():
+            _notify_audio_unavailable("PulseAudio-Sink konnte nicht gesetzt werden")
+        return False
     if _sink_is_configured(resolved):
         DAC_SINK = resolved
         audio_status["dac_sink_detected"] = True
