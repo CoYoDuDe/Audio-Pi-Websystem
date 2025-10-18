@@ -22,6 +22,7 @@ def client(monkeypatch, tmp_path):
     if "app" in sys.modules:
         del sys.modules["app"]
     app_module = importlib.import_module("app")
+    app_module.pygame_available = False
 
     with app_module.app.test_client() as test_client:
         yield test_client, app_module

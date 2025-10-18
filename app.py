@@ -3113,6 +3113,9 @@ def wlan_connect():
         _run_wpa_cli(base_cmd + ["save_config"])
         _run_wpa_cli(base_cmd + ["reconfigure"])
         flash("Versuche, mit WLAN zu verbinden")
+    except FileNotFoundError as e:
+        logging.error("wpa_cli oder sudo nicht gefunden: %s", e)
+        flash("wpa_cli oder sudo nicht gefunden. Bitte Installation überprüfen.")
     except subprocess.CalledProcessError as e:
         logging.error(
             "Fehler beim WLAN-Verbindungsaufbau: %s (stdout: %s, stderr: %s)",
