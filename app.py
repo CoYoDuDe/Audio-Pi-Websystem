@@ -47,7 +47,16 @@ else:
 import pygame
 from pydub import AudioSegment
 from pydub.exceptions import CouldntDecodeError
-import smbus
+try:  # pragma: no cover - Import wird separat getestet
+    import smbus
+except ImportError:  # pragma: no cover - Verhalten wird in Tests geprüft
+    smbus = None  # type: ignore[assignment]
+    SMBUS_AVAILABLE = False
+    logging.getLogger(__name__).warning(
+        "smbus konnte nicht importiert werden, I²C-Funktionen deaktiviert."
+    )
+else:
+    SMBUS_AVAILABLE = True
 import sys
 import secrets
 import re
@@ -433,13 +442,17 @@ def refresh_rtc_detection(candidate_addresses: Optional[Iterable[int]] = None):
 
 
 bus = None
-if not TESTING:
+if not SMBUS_AVAILABLE:
+    RTC_AVAILABLE = False
+    RTC_DETECTED_ADDRESS = None
+    RTC_MISSING_FLAG = True
+elif not TESTING:
     try:
-        bus = smbus.SMBus(1)
+        bus = smbus.SMBus(1)  # type: ignore[union-attr]
     except (FileNotFoundError, OSError) as first_exc:
         logging.debug("RTC SMBus 1 nicht verfügbar: %s", first_exc)
         try:
-            bus = smbus.SMBus(0)
+            bus = smbus.SMBus(0)  # type: ignore[union-attr]
             logging.info("RTC nutzt I²C-Bus 0 als Fallback")
         except (FileNotFoundError, OSError) as second_exc:
             logging.warning(
