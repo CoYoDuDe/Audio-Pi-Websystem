@@ -3406,6 +3406,9 @@ def update():
     try:
         subprocess.check_call(["git", "pull"])
         flash("Update erfolgreich")
+    except FileNotFoundError as e:
+        logging.error(f"Git nicht gefunden: {e}")
+        flash("git nicht verfügbar")
     except subprocess.CalledProcessError as e:
         logging.error(f"Update fehlgeschlagen: {e}")
         flash("Update fehlgeschlagen")
