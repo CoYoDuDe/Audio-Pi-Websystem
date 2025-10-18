@@ -10,6 +10,7 @@ import tempfile
 import calendar
 import fnmatch
 import math
+import logging
 from datetime import date, datetime, timedelta
 from flask import (
     Flask,
@@ -31,16 +32,33 @@ from flask_login import (
 from flask_wtf import CSRFProtect
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-import lgpio as GPIO
+
+try:  # pragma: no cover - Import wird separat getestet
+    import lgpio as GPIO
+except ImportError:  # pragma: no cover - Verhalten wird in Tests geprüft
+    GPIO = None  # type: ignore[assignment]
+    GPIO_AVAILABLE = False
+    logging.getLogger(__name__).warning(
+        "lgpio konnte nicht importiert werden, GPIO-Funktionen deaktiviert."
+    )
+else:
+    GPIO_AVAILABLE = True
+
 import pygame
 from pydub import AudioSegment
 from pydub.exceptions import CouldntDecodeError
 import smbus
 import sys
-import logging
 import secrets
 import re
 from typing import Iterable, List, Optional, Tuple
+
+if GPIO_AVAILABLE:
+    GPIOError = GPIO.error
+else:
+    class GPIOError(Exception):
+        """Platzhalter, wenn lgpio nicht verfügbar ist."""
+
 
 app = Flask(__name__)
 secret_key = os.environ.get("FLASK_SECRET_KEY")
@@ -208,10 +226,10 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
-if not TESTING:
+if not TESTING and GPIO_AVAILABLE:
     try:
         gpio_handle = GPIO.gpiochip_open(4)  # Pi 5 = Chip 4
-    except (GPIO.error, OSError) as exc:
+    except (GPIOError, OSError) as exc:
         gpio_handle = None
         logging.warning(
             "GPIO-Chip konnte nicht geöffnet werden, starte ohne Verstärkersteuerung: %s",
@@ -223,6 +241,10 @@ if not TESTING:
         )
 else:
     gpio_handle = None
+    if not TESTING and not GPIO_AVAILABLE:
+        logging.warning(
+            "lgpio nicht verfügbar, starte ohne Verstärkersteuerung."
+        )
 amplifier_claimed = False
 
 # Track pause status manually since pygame lacks a get_paused() helper
@@ -1046,6 +1068,12 @@ def _set_amp_output(level, *, keep_claimed=None):
     if keep_claimed is None:
         keep_claimed = amplifier_claimed
 
+    if not GPIO_AVAILABLE:
+        logging.warning(
+            "lgpio nicht verfügbar, überspringe Setzen des Endstufenpegels"
+        )
+        return False
+
     if gpio_handle is None:
         logging.warning(
             "GPIO-Handle nicht verfügbar, überspringe Setzen des Endstufenpegels"
@@ -1069,7 +1097,7 @@ def _set_amp_output(level, *, keep_claimed=None):
         else:
             GPIO.gpio_free(gpio_handle, GPIO_PIN_ENDSTUFE)
         return True
-    except GPIO.error as e:
+    except GPIOError as e:
         if "GPIO busy" in str(e):
             logging.warning(
                 "GPIO busy beim Setzen des Endstufenpegels, Aktion wird übersprungen"
@@ -1077,7 +1105,7 @@ def _set_amp_output(level, *, keep_claimed=None):
             if amplifier_claimed and not keep_claimed:
                 try:
                     GPIO.gpio_free(gpio_handle, GPIO_PIN_ENDSTUFE)
-                except GPIO.error:
+                except GPIOError:
                     pass
                 amplifier_claimed = False
             return False
@@ -1703,6 +1731,11 @@ def update_auto_reboot_job():
 # GPIO für Endstufe
 def activate_amplifier():
     global amplifier_claimed
+    if not GPIO_AVAILABLE:
+        logging.warning(
+            "lgpio nicht verfügbar, überspringe Aktivierung der Endstufe"
+        )
+        return
     if gpio_handle is None:
         logging.warning(
             "GPIO-Handle nicht verfügbar, überspringe Aktivierung der Endstufe"
@@ -1719,7 +1752,7 @@ def activate_amplifier():
                 if was_claimed
                 else "Endstufe EIN"
             )
-    except GPIO.error as e:
+    except GPIOError as e:
         if "GPIO busy" in str(e):
             logging.warning("GPIO bereits belegt, überspringe claim")
         else:
@@ -1728,6 +1761,11 @@ def activate_amplifier():
 
 def deactivate_amplifier():
     global amplifier_claimed
+    if not GPIO_AVAILABLE:
+        logging.warning(
+            "lgpio nicht verfügbar, überspringe Deaktivierung der Endstufe"
+        )
+        return
     if gpio_handle is None:
         logging.warning(
             "GPIO-Handle nicht verfügbar, überspringe Deaktivierung der Endstufe"
@@ -1739,7 +1777,7 @@ def deactivate_amplifier():
     try:
         if _set_amp_output(AMP_OFF_LEVEL, keep_claimed=False):
             logging.info("Endstufe AUS")
-    except GPIO.error as e:
+    except GPIOError as e:
         if "GPIO busy" in str(e):
             logging.warning("GPIO busy beim deaktivieren, ignoriere")
         else:
@@ -2644,10 +2682,13 @@ def stop_playback():
 @app.route("/activate_amp", methods=["POST"])
 @login_required
 def activate_amp():
+    if not GPIO_AVAILABLE:
+        flash("lgpio nicht verfügbar, Endstufe kann nicht aktiviert werden.")
+        return redirect(url_for("index"))
     try:
         activate_amplifier()
         flash("Endstufe aktiviert")
-    except GPIO.error as e:
+    except GPIOError as e:
         flash(f"Fehler beim Aktivieren der Endstufe: {str(e)}")
     return redirect(url_for("index"))
 
@@ -2655,10 +2696,13 @@ def activate_amp():
 @app.route("/deactivate_amp", methods=["POST"])
 @login_required
 def deactivate_amp():
+    if not GPIO_AVAILABLE:
+        flash("lgpio nicht verfügbar, Endstufe kann nicht deaktiviert werden.")
+        return redirect(url_for("index"))
     try:
         deactivate_amplifier()
         flash("Endstufe deaktiviert")
-    except GPIO.error as e:
+    except GPIOError as e:
         flash(f"Fehler beim Deaktivieren der Endstufe: {str(e)}")
     return redirect(url_for("index"))
 
@@ -3382,10 +3426,10 @@ if __name__ == "__main__":
         # Scheduler nur stoppen, wenn er wirklich gestartet wurde (z.B. nicht im TESTING-Modus)
         if getattr(scheduler, "running", False):
             scheduler.shutdown()
-        if not TESTING and gpio_handle is not None:
+        if not TESTING and GPIO_AVAILABLE and gpio_handle is not None:
             try:
                 deactivate_amplifier()
                 GPIO.gpiochip_close(gpio_handle)
                 logging.info("GPIO-Handle geschlossen")
-            except GPIO.error as e:
+            except GPIOError as e:
                 logging.error(f"Fehler beim Schließen des GPIO-Handles: {e}")
