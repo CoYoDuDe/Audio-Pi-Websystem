@@ -2420,17 +2420,29 @@ def has_network():
 
 
 def setup_ap():
-    if not has_network():
-        logging.info("Kein Netzwerk – starte AP-Modus")
-        subprocess.call(["sudo", "systemctl", "start", "dnsmasq"])
-        subprocess.call(["sudo", "systemctl", "start", "hostapd"])
-    else:
-        disable_ap()
+    try:
+        if not has_network():
+            logging.info("Kein Netzwerk – starte AP-Modus")
+            subprocess.call(["sudo", "systemctl", "start", "dnsmasq"])
+            subprocess.call(["sudo", "systemctl", "start", "hostapd"])
+        else:
+            disable_ap()
+    except (FileNotFoundError, OSError) as exc:
+        logging.error("sudo oder systemctl nicht gefunden: %s", exc)
+        if has_request_context():
+            flash("sudo oder systemctl nicht gefunden")
+        return False
 
 
 def disable_ap():
-    subprocess.call(["sudo", "systemctl", "stop", "hostapd"])
-    subprocess.call(["sudo", "systemctl", "stop", "dnsmasq"])
+    try:
+        subprocess.call(["sudo", "systemctl", "stop", "hostapd"])
+        subprocess.call(["sudo", "systemctl", "stop", "dnsmasq"])
+    except (FileNotFoundError, OSError) as exc:
+        logging.error("sudo oder systemctl nicht gefunden: %s", exc)
+        if has_request_context():
+            flash("sudo oder systemctl nicht gefunden")
+        return False
     logging.info("AP-Modus deaktiviert")
 
 
