@@ -2990,6 +2990,7 @@ def index():
             "auto_reboot_weekday", AUTO_REBOOT_DEFAULTS["auto_reboot_weekday"]
         ),
     }
+    default_schedule_delay = min(VERZOEGERUNG_SEC, MAX_SCHEDULE_DELAY_SECONDS)
     return render_template(
         "index.html",
         files=files_page_items,
@@ -3021,6 +3022,7 @@ def index():
         schedule_default_volume_db_value=status.get("schedule_default_volume_db_value"),
         schedule_default_volume_fallback=SCHEDULE_DEFAULT_VOLUME_PERCENT_FALLBACK,
         max_schedule_delay_seconds=MAX_SCHEDULE_DELAY_SECONDS,
+        default_schedule_delay=default_schedule_delay,
     )
 
 
