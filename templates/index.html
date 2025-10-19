@@ -331,7 +331,11 @@
                 <input type="date" name="end_date">
             </label>
         </div>
-        {% set schedule_volume_initial = schedule_default_volume_percent | default(100, true) %}
+        {% if schedule_default_volume_percent is not none %}
+            {% set schedule_volume_initial = schedule_default_volume_percent %}
+        {% else %}
+            {% set schedule_volume_initial = 100 %}
+        {% endif %}
         <label class="schedule-volume" style="display:inline-flex;align-items:center;gap:0.5rem;margin-top:0.5rem;">
             Lautstärke
             <input
