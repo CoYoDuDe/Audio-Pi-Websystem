@@ -2,6 +2,7 @@ import sys
 
 import pytest
 
+from .csrf_utils import csrf_post
 from tests.test_playback_decode_failure import _setup_app
 
 
@@ -75,3 +76,40 @@ def test_prepare_audio_prefers_environment_headroom(monkeypatch, tmp_path):
         monkeypatch, tmp_path, headroom_env=str(expected), stored_value=1.1
     )
     assert headroom == pytest.approx(expected)
+
+
+def test_save_normalization_headroom_interprets_negative_target_level(
+    monkeypatch, tmp_path
+):
+    monkeypatch.delenv("NORMALIZATION_HEADROOM_DB", raising=False)
+    app_module, _dummy_music = _setup_app(monkeypatch, tmp_path)
+
+    client = app_module.app.test_client()
+    with client:
+        response = csrf_post(
+            client,
+            "/settings/normalization_headroom",
+            data={"normalization_headroom_db": "-3"},
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+
+    stored_value = app_module.get_setting(app_module.NORMALIZATION_HEADROOM_SETTING_KEY)
+    assert stored_value is not None
+    assert float(stored_value) == pytest.approx(3.0)
+
+    collector = []
+    monkeypatch.setattr(
+        app_module.AudioSegment,
+        "from_file",
+        lambda *_args, **_kwargs: TrackingSegment(collector),
+    )
+
+    source_path = tmp_path / "target.mp3"
+    source_path.write_bytes(b"data")
+    target_path = tmp_path / "prepared.wav"
+
+    assert app_module._prepare_audio_for_playback(
+        str(source_path), str(target_path)
+    )
+    assert collector[0] == pytest.approx(3.0)
