@@ -105,6 +105,45 @@
     </form>
 </section>
 
+<section id="schedule-default-volume-settings">
+    <h3>Standard-Lautstärke für Zeitpläne</h3>
+    {% set schedule_volume_percent = status.get('schedule_default_volume_percent', schedule_default_volume_fallback) %}
+    {% set schedule_volume_source = status.get('schedule_default_volume_source', 'default') %}
+    {% set schedule_volume_raw_percent = schedule_default_volume_raw_percent %}
+    {% set schedule_volume_raw_db = schedule_default_volume_raw_db %}
+    {% set schedule_volume_db_value = schedule_default_volume_db_value %}
+    {% set schedule_volume_input = schedule_volume_raw_percent if schedule_volume_raw_percent else (schedule_volume_raw_db if schedule_volume_raw_db else '') %}
+    {% set schedule_volume_source_labels = {
+        'settings_percent': 'gespeicherter Prozentwert',
+        'settings_db': 'gespeicherter dB-Wert',
+        'default': 'Voreinstellung'
+    } %}
+    {% set schedule_volume_source_label = schedule_volume_source_labels.get(schedule_volume_source, schedule_volume_source) %}
+    <form action="{{ url_for('save_schedule_default_volume') }}" method="POST" class="schedule-default-volume-form" style="display:flex;flex-direction:column;gap:0.5rem;max-width:20rem;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label for="schedule-default-volume" style="display:flex;flex-direction:column;gap:0.25rem;">
+            Standard-Lautstärke für neue Zeitpläne (0–100&nbsp;% oder dB)
+            <input
+                type="text"
+                id="schedule-default-volume"
+                name="schedule_default_volume"
+                value="{{ schedule_volume_input }}"
+                placeholder="z. B. 75 oder -6 dB"
+            >
+        </label>
+        <small>
+            Aktuell wirksam: {{ schedule_volume_percent }}% (Quelle: {{ schedule_volume_source_label }}{% if schedule_volume_db_value is not none %}, {{ '%g' % schedule_volume_db_value }}&nbsp;dB{% endif %}).
+            Feld leer lassen, um den Standardwert von {{ schedule_default_volume_fallback }}% zu verwenden.
+        </small>
+        {% if schedule_volume_raw_percent %}
+        <p class="hint" style="margin:0;">Gespeicherter Prozentwert: {{ schedule_volume_raw_percent }}.</p>
+        {% elif schedule_volume_raw_db %}
+        <p class="hint" style="margin:0;">Gespeicherter dB-Wert: {{ schedule_volume_raw_db }}.</p>
+        {% endif %}
+        <button type="submit" class="btn" style="align-self:flex-start;">Speichern</button>
+    </form>
+</section>
+
 <section id="auto-reboot">
     <h3>Automatischer Neustart</h3>
     <form action="{{ url_for('save_auto_reboot_settings') }}" method="POST" class="auto-reboot-form">

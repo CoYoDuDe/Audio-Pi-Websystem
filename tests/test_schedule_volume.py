@@ -70,8 +70,13 @@ def test_add_schedule_accepts_custom_volume():
 
 def test_add_schedule_uses_configured_default_volume():
     file_id = _insert_audio_file()
-    app.set_setting(app.SCHEDULE_VOLUME_DB_SETTING_KEY, "")
-    app.set_setting(app.SCHEDULE_VOLUME_PERCENT_SETTING_KEY, "37")
+    with app.app.test_request_context(
+        "/settings/schedule_default_volume",
+        method="POST",
+        data={"schedule_default_volume": "37%"},
+    ):
+        response = app.save_schedule_default_volume.__wrapped__()
+        assert response.status_code == 302
 
     with app.app.test_request_context(
         "/schedule",
@@ -121,8 +126,13 @@ def test_add_schedule_rejects_volume_out_of_range():
 
 
 def test_default_schedule_volume_can_be_defined_in_db():
-    app.set_setting(app.SCHEDULE_VOLUME_PERCENT_SETTING_KEY, "")
-    app.set_setting(app.SCHEDULE_VOLUME_DB_SETTING_KEY, "-6")
+    with app.app.test_request_context(
+        "/settings/schedule_default_volume",
+        method="POST",
+        data={"schedule_default_volume": "-6 dB"},
+    ):
+        response = app.save_schedule_default_volume.__wrapped__()
+        assert response.status_code == 302
     details = app.get_schedule_default_volume_details()
     assert details["source"] == "settings_db"
     assert details["percent"] == 50

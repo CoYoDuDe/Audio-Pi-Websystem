@@ -1837,6 +1837,9 @@ def gather_status():
         "normalization_headroom_stored": headroom_details["stored_raw"],
         "schedule_default_volume_percent": schedule_default_volume["percent"],
         "schedule_default_volume_source": schedule_default_volume["source"],
+        "schedule_default_volume_raw_percent": schedule_default_volume["raw_percent"],
+        "schedule_default_volume_raw_db": schedule_default_volume["raw_db"],
+        "schedule_default_volume_db_value": schedule_default_volume["db_value"],
     }
 
 
@@ -2804,6 +2807,15 @@ def index():
         schedule_default_volume_percent=status.get(
             "schedule_default_volume_percent", SCHEDULE_DEFAULT_VOLUME_PERCENT_FALLBACK
         ),
+        schedule_default_volume_source=status.get(
+            "schedule_default_volume_source", "default"
+        ),
+        schedule_default_volume_raw_percent=status.get(
+            "schedule_default_volume_raw_percent"
+        ),
+        schedule_default_volume_raw_db=status.get("schedule_default_volume_raw_db"),
+        schedule_default_volume_db_value=status.get("schedule_default_volume_db_value"),
+        schedule_default_volume_fallback=SCHEDULE_DEFAULT_VOLUME_PERCENT_FALLBACK,
     )
 
 
@@ -3159,6 +3171,64 @@ def save_normalization_headroom():
             "Hinweis: Die Umgebungsvariable"
             f" {NORMALIZATION_HEADROOM_ENV_KEY} (aktuell {env_override})"
             " überschreibt den wirksamen Headroom/Zielpegel weiterhin."
+        )
+    return redirect(url_for("index"))
+
+
+@app.route("/settings/schedule_default_volume", methods=["POST"])
+@login_required
+def save_schedule_default_volume():
+    raw_value = (request.form.get("schedule_default_volume") or "").strip()
+    percent_key = SCHEDULE_VOLUME_PERCENT_SETTING_KEY
+    db_key = SCHEDULE_VOLUME_DB_SETTING_KEY
+
+    if not raw_value:
+        set_setting(percent_key, None)
+        set_setting(db_key, None)
+        details = get_schedule_default_volume_details()
+        flash(
+            "Standard-Lautstärke für Zeitpläne zurückgesetzt. "
+            f"Es wird der Fallback von {details['percent']}% verwendet (Quelle: {details['source']})."
+        )
+        return redirect(url_for("index"))
+
+    normalized_lower = raw_value.lower()
+    is_db_candidate = (
+        "db" in normalized_lower or normalized_lower.startswith("-") or normalized_lower.startswith("+")
+    )
+    percent_value: Optional[int] = None
+    if not is_db_candidate:
+        percent_value = _parse_schedule_volume_percent(raw_value)
+
+    if percent_value is not None:
+        set_setting(percent_key, str(percent_value))
+        set_setting(db_key, None)
+        details = get_schedule_default_volume_details()
+        flash(
+            "Standard-Lautstärke für neue Zeitpläne auf "
+            f"{details['percent']}% gesetzt (Quelle: {details['source']})."
+        )
+        return redirect(url_for("index"))
+
+    db_value = _parse_schedule_volume_db(raw_value)
+    if db_value is None:
+        flash(
+            "Ungültiger Wert für die Standard-Lautstärke. Bitte Prozent (0–100) oder dB angeben."
+        )
+        return redirect(url_for("index"))
+
+    set_setting(db_key, f"{db_value:g}")
+    set_setting(percent_key, None)
+    details = get_schedule_default_volume_details()
+    db_display = details.get("db_value")
+    if db_display is not None:
+        flash(
+            "Standard-Lautstärke für neue Zeitpläne basiert nun auf "
+            f"{db_display:g} dB und entspricht {details['percent']}% (Quelle: {details['source']})."
+        )
+    else:
+        flash(
+            "Standard-Lautstärke für neue Zeitpläne aktualisiert."
         )
     return redirect(url_for("index"))
 
