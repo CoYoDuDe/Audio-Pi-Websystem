@@ -3129,19 +3129,29 @@ def save_normalization_headroom():
             )
         return redirect(url_for("index"))
 
-    try:
-        value = float(raw_value)
-    except (TypeError, ValueError):
-        flash("Ungültiger Headroom-Wert. Bitte eine Zahl eingeben.")
+    parsed_value = _parse_headroom_value(raw_value, "Formular 'Audio-Normalisierung'")
+    if parsed_value is None:
+        flash("Ungültiger Zielpegel/Headroom-Wert. Bitte eine Zahl eingeben.")
         return redirect(url_for("index"))
 
-    set_setting(NORMALIZATION_HEADROOM_SETTING_KEY, str(value))
-    flash(f"Headroom auf {value} dB gesetzt.")
+    headroom_value = abs(parsed_value)
+    set_setting(NORMALIZATION_HEADROOM_SETTING_KEY, str(headroom_value))
+
+    if parsed_value < 0:
+        flash(
+            "Zielpegel "
+            f"{parsed_value:g} dB wird als Headroom {headroom_value:g} dB gespeichert."
+        )
+    elif parsed_value == 0:
+        flash("Headroom auf 0 dB gesetzt (kein zusätzlicher Puffer).")
+    else:
+        flash(f"Headroom auf {headroom_value:g} dB gesetzt.")
+
     if env_override:
         flash(
             "Hinweis: Die Umgebungsvariable"
             f" {NORMALIZATION_HEADROOM_ENV_KEY} (aktuell {env_override})"
-            " überschreibt diesen Wert weiterhin."
+            " überschreibt den wirksamen Headroom/Zielpegel weiterhin."
         )
     return redirect(url_for("index"))
 
