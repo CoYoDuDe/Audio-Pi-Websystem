@@ -1616,7 +1616,10 @@ def is_within_schedule_range(start_date_str, end_date_str, reference=None):
 
 # PulseAudio
 def get_current_sink():
-    return subprocess.getoutput("pactl get-default-sink")
+    output = _run_pactl_command("get-default-sink")
+    if not output:
+        return "Nicht verfügbar"
+    return output.splitlines()[0]
 
 
 def _list_pulse_sinks():
@@ -1797,12 +1800,13 @@ def _sink_is_configured(sink_name: str) -> bool:
 def gather_status():
     wlan_ssid = subprocess.getoutput("iwgetid wlan0 -r").strip() or "Nicht verbunden"
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    current_volume = (
-        subprocess.getoutput(
-            'pactl get-sink-volume @DEFAULT_SINK@ | grep -oP "\\d+%" | head -1'
-        )
-        or "Unbekannt"
-    )
+
+    volume_output = _run_pactl_command("get-sink-volume", "@DEFAULT_SINK@")
+    current_volume = "Unbekannt"
+    if volume_output:
+        match = re.search(r"(\d+)%", volume_output)
+        if match:
+            current_volume = f"{match.group(1)}%"
     if audio_status.get("dac_sink_detected") is None and DAC_SINK:
         audio_status["dac_sink_detected"] = _is_sink_available(DAC_SINK)
 
@@ -2437,7 +2441,10 @@ def _notify_missing_pactl() -> None:
         _PACTL_MISSING_LOGGED = True
 
     if has_request_context():
+        if getattr(g, "_pactl_missing_notified", False):
+            return
         flash(_PACTL_MISSING_MESSAGE)
+        g._pactl_missing_notified = True
 
 
 def _run_pactl_command(*args: str) -> Optional[str]:
