@@ -385,12 +385,20 @@
             >
             <span id="schedule-volume-value" style="min-width:3ch;text-align:right;">{{ schedule_volume_value }}%</span>
         </label>
-        <input type="number" name="delay" value="5" min="0" max="60" style="width:50px;"> Sek. Verzögerung
+        <input
+            type="number"
+            name="delay"
+            value="5"
+            min="0"
+            max="{{ max_schedule_delay_seconds }}"
+            style="width:50px;"
+        > Sek. Verzögerung
         <button type="submit" class="btn">Hinzufügen</button>
     </form>
     <p class="hint">
         Hinweis: Überlappende Zeitpläne werden automatisch verhindert. Bei einem Konflikt erscheint eine Fehlermeldung.
     </p>
+    <p class="hint">Maximale Verzögerung: {{ max_schedule_delay_seconds }}&nbsp;Sekunden.</p>
     <div class="pagination-container">
         <form method="get" class="page-size-form">
             <input type="hidden" name="schedule_page" value="1">

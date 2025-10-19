@@ -3,6 +3,24 @@ import sys
 
 from flask import get_flashed_messages
 
+from .csrf_utils import csrf_post
+
+
+def _disable_pygame(app_module):
+    app_module.pygame_available = False
+    dummy_mixer = type(
+        "DummyMixer",
+        (),
+        {
+            "music": type(
+                "DummyMusic",
+                (),
+                {"get_busy": staticmethod(lambda: False)},
+            )()
+        },
+    )()
+    app_module.pygame.mixer = dummy_mixer
+
 
 def test_negative_env_fallback_allows_zero_delay(monkeypatch):
     monkeypatch.setenv("FLASK_SECRET_KEY", "test")
@@ -12,6 +30,8 @@ def test_negative_env_fallback_allows_zero_delay(monkeypatch):
     previous_module = sys.modules.pop("app", None)
 
     app_module = importlib.import_module("app")
+
+    _disable_pygame(app_module)
 
     try:
         assert (
@@ -62,6 +82,71 @@ def test_negative_env_fallback_allows_zero_delay(monkeypatch):
             app_module.conn.commit()
             app_module.cursor.close()
             app_module.conn.close()
+        sys.modules.pop("app", None)
+        if previous_module is not None:
+            sys.modules["app"] = previous_module
+
+
+def test_index_template_reflects_configured_schedule_delay(monkeypatch, tmp_path):
+    monkeypatch.setenv("FLASK_SECRET_KEY", "test")
+    monkeypatch.setenv("TESTING", "1")
+    monkeypatch.setenv("INITIAL_ADMIN_PASSWORD", "password")
+    db_file = tmp_path / "max-delay.db"
+    monkeypatch.setenv("DB_FILE", str(db_file))
+    expected_limit = 90
+    monkeypatch.setenv("MAX_SCHEDULE_DELAY_SECONDS", str(expected_limit))
+
+    previous_module = sys.modules.pop("app", None)
+
+    app_module = importlib.import_module("app")
+
+    _disable_pygame(app_module)
+
+    try:
+        client = app_module.app.test_client()
+        with client:
+            login_response = csrf_post(
+                client,
+                "/login",
+                data={"username": "admin", "password": "password"},
+                follow_redirects=True,
+            )
+            assert login_response.status_code == 200
+
+            change_response = csrf_post(
+                client,
+                "/change_password",
+                data={"old_password": "password", "new_password": "password1234"},
+                follow_redirects=True,
+                source_url="/change_password",
+            )
+            assert change_response.status_code == 200
+
+            response = client.get("/", follow_redirects=True)
+            assert response.status_code == 200
+            html = response.get_data(as_text=True)
+
+        assert f'max="{expected_limit}"' in html
+        assert f"Maximale Verzögerung: {expected_limit}" in html
+    finally:
+        if "app_module" in locals():
+            try:
+                app_module.scheduler.remove_all_jobs()
+            except Exception:
+                pass
+            try:
+                if getattr(app_module.scheduler, "running", False):
+                    app_module.scheduler.shutdown(wait=False)
+            except Exception:
+                pass
+            try:
+                app_module.cursor.close()
+            except Exception:
+                pass
+            try:
+                app_module.conn.close()
+            except Exception:
+                pass
         sys.modules.pop("app", None)
         if previous_module is not None:
             sys.modules["app"] = previous_module
