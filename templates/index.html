@@ -71,6 +71,39 @@
     </form>
 </section>
 
+<section id="audio-normalization-settings">
+    <h3>Audio-Normalisierung</h3>
+    {% set stored_headroom = status.get('normalization_headroom_stored') %}
+    {% set env_headroom = status.get('normalization_headroom_env') %}
+    {% set effective_headroom = '%.2f' % status.get('normalization_headroom', default_headroom) %}
+    {% set input_headroom = stored_headroom if stored_headroom else (env_headroom if env_headroom else effective_headroom) %}
+    <form action="{{ url_for('save_normalization_headroom') }}" method="POST" class="normalization-form" style="display:flex;flex-direction:column;gap:0.5rem;max-width:20rem;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label for="normalization-headroom" style="display:flex;flex-direction:column;gap:0.25rem;">
+            Headroom für die Normalisierung (dB)
+            <input
+                type="number"
+                id="normalization-headroom"
+                name="normalization_headroom_db"
+                step="0.1"
+                value="{{ input_headroom }}"
+                placeholder="z. B. 0.1"
+            >
+        </label>
+        <small>
+            Leer lassen, um den Standardwert von {{ '%.2f' % default_headroom }}&nbsp;dB zu verwenden.
+            Aktuell wirksam: {{ '%.2f' % status.get('normalization_headroom', default_headroom) }}&nbsp;dB.
+        </small>
+        {% if env_headroom %}
+        <p class="hint" style="margin:0;">
+            Hinweis: Die Umgebungsvariable <code>{{ normalization_headroom_env_key }}</code>
+            überschreibt gespeicherte Einstellungen (aktuell {{ env_headroom }}).
+        </p>
+        {% endif %}
+        <button type="submit" class="btn" style="align-self:flex-start;">Speichern</button>
+    </form>
+</section>
+
 <section id="auto-reboot">
     <h3>Automatischer Neustart</h3>
     <form action="{{ url_for('save_auto_reboot_settings') }}" method="POST" class="auto-reboot-form">

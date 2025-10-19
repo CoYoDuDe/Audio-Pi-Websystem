@@ -131,6 +131,9 @@ DEFAULT_DAC_SINK_LABEL = "Konfigurierter DAC"
 DAC_SINK = DEFAULT_DAC_SINK
 CONFIGURED_DAC_SINK: Optional[str] = None
 DAC_SINK_LABEL: Optional[str] = None
+NORMALIZATION_HEADROOM_SETTING_KEY = "normalization_headroom_db"
+NORMALIZATION_HEADROOM_ENV_KEY = "NORMALIZATION_HEADROOM_DB"
+DEFAULT_NORMALIZATION_HEADROOM_DB = 0.1
 raw_max_schedule_delay = os.getenv(
     "MAX_SCHEDULE_DELAY_SECONDS", str(DEFAULT_MAX_SCHEDULE_DELAY_SECONDS)
 )
@@ -953,6 +956,66 @@ def set_setting(key, value):
         conn.commit()
 
 
+def _parse_headroom_value(raw_value: Optional[str], source: str) -> Optional[float]:
+    if raw_value is None:
+        return None
+    normalized = str(raw_value).strip()
+    if not normalized:
+        return None
+    try:
+        return float(normalized)
+    except (TypeError, ValueError):
+        logging.warning(
+            "Ungültiger Headroom-Wert '%s' aus %s. Wert wird ignoriert.",
+            raw_value,
+            source,
+        )
+        return None
+
+
+def get_normalization_headroom_details() -> dict:
+    stored_raw = get_setting(NORMALIZATION_HEADROOM_SETTING_KEY, None)
+    env_raw = os.environ.get(NORMALIZATION_HEADROOM_ENV_KEY)
+
+    stored_value = _parse_headroom_value(
+        stored_raw, f"Einstellung '{NORMALIZATION_HEADROOM_SETTING_KEY}'"
+    )
+    env_value = _parse_headroom_value(
+        env_raw, f"Umgebungsvariable {NORMALIZATION_HEADROOM_ENV_KEY}"
+    )
+
+    if env_raw is not None and env_value is not None:
+        value = env_value
+        source = "environment"
+    elif env_raw is not None and env_value is None:
+        if stored_value is not None:
+            value = stored_value
+            source = "settings"
+        else:
+            value = DEFAULT_NORMALIZATION_HEADROOM_DB
+            source = "default"
+    elif stored_value is not None:
+        value = stored_value
+        source = "settings"
+    else:
+        value = DEFAULT_NORMALIZATION_HEADROOM_DB
+        source = "default"
+
+    return {
+        "value": value,
+        "source": source,
+        "env_raw": env_raw,
+        "stored_raw": stored_raw,
+        "stored_value": stored_value,
+        "env_value": env_value,
+    }
+
+
+def get_normalization_headroom_db() -> float:
+    details = get_normalization_headroom_details()
+    return float(details["value"])
+
+
 def _normalize_optional(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None
@@ -1654,6 +1717,7 @@ def gather_status():
     effective_label = DAC_SINK_LABEL or DEFAULT_DAC_SINK_LABEL
     target_dac_sink = DAC_SINK or DAC_SINK_HINT
     is_playing = pygame.mixer.music.get_busy() if pygame_available else False
+    headroom_details = get_normalization_headroom_details()
     return {
         "playing": is_playing,
         "bluetooth_status": "Verbunden" if is_bt_connected() else "Nicht verbunden",
@@ -1669,6 +1733,10 @@ def gather_status():
         "dac_sink_hint": DAC_SINK_HINT,
         "configured_dac_sink": CONFIGURED_DAC_SINK,
         "default_dac_sink": DEFAULT_DAC_SINK,
+        "normalization_headroom": headroom_details["value"],
+        "normalization_headroom_env": headroom_details["env_raw"],
+        "normalization_headroom_source": headroom_details["source"],
+        "normalization_headroom_stored": headroom_details["stored_raw"],
     }
 
 
@@ -1907,7 +1975,8 @@ def _handle_audio_decode_failure(file_path: str, error: Exception) -> None:
 def _prepare_audio_for_playback(file_path: str, temp_path: str) -> bool:
     try:
         sound = AudioSegment.from_file(file_path)
-        normalized = sound.normalize(headroom=0.1)
+        headroom = float(get_normalization_headroom_db())
+        normalized = sound.normalize(headroom=headroom)
         normalized.export(temp_path, format="wav")
     except CouldntDecodeError as exc:
         _handle_audio_decode_failure(file_path, exc)
@@ -2282,35 +2351,34 @@ def _run_pactl_command(*args: str) -> Optional[str]:
     try:
         result = subprocess.run(
             command,
-            check=False,
+            check=True,
             capture_output=True,
             text=True,
         )
     except FileNotFoundError:
         _notify_missing_pactl()
         return None
-    except subprocess.CalledProcessError as exc:  # pragma: no cover - defensiv
-        logging.error("Fehler beim Ausführen von %s: %s", " ".join(command), exc)
-        return None
-
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
         if stderr:
             logging.error(
                 "pactl-Befehl '%s' fehlgeschlagen (Code %s): %s",
                 " ".join(command[1:]),
-                result.returncode,
+                exc.returncode,
                 stderr,
             )
         else:
             logging.error(
                 "pactl-Befehl '%s' fehlgeschlagen (Code %s).",
                 " ".join(command[1:]),
-                result.returncode,
+                exc.returncode,
             )
         return None
 
-    return result.stdout
+    output = (result.stdout or "").strip()
+    if not output:
+        return None
+    return output
 
 
 def is_bt_connected():
@@ -2628,6 +2696,8 @@ def index():
         auto_reboot_weekdays=AUTO_REBOOT_WEEKDAYS,
         page_size_options=PAGE_SIZE_OPTIONS,
         build_index_url=build_index_url,
+        default_headroom=DEFAULT_NORMALIZATION_HEADROOM_DB,
+        normalization_headroom_env_key=NORMALIZATION_HEADROOM_ENV_KEY,
     )
 
 
@@ -2937,6 +3007,43 @@ def save_dac_sink():
         flash(f"Audio-Sink '{normalized_sink}' gespeichert.")
     else:
         flash("Audio-Sink auf Standardsink zurückgesetzt.")
+    return redirect(url_for("index"))
+
+
+@app.route("/settings/normalization_headroom", methods=["POST"])
+@login_required
+def save_normalization_headroom():
+    raw_value = (request.form.get("normalization_headroom_db") or "").strip()
+    env_override = os.environ.get(NORMALIZATION_HEADROOM_ENV_KEY)
+
+    if not raw_value:
+        set_setting(NORMALIZATION_HEADROOM_SETTING_KEY, None)
+        flash(
+            "Headroom zurückgesetzt. Der Standardwert "
+            f"{DEFAULT_NORMALIZATION_HEADROOM_DB} dB wird verwendet."
+        )
+        if env_override:
+            flash(
+                "Hinweis: Die Umgebungsvariable"
+                f" {NORMALIZATION_HEADROOM_ENV_KEY} (aktuell {env_override})"
+                " bleibt weiterhin aktiv."
+            )
+        return redirect(url_for("index"))
+
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        flash("Ungültiger Headroom-Wert. Bitte eine Zahl eingeben.")
+        return redirect(url_for("index"))
+
+    set_setting(NORMALIZATION_HEADROOM_SETTING_KEY, str(value))
+    flash(f"Headroom auf {value} dB gesetzt.")
+    if env_override:
+        flash(
+            "Hinweis: Die Umgebungsvariable"
+            f" {NORMALIZATION_HEADROOM_ENV_KEY} (aktuell {env_override})"
+            " überschreibt diesen Wert weiterhin."
+        )
     return redirect(url_for("index"))
 
 
