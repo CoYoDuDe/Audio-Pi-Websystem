@@ -176,12 +176,25 @@ def test_gather_status_includes_dac_sink_flag(monkeypatch):
             return "alsa_output.default"
         return ""
 
+    def fake_run_pactl(command, *args, **kwargs):
+        if command == "get-sink-volume":
+            return "Front Left: 55%"
+        if command == "get-default-sink":
+            return "alsa_output.default"
+        return ""
+
     app.audio_status["dac_sink_detected"] = False
     monkeypatch.setattr(app, "DAC_SINK_LABEL", "HiFiBerry DAC+", raising=False)
     monkeypatch.setattr(app, "datetime", FakeDateTime)
     monkeypatch.setattr(app.pygame.mixer.music, "get_busy", lambda: True)
     monkeypatch.setattr(app, "is_bt_connected", lambda: True)
     monkeypatch.setattr(app, "RELAY_INVERT", True)
+    monkeypatch.setattr(
+        app,
+        "_run_wifi_tool",
+        lambda *_args, **_kwargs: (True, "TestSSID"),
+    )
+    monkeypatch.setattr(app, "_run_pactl_command", fake_run_pactl)
     monkeypatch.setattr(app.subprocess, "getoutput", fake_getoutput)
 
     status = app.gather_status()
@@ -221,6 +234,13 @@ def test_gather_status_auto_detects_dac_sink(monkeypatch, sink_available):
             return "alsa_output.default"
         return ""
 
+    def fake_run_pactl(command, *args, **kwargs):
+        if command == "get-sink-volume":
+            return "Front Left: 55%"
+        if command == "get-default-sink":
+            return "alsa_output.default"
+        return ""
+
     app.audio_status["dac_sink_detected"] = None
     monkeypatch.setattr(app, "DAC_SINK_LABEL", None, raising=False)
     monkeypatch.setattr(app, "_is_sink_available", lambda sink: sink_available)
@@ -228,6 +248,12 @@ def test_gather_status_auto_detects_dac_sink(monkeypatch, sink_available):
     monkeypatch.setattr(app.pygame.mixer.music, "get_busy", lambda: True)
     monkeypatch.setattr(app, "is_bt_connected", lambda: True)
     monkeypatch.setattr(app, "RELAY_INVERT", True)
+    monkeypatch.setattr(
+        app,
+        "_run_wifi_tool",
+        lambda *_args, **_kwargs: (True, "TestSSID"),
+    )
+    monkeypatch.setattr(app, "_run_pactl_command", fake_run_pactl)
     monkeypatch.setattr(app.subprocess, "getoutput", fake_getoutput)
 
     status = app.gather_status()
