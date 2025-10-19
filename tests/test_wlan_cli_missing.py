@@ -1,0 +1,176 @@
+import importlib
+import logging
+import sys
+import types
+from pathlib import Path
+
+import pytest
+from flask import get_flashed_messages
+
+
+class DummyMusic:
+    def set_volume(self, value):
+        self.last_set_volume = value
+
+    def get_volume(self):
+        return 1.0
+
+    def load(self, path):
+        self.last_loaded = path
+
+    def play(self):
+        self.play_called = True
+
+    def get_busy(self):
+        return False
+
+
+@pytest.fixture
+def app_module(monkeypatch, tmp_path):
+    sys.modules.pop("app", None)
+
+    monkeypatch.setenv("FLASK_SECRET_KEY", "test-secret")
+    monkeypatch.setenv("INITIAL_ADMIN_PASSWORD", "password")
+    monkeypatch.setenv("DB_FILE", str(tmp_path / "test.db"))
+    monkeypatch.setenv("TESTING", "1")
+
+    dummy_music = DummyMusic()
+    dummy_pygame = types.ModuleType("pygame")
+    dummy_pygame.error = RuntimeError
+    dummy_pygame.mixer = types.SimpleNamespace(
+        music=dummy_music,
+        init=lambda: None,
+    )
+
+    dummy_lgpio = types.ModuleType("lgpio")
+    dummy_lgpio.error = RuntimeError
+    dummy_lgpio.gpiochip_open = lambda *_args, **_kwargs: object()
+    dummy_lgpio.gpio_write = lambda *_args, **_kwargs: None
+    dummy_lgpio.gpio_free = lambda *_args, **_kwargs: None
+    dummy_lgpio.gpio_claim_output = lambda *_args, **_kwargs: None
+
+    dummy_smbus = types.ModuleType("smbus")
+
+    monkeypatch.setitem(sys.modules, "pygame", dummy_pygame)
+    monkeypatch.setitem(sys.modules, "lgpio", dummy_lgpio)
+    monkeypatch.setitem(sys.modules, "smbus", dummy_smbus)
+
+    repo_root = Path(__file__).resolve().parents[1]
+    monkeypatch.syspath_prepend(str(repo_root))
+
+    app_module = importlib.import_module("app")
+    app_module.app.config["LOGIN_DISABLED"] = True
+    app_module.app.config["UPLOAD_FOLDER"] = str(tmp_path / "uploads")
+
+    yield app_module
+
+    sys.modules.pop("app", None)
+
+
+def _prepare_status_dependencies(monkeypatch, app_module):
+    monkeypatch.setattr(app_module, "_run_pactl_command", lambda *args: None)
+    monkeypatch.setattr(app_module, "get_current_sink", lambda: "Nicht verfügbar")
+    monkeypatch.setattr(app_module.pygame.mixer.music, "get_busy", lambda: False)
+    monkeypatch.setattr(app_module, "is_bt_connected", lambda: False)
+    monkeypatch.setattr(
+        app_module,
+        "get_normalization_headroom_details",
+        lambda: {
+            "value": 0,
+            "env_raw": None,
+            "source": "default",
+            "stored_raw": None,
+            "stored_value": None,
+        },
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_schedule_default_volume_details",
+        lambda: {
+            "percent": None,
+            "source": "default",
+            "raw_percent": None,
+            "raw_db": None,
+            "db_value": None,
+        },
+    )
+
+
+def test_gather_status_missing_iwgetid(monkeypatch, app_module, caplog):
+    _prepare_status_dependencies(monkeypatch, app_module)
+
+    def fake_run(args, **kwargs):
+        if args and args[0] == "iwgetid":
+            raise FileNotFoundError("iwgetid")
+        return app_module.subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+
+    with caplog.at_level(logging.ERROR):
+        status = app_module.gather_status()
+
+    assert status["wlan_status"] == "Nicht verfügbar (iwgetid fehlt)"
+    assert any("iwgetid" in record.message for record in caplog.records)
+
+
+def test_gather_status_iwgetid_failure_exit_code(monkeypatch, app_module, caplog):
+    _prepare_status_dependencies(monkeypatch, app_module)
+
+    def fake_run(args, **kwargs):
+        if args and args[0] == "iwgetid":
+            return app_module.subprocess.CompletedProcess(
+                args,
+                5,
+                stdout="", 
+                stderr="command failed",
+            )
+        return app_module.subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+
+    with caplog.at_level(logging.ERROR):
+        status = app_module.gather_status()
+
+    assert status["wlan_status"] == "Nicht verfügbar (iwgetid fehlt)"
+    assert any("iwgetid" in record.message and "Exit-Code" in record.message for record in caplog.records)
+
+
+def test_wlan_scan_missing_iwlist(monkeypatch, app_module, caplog):
+    def fake_run(args, **kwargs):
+        if args and args[0] == "sudo":
+            raise FileNotFoundError("iwlist")
+        return app_module.subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+
+    with caplog.at_level(logging.ERROR):
+        with app_module.app.test_request_context("/wlan_scan"):
+            response = app_module.wlan_scan()
+            flashes = get_flashed_messages()
+
+    assert "Scan nicht möglich, iwlist fehlt" in response
+    assert flashes == ["Scan nicht möglich, iwlist fehlt"]
+    assert any("iwlist" in record.message for record in caplog.records)
+
+
+def test_wlan_scan_iwlist_failure_exit_code(monkeypatch, app_module, caplog):
+    def fake_run(args, **kwargs):
+        if args and args[0] == "sudo":
+            return app_module.subprocess.CompletedProcess(
+                args,
+                7,
+                stdout="", 
+                stderr="permission denied",
+            )
+        return app_module.subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+
+    with caplog.at_level(logging.ERROR):
+        with app_module.app.test_request_context("/wlan_scan"):
+            response = app_module.wlan_scan()
+            flashes = get_flashed_messages()
+
+    assert "Scan nicht möglich, iwlist fehlt" in response
+    assert flashes == ["Scan nicht möglich, iwlist fehlt"]
+    assert any("iwlist" in record.message and "Exit-Code" in record.message for record in caplog.records)

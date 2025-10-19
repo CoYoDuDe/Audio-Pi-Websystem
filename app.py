@@ -1823,8 +1823,58 @@ def _sink_is_configured(sink_name: str) -> bool:
     return _sink_matches_hint(sink_name, DAC_SINK_HINT)
 
 
+def _run_wifi_tool(
+    args,
+    fallback_message,
+    log_context,
+    *,
+    flash_on_error=False,
+):
+    try:
+        result = subprocess.run(
+            args,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        logging.error(
+            "%s nicht gefunden: %s",
+            log_context,
+            args[0] if args else "<unbekannt>",
+        )
+        if flash_on_error:
+            flash(fallback_message, "error")
+        return False, fallback_message
+
+    stdout = (result.stdout or "").strip()
+    stderr = (result.stderr or "").strip()
+
+    if result.returncode != 0:
+        combined_output = "\n".join(filter(None, [stdout, stderr])) or "Keine Ausgabe"
+        logging.error(
+            "%s fehlgeschlagen (Exit-Code %s): %s",
+            log_context,
+            result.returncode,
+            combined_output,
+        )
+        if flash_on_error:
+            flash(fallback_message, "error")
+        return False, fallback_message
+
+    return True, stdout
+
+
 def gather_status():
-    wlan_ssid = subprocess.getoutput("iwgetid wlan0 -r").strip() or "Nicht verbunden"
+    success, wlan_output = _run_wifi_tool(
+        ["iwgetid", "wlan0", "-r"],
+        "Nicht verfügbar (iwgetid fehlt)",
+        "iwgetid für WLAN-Status",
+    )
+    if success:
+        wlan_ssid = wlan_output or "Nicht verbunden"
+    else:
+        wlan_ssid = wlan_output
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     volume_output = _run_pactl_command("get-sink-volume", "@DEFAULT_SINK@")
@@ -3447,8 +3497,13 @@ def delete_schedule(sch_id):
 @app.route("/wlan_scan")
 @login_required
 def wlan_scan():
-    result = subprocess.getoutput("sudo iwlist wlan0 scan")
-    return render_template("scan.html", networks=result)
+    _success, output = _run_wifi_tool(
+        ["sudo", "iwlist", "wlan0", "scan"],
+        "Scan nicht möglich, iwlist fehlt",
+        "iwlist-Scan",
+        flash_on_error=True,
+    )
+    return render_template("scan.html", networks=output)
 
 
 def _quote_wpa_cli(value: str) -> str:
