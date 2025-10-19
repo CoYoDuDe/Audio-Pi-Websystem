@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from tests.csrf_utils import csrf_post
+from tests.test_volume_route import _login
 
 
 @pytest.fixture
@@ -43,26 +44,7 @@ def client(app_module):
         yield client, app_module
 
 
-def _login(client):
-    response = csrf_post(
-        client,
-        "/login",
-        data={"username": "admin", "password": "password"},
-        follow_redirects=True,
-    )
-    assert response.status_code == 200
-    change_response = csrf_post(
-        client,
-        "/change_password",
-        data={"old_password": "password", "new_password": "password1234"},
-        follow_redirects=True,
-        source_url="/change_password",
-    )
-    assert b"Passwort ge\xc3\xa4ndert" in change_response.data
-    return change_response
-
-
-def test_volume_command_failure(monkeypatch, client):
+def test_volume_missing_pactl_warns(monkeypatch, client):
     client, app_module = client
     monkeypatch.setattr(app_module.pygame.mixer.music, "get_busy", lambda: False)
     _login(client)
@@ -73,16 +55,10 @@ def test_volume_command_failure(monkeypatch, client):
     commands = []
 
     def fake_run(cmd, *args, **kwargs):
-        if isinstance(cmd, list):
+        if isinstance(cmd, list) and cmd:
+            if cmd[0] == "pactl":
+                raise FileNotFoundError("pactl missing")
             commands.append(cmd)
-            if cmd and cmd[0] == "pactl":
-                raise app_module.subprocess.CalledProcessError(
-                    returncode=1,
-                    cmd=cmd,
-                    output="error",
-                    stderr="fail",
-                )
-            return app_module.subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         return app_module.subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     monkeypatch.setattr(app_module.subprocess, "run", fake_run)
@@ -95,11 +71,9 @@ def test_volume_command_failure(monkeypatch, client):
     )
 
     assert response.status_code == 200
-    assert b"Kommando &#39;pactl&#39; fehlgeschlagen (Code 1)." in response.data
+    assert [
+        ["amixer", "sset", "Master", "50%"],
+        ["sudo", "alsactl", "store"],
+    ] == commands
+    assert app_module._PACTL_MISSING_MESSAGE.encode("utf-8") in response.data
     assert b"Lautst\xc3\xa4rke persistent gesetzt" in response.data
-    command_tuples = [tuple(cmd) if isinstance(cmd, list) else tuple(cmd) for cmd in commands]
-    assert (
-        ("pactl", "set-sink-volume", "test-sink", "50%") in command_tuples
-        and ("amixer", "sset", "Master", "50%") in command_tuples
-        and ("sudo", "alsactl", "store") in command_tuples
-    )
