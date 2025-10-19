@@ -1084,7 +1084,8 @@ def get_bluetooth_volume_cap_percent() -> int:
     # PulseAudio-Anteile werden kubisch umgesetzt, daher ist die dritte Wurzel
     # nötig, damit die effektive Lautstärke dem linearen Amplitudenverhältnis
     # (10 ** (-headroom_db / 20)) entspricht.
-    percent = int(round((ratio ** (1 / 3)) * 100))
+    percent_float = (ratio ** (1 / 3)) * 100
+    percent = int(math.floor(percent_float))
     return max(1, min(100, percent))
 
 
