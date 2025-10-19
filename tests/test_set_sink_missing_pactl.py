@@ -104,3 +104,4 @@ def test_set_sink_handles_missing_pactl(monkeypatch, tmp_path, app_module):
 
     assert play_result is None
     assert flashes, "Erwarte eine Nutzerbenachrichtigung bei fehlendem pactl"
+    assert any("'pactl'" in msg for msg in flashes)

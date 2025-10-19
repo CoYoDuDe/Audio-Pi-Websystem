@@ -277,13 +277,19 @@ def load_initial_volume():
 
 
 # Nutzerhinweis, wenn Audio-Funktionen nicht verfügbar sind
-AUDIO_UNAVAILABLE_MESSAGE = (
-    "Audio-Wiedergabe nicht verfügbar, da pygame nicht initialisiert werden konnte."
-)
+AUDIO_UNAVAILABLE_BASE_MESSAGE = "Audio-Wiedergabe nicht verfügbar"
+AUDIO_UNAVAILABLE_DEFAULT_REASON = "pygame nicht initialisiert werden konnte"
 
 
-def _notify_audio_unavailable(action: str) -> None:
-    message = f"{action}: {AUDIO_UNAVAILABLE_MESSAGE}" if action else AUDIO_UNAVAILABLE_MESSAGE
+def _format_audio_unavailable_message(reason: Optional[str]) -> str:
+    final_reason = reason or AUDIO_UNAVAILABLE_DEFAULT_REASON
+    final_reason = final_reason.rstrip(".")
+    return f"{AUDIO_UNAVAILABLE_BASE_MESSAGE}, da {final_reason}."
+
+
+def _notify_audio_unavailable(action: str, reason: Optional[str] = None) -> None:
+    base_message = _format_audio_unavailable_message(reason)
+    message = f"{action}: {base_message}" if action else base_message
     logging.warning(message)
     if has_request_context():
         try:
@@ -1573,7 +1579,10 @@ def set_sink(sink_name):
         )
         audio_status["dac_sink_detected"] = False
         if has_request_context():
-            _notify_audio_unavailable("PulseAudio-Sink konnte nicht gesetzt werden")
+            _notify_audio_unavailable(
+                "PulseAudio-Sink konnte nicht gesetzt werden",
+                "'pactl' fehlt oder nicht aufrufbar ist",
+            )
         return False
     if _sink_is_configured(resolved):
         DAC_SINK = resolved
