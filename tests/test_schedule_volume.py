@@ -17,11 +17,21 @@ def cleanup():
     app.scheduler.remove_all_jobs()
     for table in ("playlist_files", "schedules", "playlists", "audio_files"):
         app.cursor.execute(f"DELETE FROM {table}")
+    for key in (
+        app.SCHEDULE_VOLUME_PERCENT_SETTING_KEY,
+        app.SCHEDULE_VOLUME_DB_SETTING_KEY,
+    ):
+        app.cursor.execute("DELETE FROM settings WHERE key=?", (key,))
     app.conn.commit()
     yield
     app.scheduler.remove_all_jobs()
     for table in ("playlist_files", "schedules", "playlists", "audio_files"):
         app.cursor.execute(f"DELETE FROM {table}")
+    for key in (
+        app.SCHEDULE_VOLUME_PERCENT_SETTING_KEY,
+        app.SCHEDULE_VOLUME_DB_SETTING_KEY,
+    ):
+        app.cursor.execute("DELETE FROM settings WHERE key=?", (key,))
     app.conn.commit()
 
 
@@ -58,6 +68,34 @@ def test_add_schedule_accepts_custom_volume():
     assert row["volume_percent"] == 45
 
 
+def test_add_schedule_uses_configured_default_volume():
+    file_id = _insert_audio_file()
+    app.set_setting(app.SCHEDULE_VOLUME_DB_SETTING_KEY, "")
+    app.set_setting(app.SCHEDULE_VOLUME_PERCENT_SETTING_KEY, "37")
+
+    with app.app.test_request_context(
+        "/schedule",
+        method="POST",
+        data={
+            "item_type": "file",
+            "item_id": str(file_id),
+            "time": "2024-01-01T09:00",
+            "repeat": "once",
+            "delay": "0",
+            "start_date": "",
+            "end_date": "",
+            "volume_percent": "",
+        },
+    ):
+        response = app.add_schedule.__wrapped__()
+        assert response.status_code == 302
+
+    row = app.cursor.execute(
+        "SELECT volume_percent FROM schedules ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert row["volume_percent"] == 37
+
+
 def test_add_schedule_rejects_volume_out_of_range():
     file_id = _insert_audio_file()
     with app.app.test_request_context(
@@ -80,6 +118,36 @@ def test_add_schedule_rejects_volume_out_of_range():
         assert any("Lautstärke" in message for message in messages)
     count = app.cursor.execute("SELECT COUNT(*) AS cnt FROM schedules").fetchone()["cnt"]
     assert count == 0
+
+
+def test_default_schedule_volume_can_be_defined_in_db():
+    app.set_setting(app.SCHEDULE_VOLUME_PERCENT_SETTING_KEY, "")
+    app.set_setting(app.SCHEDULE_VOLUME_DB_SETTING_KEY, "-6")
+    details = app.get_schedule_default_volume_details()
+    assert details["source"] == "settings_db"
+    assert details["percent"] == 50
+
+    file_id = _insert_audio_file()
+    with app.app.test_request_context(
+        "/schedule",
+        method="POST",
+        data={
+            "item_type": "file",
+            "item_id": str(file_id),
+            "time": "2024-01-01T10:00",
+            "repeat": "once",
+            "delay": "0",
+            "start_date": "",
+            "end_date": "",
+        },
+    ):
+        response = app.add_schedule.__wrapped__()
+        assert response.status_code == 302
+
+    row = app.cursor.execute(
+        "SELECT volume_percent FROM schedules ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert row["volume_percent"] == 50
 
 
 def test_schedule_job_passes_volume_to_play_item(monkeypatch):

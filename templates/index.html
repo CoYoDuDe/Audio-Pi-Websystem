@@ -331,6 +331,7 @@
                 <input type="date" name="end_date">
             </label>
         </div>
+        {% set schedule_volume_initial = schedule_default_volume_percent | default(100, true) %}
         <label class="schedule-volume" style="display:inline-flex;align-items:center;gap:0.5rem;margin-top:0.5rem;">
             Lautstärke
             <input
@@ -339,9 +340,9 @@
                 id="schedule-volume"
                 min="0"
                 max="100"
-                value="100"
+                value="{{ schedule_volume_initial }}"
             >
-            <span id="schedule-volume-value" style="min-width:3ch;text-align:right;">100%</span>
+            <span id="schedule-volume-value" style="min-width:3ch;text-align:right;">{{ schedule_volume_initial }}%</span>
         </label>
         <input type="number" name="delay" value="5" min="0" max="60" style="width:50px;"> Sek. Verzögerung
         <button type="submit" class="btn">Hinzufügen</button>

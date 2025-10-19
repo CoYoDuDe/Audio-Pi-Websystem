@@ -160,6 +160,12 @@ DAC_SINK_SETTING_KEY = "dac_sink_name"
 DAC_SINK_HINT = os.environ.get("DAC_SINK_NAME", DEFAULT_DAC_SINK_HINT)
 DAC_SINK = DAC_SINK_HINT
 
+SCHEDULE_VOLUME_PERCENT_SETTING_KEY = "schedule_default_volume_percent"
+SCHEDULE_VOLUME_DB_SETTING_KEY = "schedule_default_volume_db"
+SCHEDULE_DEFAULT_VOLUME_PERCENT_FALLBACK = 100
+SCHEDULE_VOLUME_PERCENT_MIN = 0
+SCHEDULE_VOLUME_PERCENT_MAX = 100
+
 PLAY_NOW_ALLOWED_TYPES = {"file", "playlist"}
 
 PAGE_SIZE_DEFAULT = 10
@@ -1016,6 +1022,92 @@ def get_normalization_headroom_db() -> float:
     return float(details["value"])
 
 
+def _parse_schedule_volume_percent(raw_value: Optional[str]) -> Optional[int]:
+    if raw_value is None:
+        return None
+    normalized = str(raw_value).strip()
+    if not normalized:
+        return None
+    if normalized.endswith("%"):
+        normalized = normalized[:-1].strip()
+    try:
+        numeric = float(normalized)
+    except (TypeError, ValueError):
+        logging.warning(
+            "Ungültiger Standard-Lautstärke-Prozentwert '%s' in den Einstellungen. Fallback auf Standard.",
+            raw_value,
+        )
+        return None
+    if not math.isfinite(numeric):
+        return None
+    percent = int(round(numeric))
+    return max(SCHEDULE_VOLUME_PERCENT_MIN, min(SCHEDULE_VOLUME_PERCENT_MAX, percent))
+
+
+def _parse_schedule_volume_db(raw_value: Optional[str]) -> Optional[float]:
+    if raw_value is None:
+        return None
+    normalized = str(raw_value).strip().lower()
+    if not normalized:
+        return None
+    if normalized.endswith("db"):
+        normalized = normalized[:-2].strip()
+    try:
+        value = float(normalized)
+    except (TypeError, ValueError):
+        logging.warning(
+            "Ungültiger Standard-Lautstärke-dB-Wert '%s' in den Einstellungen. Fallback auf Standard.",
+            raw_value,
+        )
+        return None
+    if not math.isfinite(value):
+        return None
+    return value
+
+
+def _convert_schedule_volume_db_to_percent(db_value: float) -> int:
+    ratio = 10 ** (db_value / 20.0)
+    percent = int(round(ratio * 100))
+    return max(SCHEDULE_VOLUME_PERCENT_MIN, min(SCHEDULE_VOLUME_PERCENT_MAX, percent))
+
+
+def get_schedule_default_volume_details() -> dict:
+    percent_raw = get_setting(SCHEDULE_VOLUME_PERCENT_SETTING_KEY, None)
+    percent_value = _parse_schedule_volume_percent(percent_raw)
+    if percent_value is not None:
+        return {
+            "percent": percent_value,
+            "source": "settings_percent",
+            "raw_percent": percent_raw,
+            "raw_db": None,
+            "db_value": None,
+        }
+
+    db_raw = get_setting(SCHEDULE_VOLUME_DB_SETTING_KEY, None)
+    db_value = _parse_schedule_volume_db(db_raw)
+    if db_value is not None:
+        return {
+            "percent": _convert_schedule_volume_db_to_percent(db_value),
+            "source": "settings_db",
+            "raw_percent": percent_raw,
+            "raw_db": db_raw,
+            "db_value": db_value,
+        }
+
+    return {
+        "percent": SCHEDULE_DEFAULT_VOLUME_PERCENT_FALLBACK,
+        "source": "default",
+        "raw_percent": percent_raw,
+        "raw_db": db_raw,
+        "db_value": None,
+    }
+
+
+def get_schedule_default_volume_percent() -> int:
+    details = get_schedule_default_volume_details()
+    return details["percent"]
+
+
 def _normalize_optional(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None
@@ -1718,6 +1810,8 @@ def gather_status():
     target_dac_sink = DAC_SINK or DAC_SINK_HINT
     is_playing = pygame.mixer.music.get_busy() if pygame_available else False
     headroom_details = get_normalization_headroom_details()
+    schedule_default_volume = get_schedule_default_volume_details()
+
     return {
         "playing": is_playing,
         "bluetooth_status": "Verbunden" if is_bt_connected() else "Nicht verbunden",
@@ -1737,6 +1831,8 @@ def gather_status():
         "normalization_headroom_env": headroom_details["env_raw"],
         "normalization_headroom_source": headroom_details["source"],
         "normalization_headroom_stored": headroom_details["stored_raw"],
+        "schedule_default_volume_percent": schedule_default_volume["percent"],
+        "schedule_default_volume_source": schedule_default_volume["source"],
     }
 
 
@@ -2698,6 +2794,9 @@ def index():
         build_index_url=build_index_url,
         default_headroom=DEFAULT_NORMALIZATION_HEADROOM_DB,
         normalization_headroom_env_key=NORMALIZATION_HEADROOM_ENV_KEY,
+        schedule_default_volume_percent=status.get(
+            "schedule_default_volume_percent", SCHEDULE_DEFAULT_VOLUME_PERCENT_FALLBACK
+        ),
     )
 
 
@@ -3147,7 +3246,7 @@ def add_schedule():
         return redirect(url_for("index"))
 
     if volume_raw == "":
-        volume_percent = 100
+        volume_percent = get_schedule_default_volume_percent()
     else:
         try:
             volume_percent = int(volume_raw)
