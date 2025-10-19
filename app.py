@@ -2634,6 +2634,7 @@ def _run_pactl_command(*args: str) -> Optional[str]:
 
 
 _PULSEAUDIO_PERCENT_PATTERN = re.compile(r"/\s*(\d+)%")
+_PULSEAUDIO_DB_PATTERN = re.compile(r"(?P<value>-?(?:\d+(?:\.\d+)?|\.\d+|inf))\s*dB", re.IGNORECASE)
 
 
 def _percent_to_pulseaudio_db(percent: int) -> Optional[float]:
@@ -2649,6 +2650,22 @@ def _extract_max_volume_percent(volume_output: str) -> Optional[int]:
     """Liest den höchsten Prozentwert aus einer pactl-Lautstärkeausgabe."""
 
     matches = [int(match.group(1)) for match in _PULSEAUDIO_PERCENT_PATTERN.finditer(volume_output)]
+    if not matches:
+        return None
+    return max(matches)
+
+
+def _extract_max_volume_db(volume_output: str) -> Optional[float]:
+    """Ermittelt den höchsten dB-Wert aus einer pactl-Lautstärkeausgabe."""
+
+    matches = []
+    for match in _PULSEAUDIO_DB_PATTERN.finditer(volume_output):
+        value = match.group("value")
+        try:
+            db_value = float(value)
+        except ValueError:  # pragma: no cover - defensive
+            continue
+        matches.append(db_value)
     if not matches:
         return None
     return max(matches)
@@ -2670,31 +2687,39 @@ def _enforce_bluetooth_volume_cap_for_sink(
         return False
 
     current_percent = _extract_max_volume_percent(volume_output)
-    if current_percent is None or current_percent <= limit_percent:
-        return False
+    percent_exceeds = current_percent is not None and current_percent > limit_percent
 
     if headroom_db > 0:
-        current_db = _percent_to_pulseaudio_db(current_percent)
+        current_db = _extract_max_volume_db(volume_output)
         target_db = -headroom_db
-        if current_db is not None and current_db > target_db:
-            _run_pactl_command("set-sink-volume", sink_name, f"-{headroom_db}dB")
-            logging.info(
-                "Bluetooth-Lautstärke von %s auf %.2f dB begrenzt (vorher %s%% ≈ %.2f dB)",
-                sink_name,
-                target_db,
-                current_percent,
-                current_db,
-            )
-            return True
         if current_db is not None:
+            if current_db > target_db:
+                _run_pactl_command("set-sink-volume", sink_name, f"-{headroom_db}dB")
+                logging.info(
+                    "Bluetooth-Lautstärke von %s auf %.2f dB begrenzt (vorher %s%% ≈ %.2f dB)",
+                    sink_name,
+                    target_db,
+                    current_percent if current_percent is not None else "?",
+                    current_db,
+                )
+                return True
+            if not percent_exceeds:
+                return False
+        elif not percent_exceeds:
             return False
+    else:
+        if not percent_exceeds:
+            return False
+
+    if not percent_exceeds:
+        return False
 
     _run_pactl_command("set-sink-volume", sink_name, f"{limit_percent}%")
     logging.info(
         "Bluetooth-Lautstärke von %s auf %s%% begrenzt (vorher %s%%)",
         sink_name,
         limit_percent,
-        current_percent,
+        current_percent if current_percent is not None else "?",
     )
     return True
 
