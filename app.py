@@ -3251,28 +3251,47 @@ def set_volume():
             ["amixer", "sset", "Master", f"{int_vol}%"],
             ["sudo", "alsactl", "store"],
         ]
+        any_success = False
         for command in commands:
-            subprocess.run(
-                command,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-    except subprocess.CalledProcessError as exc:
-        logging.error(
-            "Fehler beim Setzen der Lautstärke über Kommando '%s' (Returncode %s, stdout: %s, stderr: %s)",
-            exc.cmd,
-            exc.returncode,
-            exc.stdout or "",
-            exc.stderr or "",
-        )
-        flash("Fehler beim Setzen der Lautstärke")
+            try:
+                subprocess.run(
+                    command,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            except FileNotFoundError:
+                cmd_name = command[0] if command else "Befehl"
+                if cmd_name == "pactl":
+                    _notify_missing_pactl()
+                else:
+                    message = f"Kommando '{cmd_name}' wurde nicht gefunden."
+                    logging.warning(message)
+                    flash(message)
+            except subprocess.CalledProcessError as exc:
+                cmd_name = command[0] if command else str(exc.cmd)
+                message = (
+                    f"Kommando '{cmd_name}' fehlgeschlagen (Code {exc.returncode})."
+                )
+                logging.warning(
+                    "%s stdout: %s stderr: %s",
+                    message,
+                    exc.stdout or "",
+                    exc.stderr or "",
+                )
+                flash(message)
+            else:
+                any_success = True
     except Exception as e:
         logging.error(f"Fehler beim Setzen der Lautstärke: {e}")
         flash("Fehler beim Setzen der Lautstärke")
     else:
-        logging.info(f"Lautstärke auf {int_vol}% gesetzt (persistent)")
-        flash("Lautstärke persistent gesetzt")
+        if any_success:
+            logging.info(f"Lautstärke auf {int_vol}% gesetzt (persistent)")
+            flash("Lautstärke persistent gesetzt")
+        else:
+            logging.error("Lautstärke konnte mit den verfügbaren Werkzeugen nicht gesetzt werden.")
+            flash("Lautstärke konnte nicht gesetzt werden")
     return redirect(url_for("index"))
 
 
