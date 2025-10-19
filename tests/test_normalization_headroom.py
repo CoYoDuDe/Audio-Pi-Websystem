@@ -120,3 +120,43 @@ def test_save_normalization_headroom_interprets_negative_target_level(
         str(source_path), str(target_path)
     )
     assert collector[0] == pytest.approx(3.0)
+
+
+@pytest.mark.parametrize("invalid_value", ["NaN", "inf", "-inf"])
+def test_save_normalization_headroom_rejects_non_finite_values(
+    monkeypatch, tmp_path, invalid_value
+):
+    monkeypatch.delenv("NORMALIZATION_HEADROOM_DB", raising=False)
+    app_module, _dummy_music = _setup_app(monkeypatch, tmp_path)
+
+    client = app_module.app.test_client()
+    with client:
+        response = csrf_post(
+            client,
+            "/settings/normalization_headroom",
+            data={"normalization_headroom_db": invalid_value},
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+        assert "endliche Zahl" in response.get_data(as_text=True)
+
+    stored_value = app_module.get_setting(app_module.NORMALIZATION_HEADROOM_SETTING_KEY)
+    assert stored_value in (None, "")
+
+    collector = []
+    monkeypatch.setattr(
+        app_module.AudioSegment,
+        "from_file",
+        lambda *_args, **_kwargs: TrackingSegment(collector),
+    )
+
+    source_path = tmp_path / "invalid_source.mp3"
+    source_path.write_bytes(b"data")
+    target_path = tmp_path / "prepared.wav"
+
+    assert app_module._prepare_audio_for_playback(
+        str(source_path), str(target_path)
+    )
+    assert collector[0] == pytest.approx(
+        app_module.DEFAULT_NORMALIZATION_HEADROOM_DB
+    )
