@@ -7,6 +7,11 @@ import pytest
 from tests.csrf_utils import csrf_post
 
 
+class _FailingBus:
+    def write_i2c_block_data(self, *args, **kwargs):
+        raise OSError("Simulierter I²C-Fehler")
+
+
 @pytest.fixture
 def app_module(tmp_path, monkeypatch):
     monkeypatch.setenv("FLASK_SECRET_KEY", "testkey")
@@ -45,6 +50,14 @@ def client(app_module):
         yield client, app_module
 
 
+def _prepare_rtc_failure(app_module):
+    app_module.bus = _FailingBus()
+    app_module.RTC_AVAILABLE = True
+    app_module.RTC_ADDRESS = 0x51
+    app_module.RTC_DETECTED_ADDRESS = 0x51
+    app_module.RTC_MISSING_FLAG = False
+
+
 def _login(client):
     response = csrf_post(
         client,
@@ -64,23 +77,37 @@ def _login(client):
     return change_response
 
 
-def test_set_time_handles_called_process_error(monkeypatch, client):
+def test_perform_internet_time_sync_handles_i2c_write_error(monkeypatch, app_module):
+    _prepare_rtc_failure(app_module)
+
+    commands = []
+
+    def fake_check_call(cmd, *args, **kwargs):
+        commands.append(cmd)
+        return 0
+
+    monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
+
+    success, messages = app_module.perform_internet_time_sync()
+
+    assert ["sudo", "systemctl", "stop", "systemd-timesyncd"] in commands
+    assert ["sudo", "ntpdate", "pool.ntp.org"] in commands
+    assert ["sudo", "systemctl", "start", "systemd-timesyncd"] in commands
+    assert success is False
+    assert "RTC konnte nicht aktualisiert werden (I²C-Schreibfehler)" in messages
+
+
+def test_set_time_handles_i2c_write_error(monkeypatch, client):
     client, app_module = client
     _login(client)
-
-    set_rtc_called = False
-
-    def fake_set_rtc(dt):
-        nonlocal set_rtc_called
-        set_rtc_called = True
+    _prepare_rtc_failure(app_module)
 
     def fake_run(cmd, *args, **kwargs):
         if isinstance(cmd, (list, tuple)) and list(cmd)[:3] == ["sudo", "date", "-s"]:
             assert kwargs.get("check") is True
-            raise app_module.subprocess.CalledProcessError(1, cmd)
+            return app_module.subprocess.CompletedProcess(cmd, 0)
         return app_module.subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(app_module, "set_rtc", fake_set_rtc)
     monkeypatch.setattr(app_module.subprocess, "run", fake_run)
     monkeypatch.setattr(app_module.subprocess, "getoutput", lambda *args, **kwargs: "")
 
@@ -92,10 +119,6 @@ def test_set_time_handles_called_process_error(monkeypatch, client):
         source_url="/set_time",
     )
 
-    expected_message = (
-        "Ausführung von &#39;sudo date -s 2024-01-01 12:00:00&#39; ist fehlgeschlagen. "
-        "Systemzeit konnte nicht gesetzt werden."
-    )
-    assert expected_message.encode("utf-8") in response.data
-    assert b"Datum und Uhrzeit gesetzt" not in response.data
-    assert set_rtc_called is False
+    expected = "RTC konnte nicht gesetzt werden (I²C-Schreibfehler)"
+    assert expected.encode("utf-8") in response.data
+    assert response.status_code == 200

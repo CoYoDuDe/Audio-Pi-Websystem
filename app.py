@@ -314,6 +314,10 @@ class RTCUnavailableError(Exception):
     """RTC I²C-Bus konnte nicht initialisiert werden."""
 
 
+class RTCWriteError(RTCUnavailableError):
+    """Fehler beim Schreiben auf die RTC über den I²C-Bus."""
+
+
 class UnsupportedRTCError(Exception):
     """Gefundener RTC-Typ wird derzeit nicht unterstützt."""
 
@@ -573,31 +577,34 @@ def set_rtc(dt):
     hour = dec_to_bcd(dt.hour)
     date = dec_to_bcd(dt.day)
     weekday_value = _python_weekday_to_rtc(dt.weekday(), rtc_type)
-    if rtc_type == "pcf8563":
-        month = dec_to_bcd(dt.month)
-        year = dec_to_bcd(dt.year - 2000)
-        payload = [second, minute, hour, date, weekday_value, month, year]
-        bus.write_i2c_block_data(address, 0x02, payload)
-    elif rtc_type == "ds3231":
-        month_value = dec_to_bcd(dt.month)
-        year_value = dt.year
-        century_bit = 0
-        if year_value >= 2100:
-            century_bit = 0x80
-            year_value -= 100
-        year = dec_to_bcd(year_value - 2000)
-        payload = [
-            second,
-            minute,
-            hour,
-            weekday_value & 0x07,
-            date,
-            month_value | century_bit,
-            year,
-        ]
-        bus.write_i2c_block_data(address, 0x00, payload)
-    else:  # pragma: no cover - abgesichert durch _determine_rtc_type
-        raise UnsupportedRTCError(f"RTC-Typ '{rtc_type}' nicht unterstützt")
+    try:
+        if rtc_type == "pcf8563":
+            month = dec_to_bcd(dt.month)
+            year = dec_to_bcd(dt.year - 2000)
+            payload = [second, minute, hour, date, weekday_value, month, year]
+            bus.write_i2c_block_data(address, 0x02, payload)
+        elif rtc_type == "ds3231":
+            month_value = dec_to_bcd(dt.month)
+            year_value = dt.year
+            century_bit = 0
+            if year_value >= 2100:
+                century_bit = 0x80
+                year_value -= 100
+            year = dec_to_bcd(year_value - 2000)
+            payload = [
+                second,
+                minute,
+                hour,
+                weekday_value & 0x07,
+                date,
+                month_value | century_bit,
+                year,
+            ]
+            bus.write_i2c_block_data(address, 0x00, payload)
+        else:  # pragma: no cover - abgesichert durch _determine_rtc_type
+            raise UnsupportedRTCError(f"RTC-Typ '{rtc_type}' nicht unterstützt")
+    except OSError as exc:
+        raise RTCWriteError("Schreibzugriff auf die RTC ist fehlgeschlagen") from exc
     logging.info(f'RTC gesetzt auf {dt.strftime("%Y-%m-%d %H:%M:%S")}')
 
 
@@ -3330,6 +3337,12 @@ def perform_internet_time_sync():
     else:
         try:
             set_rtc(datetime.now())
+        except RTCWriteError as exc:
+            logging.error(
+                "RTC konnte nach dem Internet-Sync nicht geschrieben werden: %s",
+                exc,
+            )
+            messages.append("RTC konnte nicht aktualisiert werden (I²C-Schreibfehler)")
         except (RTCUnavailableError, UnsupportedRTCError) as exc:
             logging.error(
                 "RTC konnte nach dem Internet-Sync nicht gesetzt werden: %s", exc
@@ -3426,6 +3439,9 @@ def set_time():
             else:
                 try:
                     set_rtc(dt)
+                except RTCWriteError as exc:
+                    logging.error("RTC konnte nicht geschrieben werden: %s", exc)
+                    flash("RTC konnte nicht gesetzt werden (I²C-Schreibfehler)")
                 except (RTCUnavailableError, UnsupportedRTCError) as exc:
                     logging.error("RTC konnte nicht gesetzt werden: %s", exc)
                     flash("RTC nicht verfügbar oder wird nicht unterstützt")
