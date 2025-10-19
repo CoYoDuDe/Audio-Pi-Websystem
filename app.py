@@ -1164,26 +1164,77 @@ def _load_configured_dac_label() -> Optional[str]:
     return _normalize_optional(stored_label)
 
 
-def load_dac_sink_from_settings():
-    global DAC_SINK, CONFIGURED_DAC_SINK, DAC_SINK_LABEL
-
-    stored_value = get_setting(DAC_SINK_SETTING_KEY, None)
-    normalized_value = stored_value.strip() if stored_value else ""
-    previous_sink = DAC_SINK
+def _gather_dac_sink_state() -> dict:
     default_sink = _refresh_default_dac_sink()
+    env_value = _normalize_optional(os.environ.get("DAC_SINK_NAME"))
+    stored_raw = get_setting(DAC_SINK_SETTING_KEY, None)
+    stored_value = _normalize_optional(stored_raw)
 
-    if normalized_value:
-        DAC_SINK = normalized_value
-        CONFIGURED_DAC_SINK = normalized_value
+    if env_value:
+        sink_hint = env_value
+        source = "env"
+    elif stored_value:
+        sink_hint = stored_value
+        source = "settings"
     else:
-        DAC_SINK = default_sink
-        CONFIGURED_DAC_SINK = None
+        sink_hint = default_sink
+        source = "default"
+
+    resolver = globals().get("_resolve_sink_name")
+    if callable(resolver):
+        resolved_sink = resolver(sink_hint) or sink_hint
+    else:
+        resolved_sink = sink_hint
+
+    return {
+        "default": default_sink,
+        "hint": sink_hint,
+        "resolved": resolved_sink,
+        "configured": stored_value,
+        "source": source,
+        "raw_setting": stored_raw,
+    }
+
+
+def _apply_dac_sink_state(state: dict, *, reset_detection: bool) -> None:
+    global DAC_SINK, DAC_SINK_HINT, CONFIGURED_DAC_SINK, DAC_SINK_LABEL
+
+    previous_sink = DAC_SINK
+    DAC_SINK_HINT = state["hint"]
+    DAC_SINK = state["resolved"]
+    CONFIGURED_DAC_SINK = state["configured"]
 
     if DAC_SINK != previous_sink:
         logging.info("DAC-Sink aktualisiert: %s", DAC_SINK)
 
     DAC_SINK_LABEL = _load_configured_dac_label()
-    audio_status["dac_sink_detected"] = None
+
+    if reset_detection:
+        audio_status["dac_sink_detected"] = None
+
+
+def _refresh_dac_sink_state(*, reset_detection: bool, log_source: bool) -> None:
+    state = _gather_dac_sink_state()
+
+    if log_source:
+        source = state["source"]
+        sink_hint = state["hint"]
+        if source == "env":
+            logging.info("DAC_SINK_NAME aus Umgebungsvariable übernommen: %s", sink_hint)
+        elif source == "settings":
+            logging.info("DAC-Sink aus Einstellungen geladen: %s", sink_hint)
+        else:
+            if state["raw_setting"] is None:
+                logging.info(
+                    "Kein gespeicherter DAC-Sink gefunden. Verwende Standard: %s",
+                    state["default"],
+                )
+
+    _apply_dac_sink_state(state, reset_detection=reset_detection)
+
+
+def load_dac_sink_from_settings():
+    _refresh_dac_sink_state(reset_detection=True, log_source=False)
 
 
 def _parse_rtc_address_string(value: Optional[str]) -> Tuple[int, ...]:
@@ -1799,36 +1850,7 @@ def set_sink(sink_name):
 
 
 def load_dac_sink_configuration():
-    global DAC_SINK, DAC_SINK_HINT, DAC_SINK_LABEL
-
-    default_sink = _refresh_default_dac_sink()
-    env_value = os.environ.get("DAC_SINK_NAME")
-    normalized_env = env_value.strip() if env_value else ""
-
-    if normalized_env:
-        DAC_SINK_HINT = normalized_env
-        logging.info("DAC_SINK_NAME aus Umgebungsvariable übernommen: %s", DAC_SINK_HINT)
-    else:
-        stored_value = get_setting(DAC_SINK_SETTING_KEY, None)
-        normalized_stored = stored_value.strip() if stored_value else ""
-        if normalized_stored:
-            DAC_SINK_HINT = normalized_stored
-            logging.info("DAC-Sink aus Einstellungen geladen: %s", DAC_SINK_HINT)
-        else:
-            if stored_value is None:
-                logging.info(
-                    "Kein gespeicherter DAC-Sink gefunden. Verwende Standard: %s",
-                    default_sink,
-                )
-            DAC_SINK_HINT = default_sink
-
-    resolved = _resolve_sink_name(DAC_SINK_HINT)
-    if resolved:
-        DAC_SINK = resolved
-    else:
-        DAC_SINK = DAC_SINK_HINT
-
-    DAC_SINK_LABEL = _load_configured_dac_label()
+    _refresh_dac_sink_state(reset_detection=False, log_source=True)
 
 
 load_dac_sink_configuration()
