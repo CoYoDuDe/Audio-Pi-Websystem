@@ -1,4 +1,5 @@
 import os
+import re
 import importlib
 from datetime import datetime
 from pathlib import Path
@@ -8,6 +9,7 @@ from flask import get_flashed_messages
 
 os.environ.setdefault("FLASK_SECRET_KEY", "test")
 os.environ.setdefault("TESTING", "1")
+os.environ.setdefault("INITIAL_ADMIN_PASSWORD", "password")
 
 app = importlib.import_module("app")
 
@@ -42,6 +44,51 @@ def _insert_audio_file(filename="probe.mp3", duration=1.5):
     )
     app.conn.commit()
     return app.cursor.lastrowid
+
+
+def test_schedule_form_respects_zero_default():
+    with app.app.test_request_context(
+        "/settings/schedule_default_volume",
+        method="POST",
+        data={"schedule_default_volume": "0"},
+    ):
+        response = app.save_schedule_default_volume.__wrapped__()
+        assert response.status_code == 302
+
+    with app.get_db_connection() as (conn, cursor):
+        cursor.execute("SELECT id FROM users WHERE username=?", ("admin",))
+        user_row = cursor.fetchone()
+        assert user_row is not None
+        user_id = user_row["id"]
+        cursor.execute(
+            "UPDATE users SET must_change_password=0 WHERE id=?",
+            (user_id,),
+        )
+        conn.commit()
+
+    original_get_busy = app.pygame.mixer.music.get_busy
+    app.pygame.mixer.music.get_busy = lambda: False
+    try:
+        with app.app.test_client() as client:
+            with client.session_transaction() as session:
+                session["_user_id"] = str(user_id)
+                session["_fresh"] = True
+
+            response = client.get("/")
+            assert response.status_code == 200
+            content = response.get_data(as_text=True)
+    finally:
+        app.pygame.mixer.music.get_busy = original_get_busy
+
+    assert re.search(r'id="schedule-volume"[^>]*value="0"', content)
+    assert re.search(r'id="schedule-volume-value"[^>]*>\s*0%<', content)
+
+    with app.get_db_connection() as (conn, cursor):
+        cursor.execute(
+            "UPDATE users SET must_change_password=1 WHERE id=?",
+            (user_id,),
+        )
+        conn.commit()
 
 
 def test_add_schedule_accepts_custom_volume():
