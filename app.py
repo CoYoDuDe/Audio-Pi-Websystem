@@ -3026,6 +3026,7 @@ def index():
         schedule_default_volume_raw_db=status.get("schedule_default_volume_raw_db"),
         schedule_default_volume_db_value=status.get("schedule_default_volume_db_value"),
         schedule_default_volume_fallback=SCHEDULE_DEFAULT_VOLUME_PERCENT_FALLBACK,
+        max_schedule_delay_seconds=MAX_SCHEDULE_DELAY_SECONDS,
     )
 
 
