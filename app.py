@@ -3584,6 +3584,10 @@ def enable_bluetooth() -> BluetoothActionResult:
         _handle_missing_bluetooth_command(exc)
         return "missing_cli"
     auto_accept_result = bluetooth_auto_accept()
+    if auto_accept_result == "error":
+        logging.error(
+            "Bluetooth konnte nach dem Einschalten nicht vollständig eingerichtet werden"
+        )
     return auto_accept_result
 
 
@@ -3606,7 +3610,7 @@ def bluetooth_on():
         elif result == "missing_cli":
             _flash_missing_bluetooth_cli_message()
         else:
-            flash("Bluetooth konnte nicht aktiviert werden")
+            flash("Bluetooth konnte nicht aktiviert werden (Auto-Accept fehlgeschlagen)")
     except subprocess.CalledProcessError as e:
         logging.error(f"Bluetooth einschalten fehlgeschlagen: {e}")
         flash("Bluetooth konnte nicht aktiviert werden")
@@ -3625,6 +3629,7 @@ def bluetooth_off():
         elif result == "missing_cli":
             _flash_missing_bluetooth_cli_message()
         else:
+            logging.error("Bluetooth konnte nicht deaktiviert werden (unerwartetes Ergebnis)")
             flash("Bluetooth konnte nicht deaktiviert werden")
     except subprocess.CalledProcessError as e:
         logging.error(f"Bluetooth ausschalten fehlgeschlagen: {e}")
@@ -3667,7 +3672,19 @@ def bluetooth_auto_accept() -> BluetoothActionResult:
         logging.error("Bluetooth auto-accept Kommunikation fehlgeschlagen: %s", exc)
         return "error"
 
-    logging.info(f"Bluetooth auto-accept setup: {stdout} {stderr}")
+    if p.returncode not in (None, 0):
+        stderr_message = (stderr or "").strip()
+        logging.error(
+            "Bluetooth auto-accept beendete sich mit Code %s: %s",
+            p.returncode,
+            stderr_message or "Unbekannter Fehler",
+        )
+        return "error"
+
+    if stderr:
+        logging.info("Bluetooth auto-accept meldete Warnungen: %s", stderr.strip())
+
+    logging.info("Bluetooth auto-accept setup: %s", stdout.strip())
     return "success"
 
 
