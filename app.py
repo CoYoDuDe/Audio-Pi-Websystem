@@ -1063,6 +1063,21 @@ def get_normalization_headroom_db() -> float:
     return float(details["value"])
 
 
+def get_bluetooth_volume_cap_percent() -> int:
+    """Ermittelt den maximalen Lautstärke-Prozentwert für Bluetooth-Sinks."""
+
+    headroom_db = float(get_normalization_headroom_db())
+    if not math.isfinite(headroom_db):
+        return 100
+
+    if headroom_db <= 0:
+        return 100
+
+    ratio = 10 ** (-headroom_db / 20)
+    percent = int(round(ratio * 100))
+    return max(1, min(100, percent))
+
+
 def _parse_schedule_volume_percent(raw_value: Optional[str]) -> Optional[int]:
     if raw_value is None:
         return None
@@ -2604,6 +2619,67 @@ def _run_pactl_command(*args: str) -> Optional[str]:
     return output
 
 
+_PULSEAUDIO_PERCENT_PATTERN = re.compile(r"/\s*(\d+)%")
+
+
+def _extract_max_volume_percent(volume_output: str) -> Optional[int]:
+    """Liest den höchsten Prozentwert aus einer pactl-Lautstärkeausgabe."""
+
+    matches = [int(match.group(1)) for match in _PULSEAUDIO_PERCENT_PATTERN.finditer(volume_output)]
+    if not matches:
+        return None
+    return max(matches)
+
+
+def _enforce_bluetooth_volume_cap_for_sink(
+    sink_name: str, limit_percent: int
+) -> bool:
+    """Begrenzt die Lautstärke eines Bluetooth-Sinks auf den gegebenen Prozentwert."""
+
+    if limit_percent >= 100:
+        return False
+
+    volume_output = _run_pactl_command("get-sink-volume", sink_name)
+    if volume_output is None:
+        return False
+
+    current_percent = _extract_max_volume_percent(volume_output)
+    if current_percent is None or current_percent <= limit_percent:
+        return False
+
+    _run_pactl_command("set-sink-volume", sink_name, f"{limit_percent}%")
+    logging.info(
+        "Bluetooth-Lautstärke von %s auf %s%% begrenzt (vorher %s%%)",
+        sink_name,
+        limit_percent,
+        current_percent,
+    )
+    return True
+
+
+def _list_bluetooth_sinks() -> List[str]:
+    sinks_output = _run_pactl_command("list", "short", "sinks")
+    if sinks_output is None:
+        return []
+
+    sink_names: List[str] = []
+    for line in sinks_output.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        if "bluez" in parts[1]:
+            sink_names.append(parts[1])
+    return sink_names
+
+
+def _enforce_bluetooth_volume_cap(limit_percent: int) -> None:
+    if limit_percent >= 100:
+        return
+
+    for sink_name in _list_bluetooth_sinks():
+        _enforce_bluetooth_volume_cap_for_sink(sink_name, limit_percent)
+
+
 def is_bt_connected():
     """Prüft, ob ein Bluetooth-Gerät verbunden ist."""
     sinks_output = _run_pactl_command("list", "short", "sinks")
@@ -2628,6 +2704,9 @@ def resume_bt_audio():
 
     bt_sink = sink_lines[0].split()[1]
     previous_detection = audio_status.get("dac_sink_detected")
+    limit_percent = get_bluetooth_volume_cap_percent()
+    if limit_percent < 100:
+        _enforce_bluetooth_volume_cap_for_sink(bt_sink, limit_percent)
     set_sink(bt_sink)
     if not _sink_is_configured(bt_sink):
         # Sicherstellen, dass der HiFiBerry-Status durch Fremd-Sinks unverändert bleibt.
@@ -2710,6 +2789,9 @@ def bt_audio_monitor():
     was_active = False
     while True:
         active = is_bt_audio_active()
+        if active:
+            limit_percent = get_bluetooth_volume_cap_percent()
+            _enforce_bluetooth_volume_cap(limit_percent)
         if active and not was_active:
             activate_amplifier()
             was_active = True
