@@ -969,7 +969,7 @@ def _parse_headroom_value(raw_value: Optional[str], source: str) -> Optional[flo
     if not normalized:
         return None
     try:
-        return float(normalized)
+        parsed = float(normalized)
     except (TypeError, ValueError):
         logging.warning(
             "Ungültiger Headroom-Wert '%s' aus %s. Wert wird ignoriert.",
@@ -977,10 +977,24 @@ def _parse_headroom_value(raw_value: Optional[str], source: str) -> Optional[flo
             source,
         )
         return None
+    if not math.isfinite(parsed):
+        logging.warning(
+            "Nicht-endlicher Headroom-Wert '%s' aus %s. Wert wird ignoriert.",
+            raw_value,
+            source,
+        )
+        return None
+    return parsed
 
 
 def _sanitize_headroom_value(value: Optional[float]) -> Optional[float]:
     if value is None:
+        return None
+    if not math.isfinite(value):
+        logging.warning(
+            "Nicht-endlicher Headroom-Wert '%s' nach Normalisierung. Wert wird verworfen.",
+            value,
+        )
         return None
     return abs(value)
 
@@ -3162,7 +3176,9 @@ def save_normalization_headroom():
 
     parsed_value = _parse_headroom_value(raw_value, "Formular 'Audio-Normalisierung'")
     if parsed_value is None:
-        flash("Ungültiger Zielpegel/Headroom-Wert. Bitte eine Zahl eingeben.")
+        flash(
+            "Ungültiger Zielpegel/Headroom-Wert. Bitte eine endliche Zahl eingeben."
+        )
         return redirect(url_for("index"))
 
     headroom_value = abs(parsed_value)
