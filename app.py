@@ -1064,7 +1064,14 @@ def get_normalization_headroom_db() -> float:
 
 
 def get_bluetooth_volume_cap_percent() -> int:
-    """Ermittelt den maximalen Lautstärke-Prozentwert für Bluetooth-Sinks."""
+    """Ermittelt den maximalen Lautstärke-Prozentwert für Bluetooth-Sinks.
+
+    PulseAudio interpretiert Prozentwerte nicht linear, sondern nutzt eine
+    kubische Skala: "100 %" entspricht einem linearen Amplitudenfaktor von 1,
+    der Prozentwert ändert aber den unterliegenden Wert, bevor PulseAudio ihn
+    potenziert. Damit ein Headroom-Wert in Dezibel weiterhin dem gewünschten
+    linearen Amplitudenfaktor entspricht, wird deshalb die kubische Wurzel
+    gebildet."""
 
     headroom_db = float(get_normalization_headroom_db())
     if not math.isfinite(headroom_db):
@@ -1074,7 +1081,10 @@ def get_bluetooth_volume_cap_percent() -> int:
         return 100
 
     ratio = 10 ** (-headroom_db / 20)
-    percent = int(round(ratio * 100))
+    # PulseAudio-Anteile werden kubisch umgesetzt, daher ist die dritte Wurzel
+    # nötig, damit die effektive Lautstärke dem linearen Amplitudenverhältnis
+    # (10 ** (-headroom_db / 20)) entspricht.
+    percent = int(round((ratio ** (1 / 3)) * 100))
     return max(1, min(100, percent))
 
 

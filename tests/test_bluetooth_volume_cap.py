@@ -21,7 +21,7 @@ def app_module(monkeypatch, tmp_path):
 def test_bluetooth_volume_cap_reduces_high_volume(monkeypatch, app_module):
     monkeypatch.setattr(app_module, "get_normalization_headroom_db", lambda: 3.0)
     limit = app_module.get_bluetooth_volume_cap_percent()
-    assert limit == pytest.approx(71)
+    assert limit == 89
 
     calls = []
 
@@ -52,7 +52,7 @@ def test_bluetooth_volume_cap_reduces_high_volume(monkeypatch, app_module):
 def test_bluetooth_volume_cap_leaves_low_volume_untouched(monkeypatch, app_module):
     monkeypatch.setattr(app_module, "get_normalization_headroom_db", lambda: 6.0)
     limit = app_module.get_bluetooth_volume_cap_percent()
-    assert limit < 60
+    assert limit == 79
 
     calls = []
 
