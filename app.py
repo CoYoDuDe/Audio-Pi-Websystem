@@ -123,12 +123,33 @@ VERZOEGERUNG_SEC = 5
 DEFAULT_MAX_SCHEDULE_DELAY_SECONDS = 60
 DAC_SINK_SETTING_KEY = "dac_sink_name"
 DAC_SINK_LABEL_SETTING_KEY = "dac_sink_label"
-DEFAULT_DAC_SINK = os.getenv(
-    "DAC_SINK_NAME",
-    "alsa_output.platform-soc_107c000000_sound.stereo-fallback",
-)
+DEFAULT_DAC_SINK_FALLBACK = "alsa_output.platform-soc_107c000000_sound.stereo-fallback"
+DEFAULT_DAC_SINK = DEFAULT_DAC_SINK_FALLBACK
+DEFAULT_DAC_SINK_HINT = DEFAULT_DAC_SINK_FALLBACK
+
+
+def _determine_effective_default_dac_sink() -> str:
+    env_value = os.getenv("DAC_SINK_NAME")
+    if env_value is not None:
+        candidate = env_value.strip()
+        if candidate:
+            return candidate
+    return DEFAULT_DAC_SINK_FALLBACK
+
+
+def _refresh_default_dac_sink() -> str:
+    global DEFAULT_DAC_SINK, DEFAULT_DAC_SINK_HINT
+
+    default_sink = _determine_effective_default_dac_sink()
+    DEFAULT_DAC_SINK = default_sink
+    DEFAULT_DAC_SINK_HINT = default_sink
+    return default_sink
+
+
+_refresh_default_dac_sink()
 DEFAULT_DAC_SINK_LABEL = "Konfigurierter DAC"
 DAC_SINK = DEFAULT_DAC_SINK
+DAC_SINK_HINT = DEFAULT_DAC_SINK
 CONFIGURED_DAC_SINK: Optional[str] = None
 DAC_SINK_LABEL: Optional[str] = None
 NORMALIZATION_HEADROOM_SETTING_KEY = "normalization_headroom_db"
@@ -154,12 +175,6 @@ else:
             DEFAULT_MAX_SCHEDULE_DELAY_SECONDS,
         )
         MAX_SCHEDULE_DELAY_SECONDS = DEFAULT_MAX_SCHEDULE_DELAY_SECONDS
-DEFAULT_DAC_SINK = "alsa_output.platform-soc_107c000000_sound.stereo-fallback"
-DEFAULT_DAC_SINK_HINT = DEFAULT_DAC_SINK
-DAC_SINK_SETTING_KEY = "dac_sink_name"
-DAC_SINK_HINT = os.environ.get("DAC_SINK_NAME", DEFAULT_DAC_SINK_HINT)
-DAC_SINK = DAC_SINK_HINT
-
 SCHEDULE_VOLUME_PERCENT_SETTING_KEY = "schedule_default_volume_percent"
 SCHEDULE_VOLUME_DB_SETTING_KEY = "schedule_default_volume_db"
 SCHEDULE_DEFAULT_VOLUME_PERCENT_FALLBACK = 100
@@ -1155,12 +1170,13 @@ def load_dac_sink_from_settings():
     stored_value = get_setting(DAC_SINK_SETTING_KEY, None)
     normalized_value = stored_value.strip() if stored_value else ""
     previous_sink = DAC_SINK
+    default_sink = _refresh_default_dac_sink()
 
     if normalized_value:
         DAC_SINK = normalized_value
         CONFIGURED_DAC_SINK = normalized_value
     else:
-        DAC_SINK = DEFAULT_DAC_SINK
+        DAC_SINK = default_sink
         CONFIGURED_DAC_SINK = None
 
     if DAC_SINK != previous_sink:
@@ -1785,23 +1801,26 @@ def set_sink(sink_name):
 def load_dac_sink_configuration():
     global DAC_SINK, DAC_SINK_HINT, DAC_SINK_LABEL
 
+    default_sink = _refresh_default_dac_sink()
     env_value = os.environ.get("DAC_SINK_NAME")
-    if env_value:
-        DAC_SINK_HINT = env_value.strip()
+    normalized_env = env_value.strip() if env_value else ""
+
+    if normalized_env:
+        DAC_SINK_HINT = normalized_env
         logging.info("DAC_SINK_NAME aus Umgebungsvariable übernommen: %s", DAC_SINK_HINT)
     else:
         stored_value = get_setting(DAC_SINK_SETTING_KEY, None)
-        if stored_value and stored_value.strip():
-            DAC_SINK_HINT = stored_value.strip()
+        normalized_stored = stored_value.strip() if stored_value else ""
+        if normalized_stored:
+            DAC_SINK_HINT = normalized_stored
             logging.info("DAC-Sink aus Einstellungen geladen: %s", DAC_SINK_HINT)
-        elif stored_value is None:
-            logging.info(
-                "Kein gespeicherter DAC-Sink gefunden. Verwende Standard: %s",
-                DEFAULT_DAC_SINK_HINT,
-            )
-            DAC_SINK_HINT = DEFAULT_DAC_SINK_HINT
         else:
-            DAC_SINK_HINT = DEFAULT_DAC_SINK_HINT
+            if stored_value is None:
+                logging.info(
+                    "Kein gespeicherter DAC-Sink gefunden. Verwende Standard: %s",
+                    default_sink,
+                )
+            DAC_SINK_HINT = default_sink
 
     resolved = _resolve_sink_name(DAC_SINK_HINT)
     if resolved:
