@@ -1760,12 +1760,6 @@ def _list_pulse_sinks():
     return sinks
 
 
-def _is_sink_available(sink_name):
-    sinks = _list_pulse_sinks()
-    resolved = _resolve_sink_name(sink_name, sinks=sinks)
-    return resolved is not None
-
-
 def _sink_matches_hint(sink_name: str, hint: str) -> bool:
     if not sink_name or not hint:
         return False
