@@ -11,6 +11,7 @@ import calendar
 import fnmatch
 import math
 import logging
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from flask import (
     Flask,
@@ -1063,8 +1064,14 @@ def get_normalization_headroom_db() -> float:
     return float(details["value"])
 
 
-def get_bluetooth_volume_cap_percent() -> int:
-    """Ermittelt den maximalen Lautstärke-Prozentwert für Bluetooth-Sinks.
+@dataclass(frozen=True)
+class BluetoothVolumeCap:
+    percent: int
+    headroom_db: float
+
+
+def get_bluetooth_volume_cap_percent() -> BluetoothVolumeCap:
+    """Ermittelt den maximalen Lautstärke-Prozentwert und Headroom für Bluetooth-Sinks.
 
     PulseAudio interpretiert Prozentwerte nicht linear, sondern nutzt eine
     kubische Skala: "100 %" entspricht einem linearen Amplitudenfaktor von 1,
@@ -1073,12 +1080,13 @@ def get_bluetooth_volume_cap_percent() -> int:
     linearen Amplitudenfaktor entspricht, wird deshalb die kubische Wurzel
     gebildet."""
 
-    headroom_db = float(get_normalization_headroom_db())
-    if not math.isfinite(headroom_db):
-        return 100
+    headroom_raw = float(get_normalization_headroom_db())
+    if not math.isfinite(headroom_raw):
+        return BluetoothVolumeCap(percent=100, headroom_db=0.0)
 
+    headroom_db = max(0.0, headroom_raw)
     if headroom_db <= 0:
-        return 100
+        return BluetoothVolumeCap(percent=100, headroom_db=0.0)
 
     ratio = 10 ** (-headroom_db / 20)
     # PulseAudio-Anteile werden kubisch umgesetzt, daher ist die dritte Wurzel
@@ -1086,7 +1094,8 @@ def get_bluetooth_volume_cap_percent() -> int:
     # (10 ** (-headroom_db / 20)) entspricht.
     percent_float = (ratio ** (1 / 3)) * 100
     percent = int(math.floor(percent_float))
-    return max(1, min(100, percent))
+    percent_clamped = max(1, min(100, percent))
+    return BluetoothVolumeCap(percent=percent_clamped, headroom_db=headroom_db)
 
 
 def _parse_schedule_volume_percent(raw_value: Optional[str]) -> Optional[int]:
@@ -2627,6 +2636,15 @@ def _run_pactl_command(*args: str) -> Optional[str]:
 _PULSEAUDIO_PERCENT_PATTERN = re.compile(r"/\s*(\d+)%")
 
 
+def _percent_to_pulseaudio_db(percent: int) -> Optional[float]:
+    if percent <= 0:
+        return None
+    ratio = (percent / 100.0) ** 3
+    if ratio <= 0:
+        return None
+    return 20.0 * math.log10(ratio)
+
+
 def _extract_max_volume_percent(volume_output: str) -> Optional[int]:
     """Liest den höchsten Prozentwert aus einer pactl-Lautstärkeausgabe."""
 
@@ -2637,11 +2655,14 @@ def _extract_max_volume_percent(volume_output: str) -> Optional[int]:
 
 
 def _enforce_bluetooth_volume_cap_for_sink(
-    sink_name: str, limit_percent: int
+    sink_name: str, cap: BluetoothVolumeCap
 ) -> bool:
-    """Begrenzt die Lautstärke eines Bluetooth-Sinks auf den gegebenen Prozentwert."""
+    """Begrenzt die Lautstärke eines Bluetooth-Sinks auf den gegebenen Zielwert."""
 
-    if limit_percent >= 100:
+    limit_percent = cap.percent
+    headroom_db = cap.headroom_db
+
+    if limit_percent >= 100 and headroom_db <= 0:
         return False
 
     volume_output = _run_pactl_command("get-sink-volume", sink_name)
@@ -2651,6 +2672,22 @@ def _enforce_bluetooth_volume_cap_for_sink(
     current_percent = _extract_max_volume_percent(volume_output)
     if current_percent is None or current_percent <= limit_percent:
         return False
+
+    if headroom_db > 0:
+        current_db = _percent_to_pulseaudio_db(current_percent)
+        target_db = -headroom_db
+        if current_db is not None and current_db > target_db:
+            _run_pactl_command("set-sink-volume", sink_name, f"-{headroom_db}dB")
+            logging.info(
+                "Bluetooth-Lautstärke von %s auf %.2f dB begrenzt (vorher %s%% ≈ %.2f dB)",
+                sink_name,
+                target_db,
+                current_percent,
+                current_db,
+            )
+            return True
+        if current_db is not None:
+            return False
 
     _run_pactl_command("set-sink-volume", sink_name, f"{limit_percent}%")
     logging.info(
@@ -2677,12 +2714,12 @@ def _list_bluetooth_sinks() -> List[str]:
     return sink_names
 
 
-def _enforce_bluetooth_volume_cap(limit_percent: int) -> None:
-    if limit_percent >= 100:
+def _enforce_bluetooth_volume_cap(cap: BluetoothVolumeCap) -> None:
+    if cap.percent >= 100 and cap.headroom_db <= 0:
         return
 
     for sink_name in _list_bluetooth_sinks():
-        _enforce_bluetooth_volume_cap_for_sink(sink_name, limit_percent)
+        _enforce_bluetooth_volume_cap_for_sink(sink_name, cap)
 
 
 def is_bt_connected():
@@ -2709,9 +2746,9 @@ def resume_bt_audio():
 
     bt_sink = sink_lines[0].split()[1]
     previous_detection = audio_status.get("dac_sink_detected")
-    limit_percent = get_bluetooth_volume_cap_percent()
-    if limit_percent < 100:
-        _enforce_bluetooth_volume_cap_for_sink(bt_sink, limit_percent)
+    cap = get_bluetooth_volume_cap_percent()
+    if cap.percent < 100 or cap.headroom_db > 0:
+        _enforce_bluetooth_volume_cap_for_sink(bt_sink, cap)
     set_sink(bt_sink)
     if not _sink_is_configured(bt_sink):
         # Sicherstellen, dass der HiFiBerry-Status durch Fremd-Sinks unverändert bleibt.
@@ -2795,8 +2832,8 @@ def bt_audio_monitor():
     while True:
         active = is_bt_audio_active()
         if active:
-            limit_percent = get_bluetooth_volume_cap_percent()
-            _enforce_bluetooth_volume_cap(limit_percent)
+            cap = get_bluetooth_volume_cap_percent()
+            _enforce_bluetooth_volume_cap(cap)
         if active and not was_active:
             activate_amplifier()
             was_active = True

@@ -20,8 +20,9 @@ def app_module(monkeypatch, tmp_path):
 
 def test_bluetooth_volume_cap_reduces_high_volume(monkeypatch, app_module):
     monkeypatch.setattr(app_module, "get_normalization_headroom_db", lambda: 3.0)
-    limit = app_module.get_bluetooth_volume_cap_percent()
-    assert limit == 89
+    cap = app_module.get_bluetooth_volume_cap_percent()
+    assert cap.percent == 89
+    assert cap.headroom_db == pytest.approx(3.0)
 
     calls = []
 
@@ -44,16 +45,21 @@ def test_bluetooth_volume_cap_reduces_high_volume(monkeypatch, app_module):
     monkeypatch.setattr(app_module, "_run_pactl_command", fake_run_pactl)
     monkeypatch.setattr(app_module.subprocess, "run", fail_run)
 
-    changed = app_module._enforce_bluetooth_volume_cap_for_sink("bluez_sink.test", limit)
+    changed = app_module._enforce_bluetooth_volume_cap_for_sink("bluez_sink.test", cap)
     assert changed is True
-    assert ("set-sink-volume", "bluez_sink.test", f"{limit}%") in calls
+    volume_call = next(call for call in calls if call[0] == "set-sink-volume")
+    assert volume_call[1] == "bluez_sink.test"
+    assert volume_call[2].endswith("dB")
+    assert volume_call[2].startswith("-")
+    assert float(volume_call[2][1:-2]) == pytest.approx(cap.headroom_db)
 
 
 def test_bluetooth_volume_cap_triggers_for_small_headroom(monkeypatch, app_module):
     monkeypatch.setattr(app_module, "get_normalization_headroom_db", lambda: 0.1)
-    limit = app_module.get_bluetooth_volume_cap_percent()
-    assert limit < 100
-    assert limit == 99
+    cap = app_module.get_bluetooth_volume_cap_percent()
+    assert cap.percent < 100
+    assert cap.percent == 99
+    assert cap.headroom_db == pytest.approx(0.1)
 
     calls = []
 
@@ -76,15 +82,20 @@ def test_bluetooth_volume_cap_triggers_for_small_headroom(monkeypatch, app_modul
     monkeypatch.setattr(app_module, "_run_pactl_command", fake_run_pactl)
     monkeypatch.setattr(app_module.subprocess, "run", fail_run)
 
-    changed = app_module._enforce_bluetooth_volume_cap_for_sink("bluez_sink.test", limit)
+    changed = app_module._enforce_bluetooth_volume_cap_for_sink("bluez_sink.test", cap)
     assert changed is True
-    assert ("set-sink-volume", "bluez_sink.test", f"{limit}%") in calls
+    volume_call = next(call for call in calls if call[0] == "set-sink-volume")
+    assert volume_call[1] == "bluez_sink.test"
+    assert volume_call[2].endswith("dB")
+    assert volume_call[2].startswith("-")
+    assert float(volume_call[2][1:-2]) == pytest.approx(cap.headroom_db, abs=1e-6)
 
 
 def test_bluetooth_volume_cap_leaves_low_volume_untouched(monkeypatch, app_module):
     monkeypatch.setattr(app_module, "get_normalization_headroom_db", lambda: 6.0)
-    limit = app_module.get_bluetooth_volume_cap_percent()
-    assert limit == 79
+    cap = app_module.get_bluetooth_volume_cap_percent()
+    assert cap.percent == 79
+    assert cap.headroom_db == pytest.approx(6.0)
 
     calls = []
 
@@ -107,6 +118,6 @@ def test_bluetooth_volume_cap_leaves_low_volume_untouched(monkeypatch, app_modul
     monkeypatch.setattr(app_module, "_run_pactl_command", fake_run_pactl)
     monkeypatch.setattr(app_module.subprocess, "run", fail_run)
 
-    changed = app_module._enforce_bluetooth_volume_cap_for_sink("bluez_sink.test", limit)
+    changed = app_module._enforce_bluetooth_volume_cap_for_sink("bluez_sink.test", cap)
     assert changed is False
     assert calls.count(("get-sink-volume", "bluez_sink.test")) == 1
