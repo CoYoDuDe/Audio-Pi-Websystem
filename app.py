@@ -979,15 +979,25 @@ def _parse_headroom_value(raw_value: Optional[str], source: str) -> Optional[flo
         return None
 
 
+def _sanitize_headroom_value(value: Optional[float]) -> Optional[float]:
+    if value is None:
+        return None
+    return abs(value)
+
+
 def get_normalization_headroom_details() -> dict:
     stored_raw = get_setting(NORMALIZATION_HEADROOM_SETTING_KEY, None)
     env_raw = os.environ.get(NORMALIZATION_HEADROOM_ENV_KEY)
 
-    stored_value = _parse_headroom_value(
-        stored_raw, f"Einstellung '{NORMALIZATION_HEADROOM_SETTING_KEY}'"
+    stored_value = _sanitize_headroom_value(
+        _parse_headroom_value(
+            stored_raw, f"Einstellung '{NORMALIZATION_HEADROOM_SETTING_KEY}'"
+        )
     )
-    env_value = _parse_headroom_value(
-        env_raw, f"Umgebungsvariable {NORMALIZATION_HEADROOM_ENV_KEY}"
+    env_value = _sanitize_headroom_value(
+        _parse_headroom_value(
+            env_raw, f"Umgebungsvariable {NORMALIZATION_HEADROOM_ENV_KEY}"
+        )
     )
 
     if env_raw is not None and env_value is not None:
@@ -1006,6 +1016,8 @@ def get_normalization_headroom_details() -> dict:
     else:
         value = DEFAULT_NORMALIZATION_HEADROOM_DB
         source = "default"
+
+    value = _sanitize_headroom_value(value)
 
     return {
         "value": value,

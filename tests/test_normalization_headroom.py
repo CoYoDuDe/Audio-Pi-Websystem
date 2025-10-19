@@ -78,6 +78,13 @@ def test_prepare_audio_prefers_environment_headroom(monkeypatch, tmp_path):
     assert headroom == pytest.approx(expected)
 
 
+def test_prepare_audio_sanitizes_negative_environment_headroom(monkeypatch, tmp_path):
+    headroom, _ = _run_prepare_with_headroom(
+        monkeypatch, tmp_path, headroom_env="-3"
+    )
+    assert headroom == pytest.approx(3.0)
+
+
 def test_save_normalization_headroom_interprets_negative_target_level(
     monkeypatch, tmp_path
 ):
