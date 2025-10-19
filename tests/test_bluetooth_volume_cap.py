@@ -30,7 +30,8 @@ def test_bluetooth_volume_cap_reduces_high_volume(monkeypatch, app_module):
         if args[0] == "get-sink-volume":
             return (
                 "Volume: front-left: 65536 / 120% / 5.00 dB, "
-                "front-right: 65536 / 118% / 4.50 dB"
+                "front-right: 65536 / 118% / 4.50 dB\n"
+                "Base Volume: 65536 / 100% / 0.00 dB"
             )
         if args[0] == "set-sink-volume":
             return "OK"
@@ -61,7 +62,8 @@ def test_bluetooth_volume_cap_leaves_low_volume_untouched(monkeypatch, app_modul
         if args[0] == "get-sink-volume":
             return (
                 "Volume: front-left: 65536 / 45% / -15.00 dB, "
-                "front-right: 65536 / 46% / -14.50 dB"
+                "front-right: 65536 / 46% / -14.50 dB\n"
+                "Base Volume: 65536 / 100% / 0.00 dB"
             )
         if args[0] == "set-sink-volume":  # pragma: no cover - sollte nicht erreicht werden
             raise AssertionError("Lautstärke darf nicht erhöht oder erneut gesetzt werden")

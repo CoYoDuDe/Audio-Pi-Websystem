@@ -2623,12 +2623,18 @@ _PULSEAUDIO_PERCENT_PATTERN = re.compile(r"/\s*(\d+)%")
 
 
 def _extract_max_volume_percent(volume_output: str) -> Optional[int]:
-    """Liest den höchsten Prozentwert aus einer pactl-Lautstärkeausgabe."""
+    """Liest den höchsten Prozentwert aus den Kanalwerten einer pactl-Ausgabe."""
 
-    matches = [int(match.group(1)) for match in _PULSEAUDIO_PERCENT_PATTERN.finditer(volume_output)]
-    if not matches:
+    channel_percents: List[int] = []
+    for line in volume_output.splitlines():
+        if line.lstrip().startswith("Volume:"):
+            channel_percents.extend(
+                int(match.group(1)) for match in _PULSEAUDIO_PERCENT_PATTERN.finditer(line)
+            )
+
+    if not channel_percents:
         return None
-    return max(matches)
+    return max(channel_percents)
 
 
 def _enforce_bluetooth_volume_cap_for_sink(
