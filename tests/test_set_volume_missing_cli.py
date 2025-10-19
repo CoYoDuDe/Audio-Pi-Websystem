@@ -58,7 +58,8 @@ def test_volume_missing_pactl_warns(monkeypatch, client):
         if isinstance(cmd, list) and cmd:
             if cmd[0] == "pactl":
                 raise FileNotFoundError("pactl missing")
-            commands.append(cmd)
+            if cmd[0] in {"amixer", "sudo"}:
+                commands.append(cmd)
         return app_module.subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     monkeypatch.setattr(app_module.subprocess, "run", fake_run)
