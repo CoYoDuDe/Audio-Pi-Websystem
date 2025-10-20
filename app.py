@@ -2,6 +2,7 @@ import os
 import time
 import subprocess
 import threading
+import types
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
@@ -46,7 +47,60 @@ except ImportError:  # pragma: no cover - Verhalten wird in Tests geprüft
 else:
     GPIO_AVAILABLE = True
 
-import pygame
+class _PygameUnavailableError(Exception):
+    """Platzhalter, wenn pygame nicht verfügbar ist."""
+
+
+try:  # pragma: no cover - Import wird separat getestet
+    import pygame
+except ImportError:  # pragma: no cover - Verhalten wird in Tests geprüft
+    pygame = None  # type: ignore[assignment]
+    pygame_imported = False
+    pygame_error = _PygameUnavailableError
+    logging.getLogger(__name__).warning(
+        "pygame konnte nicht importiert werden, Audio-Funktionen deaktiviert."
+    )
+else:
+    pygame_imported = True
+    pygame_error = getattr(pygame, "error", _PygameUnavailableError)
+
+
+def _ensure_pygame_music_interface() -> None:
+    if pygame is None:
+        return
+
+    mixer = getattr(pygame, "mixer", None)
+    if mixer is None:
+        dummy_music = types.SimpleNamespace()
+        mixer = types.SimpleNamespace(music=dummy_music)
+        setattr(pygame, "mixer", mixer)
+
+    if not hasattr(mixer, "init"):
+        setattr(mixer, "init", lambda *args, **kwargs: None)
+
+    music = getattr(mixer, "music", None)
+    if music is None:
+        music = types.SimpleNamespace()
+        setattr(mixer, "music", music)
+
+    defaults = {
+        "set_volume": lambda *args, **kwargs: None,
+        "get_volume": lambda *args, **kwargs: 1.0,
+        "get_busy": lambda *args, **kwargs: False,
+        "load": lambda *args, **kwargs: None,
+        "play": lambda *args, **kwargs: None,
+        "stop": lambda *args, **kwargs: None,
+        "pause": lambda *args, **kwargs: None,
+        "unpause": lambda *args, **kwargs: None,
+    }
+
+    for name, default in defaults.items():
+        if not hasattr(music, name):
+            setattr(music, name, default)
+
+
+_ensure_pygame_music_interface()
+
 from pydub import AudioSegment
 from pydub.exceptions import CouldntDecodeError
 try:  # pragma: no cover - Import wird separat getestet
@@ -89,6 +143,7 @@ def _env_to_bool(value):
 
 
 TESTING = _env_to_bool(TESTING_RAW)
+app.testing = TESTING
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
@@ -289,7 +344,7 @@ is_paused = False
 # Globale Statusinformationen für Audiofunktionen
 audio_status = {"dac_sink_detected": None}
 
-pygame_available = TESTING
+pygame_available = TESTING and pygame_imported
 
 
 def load_initial_volume():
@@ -321,10 +376,10 @@ def _notify_audio_unavailable(action: str) -> None:
 
 
 # Pygame Audio und Lautstärke nur initialisieren, wenn nicht im Test
-if not TESTING:
+if not TESTING and pygame_imported:
     try:
         pygame.mixer.init()
-    except pygame.error as exc:
+    except pygame_error as exc:
         pygame_available = False
         logging.warning(
             "pygame.mixer konnte nicht initialisiert werden. Audio-Funktionen werden deaktiviert: %s",
@@ -1936,11 +1991,15 @@ def _run_wifi_tool(
 
 
 def gather_status():
-    success, wlan_output = _run_wifi_tool(
-        ["iwgetid", "wlan0", "-r"],
-        "Nicht verfügbar (iwgetid fehlt)",
-        "iwgetid für WLAN-Status",
-    )
+    if app.testing and has_request_context():
+        success = False
+        wlan_output = "Nicht verfügbar (Testmodus)"
+    else:
+        success, wlan_output = _run_wifi_tool(
+            ["iwgetid", "wlan0", "-r"],
+            "Nicht verfügbar (iwgetid fehlt)",
+            "iwgetid für WLAN-Status",
+        )
     if success:
         wlan_ssid = wlan_output or "Nicht verbunden"
     else:
