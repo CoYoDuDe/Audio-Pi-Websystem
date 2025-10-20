@@ -2836,19 +2836,35 @@ def is_bt_audio_active():
     if sinks_output is None:
         return False
 
-    sinks = [line for line in sinks_output.splitlines() if "bluez" in line]
-    if not sinks:
+    bluetooth_sink_ids = set()
+    bluetooth_sink_names = set()
+    for line in sinks_output.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        index, name = parts[0], parts[1]
+        if "bluez" in name:
+            bluetooth_sink_ids.add(index)
+            bluetooth_sink_names.add(name)
+
+    if not bluetooth_sink_ids and not bluetooth_sink_names:
         return False
 
     sink_inputs_output = _run_pactl_command("list", "short", "sink-inputs")
     if sink_inputs_output is None:
         return False
 
-    for sink in sinks:
-        sink_name = sink.split()[1]
-        for sink_input in sink_inputs_output.splitlines():
-            if sink_name in sink_input:
-                return True
+    for sink_input in sink_inputs_output.splitlines():
+        parts = sink_input.split()
+        if len(parts) < 2:
+            continue
+
+        sink_id = parts[1]
+        if sink_id in bluetooth_sink_ids:
+            return True
+
+        if any(name in sink_input for name in bluetooth_sink_names):
+            return True
     return False
 
 
