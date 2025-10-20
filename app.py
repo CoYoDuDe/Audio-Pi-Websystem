@@ -116,6 +116,7 @@ else:
 import sys
 import secrets
 import re
+from pathlib import Path
 from typing import Iterable, List, Optional, Tuple, Literal
 
 if GPIO_AVAILABLE:
@@ -133,11 +134,56 @@ SECRET_KEY_GENERATED = False
 if _secret_key_from_env and _secret_key_from_env.strip():
     secret_key = _secret_key_from_env
 else:
-    secret_key = secrets.token_urlsafe(32)
-    SECRET_KEY_GENERATED = True
-    _logger.warning(
-        "FLASK_SECRET_KEY nicht gesetzt oder leer. Temporären Schlüssel generiert."
-    )
+    secret_key_file_env = os.environ.get("FLASK_SECRET_KEY_FILE")
+    if secret_key_file_env:
+        secret_key_path = Path(secret_key_file_env).expanduser()
+    else:
+        secret_key_path = Path(__file__).resolve().parent / ".flask_secret_key"
+
+    app.config["SECRET_KEY_FILE"] = str(secret_key_path)
+
+    try:
+        secret_key = secret_key_path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        secret_key = ""
+
+    if not secret_key:
+        secret_key = secrets.token_urlsafe(32)
+        secret_key_path.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            fd = os.open(
+                str(secret_key_path),
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600,
+            )
+        except FileExistsError:
+            # Ein anderer Prozess hat den Schlüssel möglicherweise erstellt.
+            try:
+                existing_key = secret_key_path.read_text(encoding="utf-8").strip()
+            except FileNotFoundError:
+                existing_key = ""
+
+            if existing_key:
+                secret_key = existing_key
+            else:
+                with open(secret_key_path, "w", encoding="utf-8") as fh:
+                    fh.write(secret_key)
+                SECRET_KEY_GENERATED = True
+                _logger.warning(
+                    "FLASK_SECRET_KEY nicht gesetzt oder leer. Temporären Schlüssel "
+                    "generiert und unter %s gespeichert.",
+                    secret_key_path,
+                )
+        else:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(secret_key)
+            SECRET_KEY_GENERATED = True
+            _logger.warning(
+                "FLASK_SECRET_KEY nicht gesetzt oder leer. Temporären Schlüssel generiert "
+                "und unter %s gespeichert.",
+                secret_key_path,
+            )
 
 app.secret_key = secret_key
 app.config["SECRET_KEY_GENERATED"] = SECRET_KEY_GENERATED
