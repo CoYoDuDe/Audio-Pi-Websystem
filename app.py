@@ -3893,10 +3893,6 @@ def wlan_connect():
 @app.route("/volume", methods=["POST"])
 @login_required
 def set_volume():
-    if not pygame_available:
-        _notify_audio_unavailable("Lautstärke kann nicht gesetzt werden")
-        return redirect(url_for("index"))
-
     vol = request.form.get("volume")
     try:
         int_vol = int(vol)
@@ -3908,8 +3904,19 @@ def set_volume():
         flash("Ungültiger Lautstärke-Wert")
         return redirect(url_for("index"))
 
+    info_on_missing_pygame = False
+
     try:
-        pygame.mixer.music.set_volume(int_vol / 100.0)
+        if pygame_available:
+            pygame.mixer.music.set_volume(int_vol / 100.0)
+        else:
+            info_on_missing_pygame = True
+            message = (
+                "pygame nicht verfügbar, setze ausschließlich die Systemlautstärke."
+            )
+            logging.info(message)
+            if has_request_context():
+                flash(message)
         current_sink = get_current_sink()
         if isinstance(current_sink, str):
             current_sink = current_sink.strip()
@@ -3970,6 +3977,9 @@ def set_volume():
         if any_success:
             logging.info(f"Lautstärke auf {int_vol}% gesetzt (persistent)")
             flash("Lautstärke persistent gesetzt")
+            if info_on_missing_pygame and has_request_context():
+                # Nachricht bereits geflasht, kein weiterer Hinweis nötig
+                pass
         else:
             logging.error("Lautstärke konnte mit den verfügbaren Werkzeugen nicht gesetzt werden.")
             flash("Lautstärke konnte nicht gesetzt werden")

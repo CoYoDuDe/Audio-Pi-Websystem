@@ -138,3 +138,44 @@ def test_volume_uses_default_sink(monkeypatch, client):
         assert all(cmd[2] == "@DEFAULT_SINK@" for cmd in pactl_set_volume)
     assert ("amixer", "sset", "Master", "30%") in command_tuples
     assert ("sudo", "alsactl", "store") in command_tuples
+
+
+def test_volume_runs_without_pygame(monkeypatch, client):
+    client, app_module = client
+    monkeypatch.setattr(app_module.pygame.mixer.music, "get_busy", lambda: False)
+    _login(client)
+
+    app_module.pygame_available = False
+
+    def failing_set_volume(_value):
+        raise AssertionError("pygame.set_volume darf bei deaktiviertem pygame nicht aufgerufen werden")
+
+    monkeypatch.setattr(app_module.pygame.mixer.music, "set_volume", failing_set_volume)
+    monkeypatch.setattr(app_module, "get_current_sink", lambda: "test-sink")
+
+    commands = []
+
+    def fake_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list):
+            commands.append(cmd)
+        return app_module.subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+
+    response = csrf_post(
+        client,
+        "/volume",
+        data={"volume": "70"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert (
+        b"pygame nicht verf\xc3\xbcgbar, setze ausschlie\xc3\x9flich die Systemlautst\xc3\xa4rke."
+        in response.data
+    )
+    assert b"Lautst\xc3\xa4rke persistent gesetzt" in response.data
+    command_tuples = [tuple(cmd) for cmd in commands]
+    assert ("pactl", "set-sink-volume", "test-sink", "70%") in command_tuples
+    assert ("amixer", "sset", "Master", "70%") in command_tuples
+    assert ("sudo", "alsactl", "store") in command_tuples
