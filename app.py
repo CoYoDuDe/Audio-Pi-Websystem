@@ -3766,12 +3766,24 @@ def _run_wpa_cli(args, expect_ok=True):
 @login_required
 def wlan_connect():
     ssid = request.form["ssid"]
-    password = request.form.get("password", "")
+    raw_password = request.form.get("password", "")
+    password = raw_password.strip()
     formatted_ssid = _format_ssid_for_wpa_cli(ssid)
-    is_blank_password = password.strip() == ""
-    is_open_network = password == "" or (
-        is_blank_password and len(password) < 8
-    )
+    is_open_network = password == ""
+    is_hex_psk = _is_hex_psk(password)
+
+    if not is_open_network and not is_hex_psk:
+        if len(password) < 8 or len(password) > 63:
+            flash(
+                "Ungültiges WLAN-Passwort: Es muss zwischen 8 und 63 Zeichen lang sein oder"
+                " eine 64-stellige Hex-Passphrase sein."
+            )
+            logging.warning(
+                "WLAN-Verbindung zu SSID '%s' abgebrochen: Passphrase-Länge %s unzulässig.",
+                ssid,
+                len(password),
+            )
+            return redirect(url_for("index"))
     try:
         base_cmd = ["sudo", "wpa_cli", "-i", "wlan0"]
         net_id = _run_wpa_cli(base_cmd + ["add_network"], expect_ok=False).strip()
@@ -3780,7 +3792,7 @@ def wlan_connect():
             _run_wpa_cli(base_cmd + ["set_network", net_id, "key_mgmt", "NONE"])
             _run_wpa_cli(base_cmd + ["set_network", net_id, "auth_alg", "OPEN"])
         else:
-            if _is_hex_psk(password):
+            if is_hex_psk:
                 psk_value = password
             else:
                 psk_value = _quote_wpa_cli(password)
