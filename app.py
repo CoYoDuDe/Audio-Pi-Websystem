@@ -215,7 +215,7 @@ raw_max_schedule_delay = os.getenv(
     "MAX_SCHEDULE_DELAY_SECONDS", str(DEFAULT_MAX_SCHEDULE_DELAY_SECONDS)
 )
 try:
-    MAX_SCHEDULE_DELAY_SECONDS = int(raw_max_schedule_delay)
+    parsed_max_schedule_delay = int(raw_max_schedule_delay)
 except (TypeError, ValueError):
     MAX_SCHEDULE_DELAY_SECONDS = DEFAULT_MAX_SCHEDULE_DELAY_SECONDS
     logging.warning(
@@ -224,13 +224,14 @@ except (TypeError, ValueError):
         DEFAULT_MAX_SCHEDULE_DELAY_SECONDS,
     )
 else:
-    if MAX_SCHEDULE_DELAY_SECONDS < 0:
+    sanitized_max_schedule_delay = max(0, parsed_max_schedule_delay)
+    if sanitized_max_schedule_delay != parsed_max_schedule_delay:
         logging.warning(
-            "MAX_SCHEDULE_DELAY_SECONDS-Wert '%s' ist negativ. Fallback auf %s Sekunden.",
+            "MAX_SCHEDULE_DELAY_SECONDS-Wert '%s' ist negativ. Verwende %s Sekunden.",
             raw_max_schedule_delay,
-            DEFAULT_MAX_SCHEDULE_DELAY_SECONDS,
+            sanitized_max_schedule_delay,
         )
-        MAX_SCHEDULE_DELAY_SECONDS = DEFAULT_MAX_SCHEDULE_DELAY_SECONDS
+    MAX_SCHEDULE_DELAY_SECONDS = sanitized_max_schedule_delay
 SCHEDULE_VOLUME_PERCENT_SETTING_KEY = "schedule_default_volume_percent"
 SCHEDULE_VOLUME_DB_SETTING_KEY = "schedule_default_volume_db"
 SCHEDULE_DEFAULT_VOLUME_PERCENT_FALLBACK = 100

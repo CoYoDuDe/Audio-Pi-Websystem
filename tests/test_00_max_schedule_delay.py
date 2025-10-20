@@ -35,10 +35,7 @@ def test_negative_env_fallback_allows_zero_delay(monkeypatch):
     _disable_pygame(app_module)
 
     try:
-        assert (
-            app_module.MAX_SCHEDULE_DELAY_SECONDS
-            == app_module.DEFAULT_MAX_SCHEDULE_DELAY_SECONDS
-        )
+        assert app_module.MAX_SCHEDULE_DELAY_SECONDS == 0
 
         app_module.cursor.execute("DELETE FROM audio_files")
         app_module.cursor.execute("DELETE FROM schedules")
@@ -129,6 +126,76 @@ def test_index_template_reflects_configured_schedule_delay(monkeypatch, tmp_path
 
         assert f'max="{expected_limit}"' in html
         assert f"Maximale Verzögerung: {expected_limit}" in html
+    finally:
+        if "app_module" in locals():
+            try:
+                app_module.scheduler.remove_all_jobs()
+            except Exception:
+                pass
+            try:
+                if getattr(app_module.scheduler, "running", False):
+                    app_module.scheduler.shutdown(wait=False)
+            except Exception:
+                pass
+            try:
+                app_module.cursor.close()
+            except Exception:
+                pass
+            try:
+                app_module.conn.close()
+            except Exception:
+                pass
+        sys.modules.pop("app", None)
+        if previous_module is not None:
+            sys.modules["app"] = previous_module
+
+
+def test_negative_env_is_reflected_in_index_template(monkeypatch, tmp_path):
+    monkeypatch.setenv("FLASK_SECRET_KEY", "test")
+    monkeypatch.setenv("TESTING", "1")
+    monkeypatch.setenv("INITIAL_ADMIN_PASSWORD", "password")
+    db_file = tmp_path / "max-delay-negative.db"
+    monkeypatch.setenv("DB_FILE", str(db_file))
+    monkeypatch.setenv("MAX_SCHEDULE_DELAY_SECONDS", "-5")
+
+    previous_module = sys.modules.pop("app", None)
+
+    app_module = importlib.import_module("app")
+
+    _disable_pygame(app_module)
+
+    try:
+        assert app_module.MAX_SCHEDULE_DELAY_SECONDS == 0
+
+        client = app_module.app.test_client()
+        with client:
+            login_response = csrf_post(
+                client,
+                "/login",
+                data={"username": "admin", "password": "password"},
+                follow_redirects=True,
+            )
+            assert login_response.status_code == 200
+
+            change_response = csrf_post(
+                client,
+                "/change_password",
+                data={"old_password": "password", "new_password": "password1234"},
+                follow_redirects=True,
+                source_url="/change_password",
+            )
+            assert change_response.status_code == 200
+
+            response = client.get("/", follow_redirects=True)
+            assert response.status_code == 200
+            html = response.get_data(as_text=True)
+
+        delay_input_pattern = re.compile(
+            r'<input\s+[^>]*name="delay"[^>]*value="0"[^>]*max="0"',
+            re.IGNORECASE | re.DOTALL,
+        )
+        assert delay_input_pattern.search(html), html
+        assert "Maximale Verzögerung: 0" in html
     finally:
         if "app_module" in locals():
             try:
