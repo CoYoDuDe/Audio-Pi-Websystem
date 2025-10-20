@@ -3836,11 +3836,27 @@ def set_volume():
     try:
         pygame.mixer.music.set_volume(int_vol / 100.0)
         current_sink = get_current_sink()
-        commands = [
-            ["pactl", "set-sink-volume", current_sink, f"{int_vol}%"],
-            ["amixer", "sset", "Master", f"{int_vol}%"],
-            ["sudo", "alsactl", "store"],
-        ]
+        if isinstance(current_sink, str):
+            current_sink = current_sink.strip()
+        sink_for_pactl = (
+            current_sink if current_sink not in (None, "", "Nicht verfügbar") else None
+        )
+        commands = []
+        if sink_for_pactl is None:
+            logging.info(
+                "Kein gültiger PulseAudio-Sink ermittelt; verwende Platzhalter '@DEFAULT_SINK@'."
+            )
+            sink_for_pactl = "@DEFAULT_SINK@"
+        if sink_for_pactl:
+            commands.append(["pactl", "set-sink-volume", sink_for_pactl, f"{int_vol}%"])
+        else:
+            logging.info("Überspringe pactl-Aufruf, da kein Sink verfügbar ist.")
+        commands.extend(
+            [
+                ["amixer", "sset", "Master", f"{int_vol}%"],
+                ["sudo", "alsactl", "store"],
+            ]
+        )
         any_success = False
         for command in commands:
             try:
