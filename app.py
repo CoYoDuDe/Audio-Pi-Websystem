@@ -126,11 +126,21 @@ else:
 
 
 app = Flask(__name__)
-secret_key = os.environ.get("FLASK_SECRET_KEY")
-if not secret_key:
-    logging.error("FLASK_SECRET_KEY nicht gesetzt. Bitte Umgebungsvariable setzen.")
-    sys.exit(1)
+_logger = logging.getLogger(__name__)
+_secret_key_from_env = os.environ.get("FLASK_SECRET_KEY")
+SECRET_KEY_GENERATED = False
+
+if _secret_key_from_env and _secret_key_from_env.strip():
+    secret_key = _secret_key_from_env
+else:
+    secret_key = secrets.token_urlsafe(32)
+    SECRET_KEY_GENERATED = True
+    _logger.warning(
+        "FLASK_SECRET_KEY nicht gesetzt oder leer. Temporären Schlüssel generiert."
+    )
+
 app.secret_key = secret_key
+app.config["SECRET_KEY_GENERATED"] = SECRET_KEY_GENERATED
 csrf = CSRFProtect()
 csrf.init_app(app)
 TESTING_RAW = os.getenv("TESTING")
