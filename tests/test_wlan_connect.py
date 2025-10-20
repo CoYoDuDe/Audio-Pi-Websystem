@@ -174,10 +174,36 @@ def test_wlan_connect_all_space_passphrase(client, monkeypatch):
 
     set_network_calls = [call for call in calls if len(call) > 6 and call[4] == "set_network"]
 
-    password_call = next(call for call in set_network_calls if call[6] == "psk")
-    assert password_call[7] == '"        "'
+    key_mgmt_call = next(call for call in set_network_calls if call[6] == "key_mgmt")
+    assert key_mgmt_call[7] == "NONE"
 
-    assert all(call[6] != "key_mgmt" or call[7] != "NONE" for call in set_network_calls)
+    auth_alg_call = next(call for call in set_network_calls if call[6] == "auth_alg")
+    assert auth_alg_call[7] == "OPEN"
+
+    assert all(call[6] != "psk" for call in set_network_calls)
+
+
+def test_wlan_connect_rejects_short_passphrase(client, monkeypatch):
+    flask_client, app_module = client
+    calls = []
+
+    def fake_run_wpa_cli(args, expect_ok=True):
+        calls.append(args)
+        return "OK"
+
+    _login_admin(flask_client)
+    monkeypatch.setattr(app_module, "_run_wpa_cli", fake_run_wpa_cli)
+
+    response = csrf_post(
+        flask_client,
+        "/wlan_connect",
+        data={"ssid": "TooShort", "password": "abc"},
+        follow_redirects=True,
+        source_url="/change_password",
+    )
+
+    assert b"Ung\xc3\xbcltiges WLAN-Passwort" in response.data
+    assert calls == []
 
 
 def test_wlan_connect_hex_psk_unquoted(client, monkeypatch):
