@@ -2747,40 +2747,97 @@ def _enforce_bluetooth_volume_cap_for_sink(
         return False
 
     current_percent = _extract_max_volume_percent(volume_output)
+    current_db = _extract_max_volume_db(volume_output) if headroom_db > 0 else None
+    initial_percent = current_percent
+    initial_db = current_db
     percent_exceeds = current_percent is not None and current_percent > limit_percent
 
-    if headroom_db > 0:
-        current_db = _extract_max_volume_db(volume_output)
-        target_db = -headroom_db
-        if current_db is not None:
-            if current_db > target_db:
-                _run_pactl_command("set-sink-volume", sink_name, f"-{headroom_db}dB")
-                logging.info(
-                    "Bluetooth-Lautstärke von %s auf %.2f dB begrenzt (vorher %s%% ≈ %.2f dB)",
-                    sink_name,
-                    target_db,
-                    current_percent if current_percent is not None else "?",
-                    current_db,
+    changed = False
+    db_limited = False
+    target_db = -headroom_db if headroom_db > 0 else None
+
+    if headroom_db > 0 and current_db is not None and target_db is not None:
+        if current_db > target_db:
+            delta_db = current_db - target_db
+            if delta_db > 0:
+                _run_pactl_command("set-sink-volume", sink_name, f"-{delta_db}dB")
+                changed = True
+                db_limited = True
+
+                verification_output = _run_pactl_command("get-sink-volume", sink_name)
+                if verification_output is None:
+                    return False
+                volume_output = verification_output
+                current_percent = _extract_max_volume_percent(volume_output)
+                current_db = _extract_max_volume_db(volume_output)
+                percent_exceeds = (
+                    current_percent is not None and current_percent > limit_percent
                 )
-                return True
-            if not percent_exceeds:
+
+                if current_db is not None and current_db > target_db:
+                    if limit_percent < 100:
+                        _run_pactl_command("set-sink-volume", sink_name, f"{limit_percent}%")
+                        verification_output = _run_pactl_command("get-sink-volume", sink_name)
+                        if verification_output is None:
+                            return False
+                        volume_output = verification_output
+                        current_percent = _extract_max_volume_percent(volume_output)
+                        current_db = _extract_max_volume_db(volume_output)
+                        percent_exceeds = (
+                            current_percent is not None and current_percent > limit_percent
+                        )
+                    if current_db is not None and current_db > target_db:
+                        return False
+            elif not percent_exceeds:
                 return False
         elif not percent_exceeds:
             return False
-    else:
-        if not percent_exceeds:
-            return False
-
-    if not percent_exceeds:
+    elif headroom_db > 0 and current_db is None and not percent_exceeds:
+        return False
+    elif headroom_db <= 0 and not percent_exceeds:
         return False
 
-    _run_pactl_command("set-sink-volume", sink_name, f"{limit_percent}%")
-    logging.info(
-        "Bluetooth-Lautstärke von %s auf %s%% begrenzt (vorher %s%%)",
-        sink_name,
-        limit_percent,
-        current_percent if current_percent is not None else "?",
-    )
+    percent_limited = False
+    if percent_exceeds:
+        _run_pactl_command("set-sink-volume", sink_name, f"{limit_percent}%")
+        changed = True
+        percent_limited = True
+
+        verification_output = _run_pactl_command("get-sink-volume", sink_name)
+        if verification_output is None:
+            return False
+        volume_output = verification_output
+        current_percent = _extract_max_volume_percent(volume_output)
+        current_db = _extract_max_volume_db(volume_output) if headroom_db > 0 else current_db
+        percent_exceeds = current_percent is not None and current_percent > limit_percent
+
+        if percent_exceeds:
+            return False
+        if headroom_db > 0 and target_db is not None and current_db is not None:
+            if current_db > target_db:
+                return False
+
+    if not changed:
+        return False
+
+    if db_limited:
+        logging.info(
+            "Bluetooth-Lautstärke von %s auf %.2f dB begrenzt (vorher %s%% ≈ %.2f dB, jetzt %.2f dB)",
+            sink_name,
+            target_db if target_db is not None else 0.0,
+            initial_percent if initial_percent is not None else "?",
+            initial_db if initial_db is not None else float("nan"),
+            current_db if current_db is not None else float("nan"),
+        )
+    if percent_limited:
+        logging.info(
+            "Bluetooth-Lautstärke von %s auf %s%% begrenzt (vorher %s%%, jetzt %s%%)",
+            sink_name,
+            limit_percent,
+            initial_percent if initial_percent is not None else "?",
+            current_percent if current_percent is not None else "?",
+        )
+
     return True
 
 
