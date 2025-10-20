@@ -103,3 +103,38 @@ def test_volume_command_failure(monkeypatch, client):
         and ("amixer", "sset", "Master", "50%") in command_tuples
         and ("sudo", "alsactl", "store") in command_tuples
     )
+
+
+def test_volume_uses_default_sink(monkeypatch, client):
+    client, app_module = client
+    monkeypatch.setattr(app_module.pygame.mixer.music, "get_busy", lambda: False)
+    _login(client)
+
+    monkeypatch.setattr(app_module, "get_current_sink", lambda: " ")
+    monkeypatch.setattr(app_module.pygame.mixer.music, "set_volume", lambda value: None)
+
+    commands = []
+
+    def fake_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list):
+            commands.append(cmd)
+        return app_module.subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+
+    response = csrf_post(
+        client,
+        "/volume",
+        data={"volume": "30"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    command_tuples = [tuple(cmd) for cmd in commands]
+    pactl_set_volume = [
+        cmd for cmd in command_tuples if cmd and cmd[0] == "pactl" and cmd[1] == "set-sink-volume"
+    ]
+    if pactl_set_volume:
+        assert all(cmd[2] == "@DEFAULT_SINK@" for cmd in pactl_set_volume)
+    assert ("amixer", "sset", "Master", "30%") in command_tuples
+    assert ("sudo", "alsactl", "store") in command_tuples
