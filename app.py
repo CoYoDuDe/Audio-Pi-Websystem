@@ -8,6 +8,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 import sqlite3
 import tempfile
+import errno
 import calendar
 import fnmatch
 import math
@@ -131,6 +132,97 @@ _logger = logging.getLogger(__name__)
 _secret_key_from_env = os.environ.get("FLASK_SECRET_KEY")
 SECRET_KEY_GENERATED = False
 
+_PERMISSION_ERRNOS = {errno.EACCES, errno.EPERM, errno.EROFS}
+
+
+def _reraise_permission_error(exc: Exception) -> None:
+    if isinstance(exc, PermissionError):
+        raise
+
+    if isinstance(exc, OSError) and getattr(exc, "errno", None) in _PERMISSION_ERRNOS:
+        raise PermissionError(str(exc)) from exc
+
+
+def _persist_generated_secret_key(secret_key_path: Path, generated_key: str):
+    """Persistiert einen generierten Secret-Key und gibt (Key, verwendet, persistiert) zurück."""
+
+    try:
+        secret_key_path.parent.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:  # pragma: no cover - seltene Fehler
+        _reraise_permission_error(exc)
+        raise
+
+    try:
+        fd = os.open(
+            str(secret_key_path),
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+        )
+    except FileExistsError:
+        wait_until = time.monotonic() + 1.0
+        while True:
+            try:
+                existing_key = secret_key_path.read_text(encoding="utf-8").strip()
+            except FileNotFoundError:
+                existing_key = ""
+            except Exception as exc:  # pragma: no cover - seltene Fehler
+                _reraise_permission_error(exc)
+                raise
+
+            if existing_key:
+                return existing_key, False, False
+
+            if time.monotonic() >= wait_until:
+                break
+
+            time.sleep(0.05)
+
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                dir=str(secret_key_path.parent),
+                delete=False,
+            ) as tmp_file:
+                tmp_file.write(generated_key)
+                tmp_file.flush()
+                os.fsync(tmp_file.fileno())
+                tmp_path = Path(tmp_file.name)
+
+            os.chmod(str(tmp_path), 0o600)
+            os.replace(str(tmp_path), str(secret_key_path))
+        except Exception as exc:  # pragma: no cover - seltene Fehler
+            if tmp_path and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except FileNotFoundError:
+                    pass
+
+            _reraise_permission_error(exc)
+            raise
+        else:
+            try:
+                persisted = secret_key_path.read_text(encoding="utf-8").strip()
+            except Exception as exc:  # pragma: no cover - seltene Fehler
+                _reraise_permission_error(exc)
+                raise
+
+            if persisted:
+                return persisted, persisted == generated_key, True
+
+            return generated_key, True, True
+    except Exception as exc:  # pragma: no cover - seltene Fehler
+        _reraise_permission_error(exc)
+        raise
+    else:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(generated_key)
+            fh.flush()
+            os.fsync(fh.fileno())
+
+        return generated_key, True, True
+
 if _secret_key_from_env and _secret_key_from_env.strip():
     secret_key = _secret_key_from_env
 else:
@@ -148,42 +240,35 @@ else:
         secret_key = ""
 
     if not secret_key:
-        secret_key = secrets.token_urlsafe(32)
-        secret_key_path.parent.mkdir(parents=True, exist_ok=True)
-
+        generated_key = secrets.token_urlsafe(32)
         try:
-            fd = os.open(
-                str(secret_key_path),
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-                0o600,
+            secret_key_candidate, used_generated_key, persisted = _persist_generated_secret_key(
+                secret_key_path, generated_key
             )
-        except FileExistsError:
-            # Ein anderer Prozess hat den Schlüssel möglicherweise erstellt.
-            try:
-                existing_key = secret_key_path.read_text(encoding="utf-8").strip()
-            except FileNotFoundError:
-                existing_key = ""
-
-            if existing_key:
-                secret_key = existing_key
-            else:
-                with open(secret_key_path, "w", encoding="utf-8") as fh:
-                    fh.write(secret_key)
-                SECRET_KEY_GENERATED = True
-                _logger.warning(
-                    "FLASK_SECRET_KEY nicht gesetzt oder leer. Temporären Schlüssel "
-                    "generiert und unter %s gespeichert.",
-                    secret_key_path,
-                )
-        else:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                fh.write(secret_key)
+        except PermissionError as exc:
+            secret_key = generated_key
             SECRET_KEY_GENERATED = True
             _logger.warning(
-                "FLASK_SECRET_KEY nicht gesetzt oder leer. Temporären Schlüssel generiert "
-                "und unter %s gespeichert.",
+                "FLASK_SECRET_KEY nicht gesetzt oder leer. Temporären Schlüssel generiert, "
+                "konnte ihn aber nicht unter %s speichern (%s). Nutzung nur im Speicher.",
                 secret_key_path,
+                exc,
             )
+        else:
+            secret_key = secret_key_candidate
+            if used_generated_key:
+                SECRET_KEY_GENERATED = True
+                if persisted:
+                    _logger.warning(
+                        "FLASK_SECRET_KEY nicht gesetzt oder leer. Temporären Schlüssel generiert "
+                        "und unter %s gespeichert.",
+                        secret_key_path,
+                    )
+                else:
+                    _logger.warning(
+                        "FLASK_SECRET_KEY nicht gesetzt oder leer. Temporären Schlüssel generiert, "
+                        "konnte ihn aber nicht speichern. Nutzung nur im Speicher.",
+                    )
 
 app.secret_key = secret_key
 app.config["SECRET_KEY_GENERATED"] = SECRET_KEY_GENERATED
