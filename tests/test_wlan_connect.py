@@ -83,6 +83,34 @@ def test_wlan_connect_quotes_ascii_ssid(client, monkeypatch):
     assert password_call[7] == '"secretpass"'
 
 
+def test_wlan_connect_preserves_leading_space(client, monkeypatch):
+    flask_client, app_module = client
+    calls = []
+
+    def fake_run(args, **kwargs):
+        assert args[0:4] == ["sudo", "wpa_cli", "-i", "wlan0"]
+        calls.append(args)
+        if args[-1] == "add_network":
+            return CompletedProcess(args, 0, stdout="7\n", stderr="")
+        return CompletedProcess(args, 0, stdout="OK\n", stderr="")
+
+    _login_admin(flask_client)
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+
+    response = csrf_post(
+        flask_client,
+        "/wlan_connect",
+        data={"ssid": "LeadingSpace", "password": " secretpass"},
+        follow_redirects=False,
+        source_url="/change_password",
+    )
+
+    assert response.status_code == 302
+
+    password_call = next(call for call in calls if len(call) > 6 and call[6] == "psk")
+    assert password_call[7] == '" secretpass"'
+
+
 def test_wlan_connect_hex_unicode_ssid(client, monkeypatch):
     flask_client, app_module = client
     calls = []
@@ -130,7 +158,7 @@ def test_wlan_connect_open_network(client, monkeypatch):
     response = csrf_post(
         flask_client,
         "/wlan_connect",
-        data={"ssid": "OpenNetwork", "password": "   "},
+        data={"ssid": "OpenNetwork", "password": ""},
         follow_redirects=False,
         source_url="/change_password",
     )
@@ -174,13 +202,9 @@ def test_wlan_connect_all_space_passphrase(client, monkeypatch):
 
     set_network_calls = [call for call in calls if len(call) > 6 and call[4] == "set_network"]
 
-    key_mgmt_call = next(call for call in set_network_calls if call[6] == "key_mgmt")
-    assert key_mgmt_call[7] == "NONE"
+    password_call = next(call for call in set_network_calls if call[6] == "psk")
+    assert password_call[7] == '"        "'
 
-    auth_alg_call = next(call for call in set_network_calls if call[6] == "auth_alg")
-    assert auth_alg_call[7] == "OPEN"
-
-    assert all(call[6] != "psk" for call in set_network_calls)
 
 
 def test_wlan_connect_rejects_short_passphrase(client, monkeypatch):
