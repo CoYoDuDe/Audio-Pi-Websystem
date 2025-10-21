@@ -3,6 +3,7 @@ import time
 import subprocess
 import threading
 import types
+import glob
 from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -117,7 +118,7 @@ else:
 import sys
 import secrets
 import re
-from typing import Iterable, List, Optional, Tuple, Literal
+from typing import Iterable, List, Optional, Tuple, Literal, Set
 
 if GPIO_AVAILABLE:
     GPIOError = GPIO.error
@@ -329,18 +330,53 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 if not TESTING and GPIO_AVAILABLE:
-    try:
-        gpio_handle = GPIO.gpiochip_open(4)  # Pi 5 = Chip 4
-    except (GPIOError, OSError) as exc:
-        gpio_handle = None
-        logging.warning(
-            "GPIO-Chip konnte nicht geöffnet werden, starte ohne Verstärkersteuerung: %s",
-            exc,
-        )
-    else:
-        logging.info(
-            "GPIO initialisiert für Verstärker (OUTPUT/HIGH = an, LOW = aus)"
-        )
+    _gpio_chip_candidates: List[int] = []
+    _gpio_chip_seen: Set[int] = set()
+
+    def _add_gpio_candidate(chip_id: int) -> None:
+        if chip_id in _gpio_chip_seen:
+            return
+        _gpio_chip_seen.add(chip_id)
+        _gpio_chip_candidates.append(chip_id)
+
+    _add_gpio_candidate(4)  # Raspberry Pi 5 bevorzugt Chip 4
+    _add_gpio_candidate(0)  # Raspberry Pi 4 und ältere Modelle
+
+    for _chip_path in sorted(glob.glob("/dev/gpiochip*")):
+        if not _chip_path.startswith("/dev/gpiochip"):
+            continue
+        suffix = _chip_path[len("/dev/gpiochip") :]
+        if suffix.isdigit():
+            _add_gpio_candidate(int(suffix))
+
+    gpio_handle = None
+    _errors: List[Tuple[int, Exception]] = []
+
+    for _chip_id in _gpio_chip_candidates:
+        try:
+            gpio_handle = GPIO.gpiochip_open(_chip_id)
+        except (GPIOError, OSError) as exc:
+            _errors.append((_chip_id, exc))
+        else:
+            logging.info(
+                "GPIO initialisiert für Verstärker (OUTPUT/HIGH = an, LOW = aus) - Nutzung von gpiochip%s",
+                _chip_id,
+            )
+            break
+
+    if gpio_handle is None:
+        if _errors:
+            _tested = ", ".join(
+                f"gpiochip{chip}: {error}" for chip, error in _errors
+            )
+            logging.warning(
+                "GPIO-Chip konnte nicht geöffnet werden, starte ohne Verstärkersteuerung (versucht: %s)",
+                _tested,
+            )
+        else:
+            logging.warning(
+                "GPIO-Chip konnte nicht geöffnet werden, keine Kandidaten gefunden."
+            )
 else:
     gpio_handle = None
     if not TESTING and not GPIO_AVAILABLE:
