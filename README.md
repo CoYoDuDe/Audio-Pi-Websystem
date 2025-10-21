@@ -48,6 +48,14 @@ Umgebungsvariablen mit dem Präfix `INSTALL_…` vorbelegen. Sobald alle
 Pflichtwerte gesetzt sind, läuft `install.sh` vollständig automatisch. Das
 Kommando `./install.sh --help` listet alle verfügbaren Optionen auf.
 
+Die Paketinstallation selbst läuft nun komplett unattended. `install.sh` nutzt
+`apt-get` mit `DEBIAN_FRONTEND=noninteractive` sowie den dpkg-Optionen
+`--force-confdef` und `--force-confold`, damit Upgrades ohne Rückfragen
+durchlaufen. Über die Variablen `INSTALL_APT_FRONTEND`,
+`INSTALL_APT_DPKG_OPTIONS` und `INSTALL_APT_LOG_FILE` lässt sich das Verhalten
+an eigene Anforderungen anpassen (z. B. anderes Frontend, angepasste dpkg-Flags
+oder ein alternativer Log-Pfad für die Installationsprotokolle).
+
 **Beispiele für automatisierte Aufrufe:**
 
 ```bash

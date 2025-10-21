@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+set -o pipefail
 
 usage() {
     cat <<'EOF'
@@ -39,6 +40,10 @@ Wichtige Optionen:
 Alle Optionen lassen sich alternativ über gleichnamige Umgebungsvariablen mit dem Präfix INSTALL_
 (z.B. INSTALL_RTC_MODE) setzen. Einstellungen für Audio-HATs können außerdem über die bereits
 unterstützten Variablen HAT_MODEL, HAT_DTOOVERLAY usw. vorgegeben werden.
+
+Hinweis: Die Paketinstallation erfolgt unattended (DEBIAN_FRONTEND=noninteractive) über apt-get.
+Über die Umgebungsvariablen INSTALL_APT_FRONTEND, INSTALL_APT_DPKG_OPTIONS und
+INSTALL_APT_LOG_FILE lässt sich dieses Verhalten anpassen (siehe README).
 EOF
 }
 
@@ -46,6 +51,52 @@ require_value() {
     if [ $# -lt 2 ] || [ -z "$2" ] || [[ "$2" == --* ]]; then
         echo "Fehlender Wert für Option '$1'" >&2
         usage
+        exit 1
+    fi
+}
+
+APT_FRONTEND="${INSTALL_APT_FRONTEND:-noninteractive}"
+APT_DPKG_OPTIONS=(--force-confdef --force-confold)
+if [ "${INSTALL_APT_DPKG_OPTIONS+x}" = x ]; then
+    if [ -n "$INSTALL_APT_DPKG_OPTIONS" ]; then
+        # shellcheck disable=SC2206
+        APT_DPKG_OPTIONS=($INSTALL_APT_DPKG_OPTIONS)
+    else
+        APT_DPKG_OPTIONS=()
+    fi
+fi
+APT_LOG_FILE="${INSTALL_APT_LOG_FILE:-/tmp/audio-pi-install-apt.log}"
+APT_LOG_DIR="$(dirname "$APT_LOG_FILE")"
+mkdir -p "$APT_LOG_DIR"
+touch "$APT_LOG_FILE"
+
+apt_get() {
+    if [ $# -lt 1 ]; then
+        echo "apt_get: fehlende Aktion" >&2
+        exit 1
+    fi
+
+    local action
+    action="$1"
+    shift
+
+    local -a cmd
+    cmd=(sudo env "DEBIAN_FRONTEND=${APT_FRONTEND}" apt-get)
+
+    case "$action" in
+        install|upgrade|dist-upgrade|full-upgrade)
+            for opt in "${APT_DPKG_OPTIONS[@]}"; do
+                if [ -n "$opt" ]; then
+                    cmd+=(-o "Dpkg::Options::=$opt")
+                fi
+            done
+            ;;
+    esac
+
+    cmd+=("$action" "$@")
+
+    if ! "${cmd[@]}" 2>&1 | tee -a "$APT_LOG_FILE"; then
+        echo "Fehler bei apt-get ${action}. Details siehe ${APT_LOG_FILE}" >&2
         exit 1
     fi
 }
@@ -214,6 +265,7 @@ done
 echo "---- Audio Pi Websystem Installer ----"
 echo "Starte als Root/Sudo empfohlen..."
 echo "Nutze ./install.sh --help für alle nicht-interaktiven Optionen."
+echo "APT-Ausgaben werden in ${APT_LOG_FILE} protokolliert (anpassbar via INSTALL_APT_LOG_FILE)."
 
 PROMPT_ALLOWED=1
 if [ ! -t 0 ]; then
@@ -418,18 +470,18 @@ if [ "$PROMPT_ALLOWED" -eq 0 ] && [ -z "${HAT_MODEL:-}" ]; then
 fi
 
 # System-Update
-sudo apt update
-sudo apt upgrade -y
+apt_get update
+apt_get upgrade -y
 
 # Python-Basics & PIP
-sudo apt install -y python3 python3-pip python3-venv sqlite3
+apt_get install -y python3 python3-pip python3-venv sqlite3
 
 # Virtuelle Umgebung einrichten
 python3 -m venv venv
 source venv/bin/activate
 
 # Dev-Packages (für pydub/pygame etc.)
-sudo apt install -y libasound2-dev libpulse-dev libportaudio2 ffmpeg libffi-dev libjpeg-dev libbluetooth-dev
+apt_get install -y libasound2-dev libpulse-dev libportaudio2 ffmpeg libffi-dev libjpeg-dev libbluetooth-dev
 
 # Python-Abhängigkeiten installieren
 pip install -r requirements.txt
@@ -460,7 +512,7 @@ sudo raspi-config nonint do_i2c 0
 echo "i2c-dev" | sudo tee -a /etc/modules
 
 # Werkzeuge für die automatische RTC-Erkennung bereitstellen
-sudo apt install -y i2c-tools
+apt_get install -y i2c-tools
 
 detect_rtc_devices() {
     RTC_DETECTED_BUS=""
@@ -724,7 +776,7 @@ else
 fi
 
 # PulseAudio Setup für Pi (z.B. HiFiBerry DAC)
-sudo apt install -y pulseaudio pulseaudio-utils
+apt_get install -y pulseaudio pulseaudio-utils
 sudo usermod -aG pulse "$TARGET_USER"
 sudo usermod -aG pulse-access "$TARGET_USER"
 sudo usermod -aG audio "$TARGET_USER"
@@ -838,10 +890,10 @@ SQL
 fi
 
 # Bluetooth Audio Setup – Nur SINK (kein Agent)
-sudo apt install -y pulseaudio-module-bluetooth bluez-tools bluez
+apt_get install -y pulseaudio-module-bluetooth bluez-tools bluez
 
 # Hostapd & dnsmasq (WLAN AP)
-sudo apt install -y hostapd dnsmasq wireless-tools iw wpasupplicant
+apt_get install -y hostapd dnsmasq wireless-tools iw wpasupplicant
 
 create_hostapd_conf() {
     local default_ssid="AudioPiAP"
@@ -1114,7 +1166,7 @@ else
 fi
 
 # ALSA für Mixer/Fallback
-sudo apt install -y alsa-utils
+apt_get install -y alsa-utils
 
 # Upload-Verzeichnis anlegen
 mkdir -p uploads
