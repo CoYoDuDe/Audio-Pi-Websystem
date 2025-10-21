@@ -505,7 +505,8 @@ replacement = f'Environment="FLASK_SECRET_KEY={escaped}"'
 
 unit_path = pathlib.Path('/etc/systemd/system/audio-pi.service')
 text = unit_path.read_text()
-updated, count = re.subn(r'^Environment=FLASK_SECRET_KEY=.*$', replacement, text, flags=re.MULTILINE)
+pattern = r'^Environment=(?:"FLASK_SECRET_KEY=|FLASK_SECRET_KEY=).*$'
+updated, count = re.subn(pattern, replacement, text, flags=re.MULTILINE)
 if count == 0:
     raise SystemExit('Environment line not found in audio-pi.service')
 unit_path.write_text(updated)
