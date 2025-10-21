@@ -4158,9 +4158,27 @@ TIME_SYNC_INTERNET_SETTING_KEY = "time_sync_internet_default"
 def perform_internet_time_sync():
     success = False
     messages = []
+    commands_to_run = [
+        ["sudo", "systemctl", "stop", "systemd-timesyncd"],
+        ["sudo", "ntpdate", "pool.ntp.org"],
+    ]
+    current_command = None
     try:
-        subprocess.check_call(["sudo", "systemctl", "stop", "systemd-timesyncd"])
-        subprocess.check_call(["sudo", "ntpdate", "pool.ntp.org"])
+        for current_command in commands_to_run:
+            subprocess.check_call(current_command)
+    except FileNotFoundError as exc:
+        missing_command = exc.filename
+        if not missing_command and current_command:
+            missing_command = current_command[0]
+        missing_command = missing_command or "unbekannt"
+        logging.error(
+            "Zeit-Synchronisation fehlgeschlagen, Kommando '%s' nicht gefunden: %s",
+            missing_command,
+            exc,
+        )
+        messages.append(
+            f"Kommando '{missing_command}' nicht gefunden, Internet-Sync abgebrochen"
+        )
     except subprocess.CalledProcessError as exc:
         logging.error("Zeit-Synchronisation fehlgeschlagen (%s): %s", exc.cmd, exc)
         messages.append("Fehler bei der Synchronisation")
