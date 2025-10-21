@@ -38,6 +38,10 @@ sudo bash install.sh
 Während der Installation fragt das Skript nach einem Wert für `FLASK_SECRET_KEY`
 und richtet den systemd-Dienst direkt ein. Die Eingabe darf nicht leer sein –
 das Skript wiederholt die Abfrage so lange, bis ein Wert vorliegt.
+Zusätzlich stellt `install.sh` sicher, dass die Datenbank `audio.db` dem
+Dienstbenutzer (`$TARGET_USER:$TARGET_GROUP`) gehört und mit `chmod 660`
+beschreibbare Rechte erhält, unabhängig davon, ob die Datei neu angelegt oder
+bereits vorhanden war.
 
 **2. Umgebung einrichten**
 ```bash
