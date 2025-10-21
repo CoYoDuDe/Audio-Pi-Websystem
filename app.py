@@ -3,6 +3,7 @@ import time
 import subprocess
 import threading
 import types
+from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
@@ -3243,23 +3244,36 @@ def upload():
         return redirect(url_for("index"))
     if file and allowed_file(file.filename):
         filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-        if os.path.exists(file_path):
+        upload_folder = Path(app.config["UPLOAD_FOLDER"])
+        file_path = upload_folder / filename
+        if file_path.exists():
             base, ext = os.path.splitext(filename)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{base}_{timestamp}{ext}"
-            flash(f"Dateiname bereits vorhanden, gespeichert als {filename}")
-            file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+            attempt = 1
+            while True:
+                if attempt == 1:
+                    candidate = f"{base}_{timestamp}{ext}"
+                else:
+                    candidate = f"{base}_{timestamp}_{attempt}{ext}"
+                candidate_path = upload_folder / candidate
+                if not candidate_path.exists():
+                    filename = candidate
+                    file_path = candidate_path
+                    flash(
+                        f"Dateiname bereits vorhanden, gespeichert als {filename} (Versuch {attempt})"
+                    )
+                    break
+                attempt += 1
         else:
             flash("Datei hochgeladen")
-        file.save(file_path)
+        file.save(str(file_path))
         try:
-            sound = AudioSegment.from_file(file_path)
+            sound = AudioSegment.from_file(str(file_path))
             duration_seconds = len(sound) / 1000.0
         except Exception as exc:
             logging.error("Fehler beim Auslesen der Audiodauer von %s: %s", filename, exc)
             try:
-                os.remove(file_path)
+                file_path.unlink()
             except OSError:
                 pass
             flash("Audiodatei konnte nicht verarbeitet werden")
