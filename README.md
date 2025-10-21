@@ -23,6 +23,29 @@ Audio-Pi-Control ist ein vollständiges Steuer- und Audiomanagement-System für 
 - Zeitpläne laufen nun über **APScheduler**; dank `misfire_grace_time` werden nach dem Start keine verpassten Jobs mehr nachgeholt.
 - `parse_once_datetime` verarbeitet einmalige Zeitangaben in verschiedenen Formaten.
 
+## GPIO-Taster für Wiedergabe & Bluetooth
+
+Das System unterstützt jetzt physische Taster am Raspberry Pi. Ein eigener Monitor in `hardware/buttons.py`
+überwacht per `lgpio` konfigurierbare GPIO-Eingänge und löst bei erkannten Flanken die bekannten Aktionen
+aus (`play_item`, `stop_playback`, `enable_bluetooth`, `disable_bluetooth`). Damit lassen sich zum Beispiel
+Wiedergabe und Bluetooth ohne Web-UI schalten. Die wichtigsten Umgebungsvariablen:
+
+| Variable | Bedeutung |
+|----------|-----------|
+| `GPIO_BUTTON_PLAY_PIN` | GPIO-Nummer des Play-Tasters; benötigt zusätzlich `GPIO_BUTTON_PLAY_ITEM_TYPE` (`file`/`playlist`) und `GPIO_BUTTON_PLAY_ITEM_ID`. Optional: `GPIO_BUTTON_PLAY_DELAY_SEC`, `GPIO_BUTTON_PLAY_VOLUME_PERCENT`. |
+| `GPIO_BUTTON_STOP_PIN` | GPIO-Nummer für das sofortige Stoppen der Wiedergabe. |
+| `GPIO_BUTTON_BT_ON_PIN` / `GPIO_BUTTON_BT_OFF_PIN` | GPIO-Pins zum Ein- bzw. Ausschalten von Bluetooth. |
+| `GPIO_BUTTON_DEFAULT_PULL`, `GPIO_BUTTON_<AKTION>_PULL` | Pull-Up/-Down je Taster (`up`, `down`, `none`). Ohne Angabe wird `up` verwendet. |
+| `GPIO_BUTTON_DEFAULT_EDGE`, `GPIO_BUTTON_<AKTION>_EDGE` | Flankenerkennung (`falling`, `rising`, `both`). Standard ist `falling`. |
+| `GPIO_BUTTON_DEFAULT_DEBOUNCE_MS`, `GPIO_BUTTON_<AKTION>_DEBOUNCE_MS` | Entprellzeit in Millisekunden (Standard: 150 ms). |
+| `GPIO_BUTTON_POLL_INTERVAL_SEC` | Optionales Abtastintervall des Monitors (Standard: 0,01 s). |
+| `GPIO_BUTTON_CHIP`, `GPIO_BUTTON_CHIP_CANDIDATES` | (Optional) überschreibt die automatisch ermittelten `gpiochip`-IDs. |
+
+Die Taster werden beim Start automatisch initialisiert, nutzen Pull-Ups/Pull-Downs nach obiger Konfiguration
+und werden beim Shutdown sauber freigegeben. Der Monitor läuft in einem eigenen Thread, entprellt softwareseitig
+und startet die hinterlegten Aktionen jeweils in separaten Worker-Threads, damit die GPIO-Überwachung reaktiv
+bleibt.
+
 Im Bereich "System" der Weboberfläche befinden sich Buttons zum Ein- und
 Ausschalten von Bluetooth sowie Schaltflächen zum geordneten Neustart oder
 Herunterfahren des Raspberry Pi.
