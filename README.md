@@ -54,6 +54,11 @@ bereits vorhanden war.
 bash setup_env.sh
 ```
 
+> 💡 Für Tests und Entwicklung installiert `./setup_env.sh --dev` zusätzlich die Pakete aus
+> `dev-requirements.txt` (z. B. `pytest`). Alternativ lässt sich eine bestehende Umgebung mit
+> `pip install -r dev-requirements.txt` erweitern; die Datei referenziert automatisch
+> `requirements.txt`, sodass alle Laufzeit- und Entwicklungsabhängigkeiten konsistent bleiben.
+
 **3. Virtuelle Umgebung aktivieren**
 ```bash
 source venv/bin/activate
