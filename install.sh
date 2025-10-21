@@ -329,6 +329,37 @@ sudo apt install -y pulseaudio-module-bluetooth bluez-tools bluez
 # Hostapd & dnsmasq (WLAN AP)
 sudo apt install -y hostapd dnsmasq wireless-tools iw wpasupplicant
 
+cidr_to_netmask() {
+    local cidr=$1
+
+    if ! [[ $cidr =~ ^([0-9]|[1-2][0-9]|3[0-2])$ ]]; then
+        cidr=24
+    fi
+
+    local full_octets=$((cidr / 8))
+    local partial_bits=$((cidr % 8))
+    local i
+    local netmask=""
+
+    for ((i = 0; i < 4; i++)); do
+        local value
+        if [ $i -lt $full_octets ]; then
+            value=255
+        elif [ $i -eq $full_octets ] && [ $partial_bits -gt 0 ]; then
+            value=$((256 - 2 ** (8 - partial_bits)))
+        else
+            value=0
+        fi
+
+        if [ $i -gt 0 ]; then
+            netmask+=.
+        fi
+        netmask+=$value
+    done
+
+    printf '%s\n' "$netmask"
+}
+
 create_hostapd_conf() {
     local default_ssid="AudioPiAP"
     local default_channel="6"
@@ -408,6 +439,10 @@ create_dnsmasq_conf() {
     DHCP_LEASE_TIME=${DHCP_LEASE_TIME:-$default_dhcp_time}
 
     sudo mkdir -p /etc/dnsmasq.d
+
+    local ap_netmask
+    ap_netmask=$(cidr_to_netmask "$AP_IPV4_PREFIX")
+
     sudo tee /etc/dnsmasq.d/audio-pi.conf >/dev/null <<EOF
 interface=${AP_INTERFACE}
 bind-interfaces
@@ -416,7 +451,8 @@ bogus-priv
 server=1.1.1.1
 server=8.8.8.8
 listen-address=127.0.0.1,${AP_IPV4}
-dhcp-range=${DHCP_RANGE_START},${DHCP_RANGE_END},${DHCP_LEASE_TIME}
+dhcp-range=${DHCP_RANGE_START},${DHCP_RANGE_END},${ap_netmask},${DHCP_LEASE_TIME}
+dhcp-option=1,${ap_netmask}
 dhcp-option=3,${AP_IPV4}
 dhcp-option=6,${AP_IPV4}
 EOF
