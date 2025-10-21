@@ -3027,14 +3027,31 @@ def has_network():
     return "default" in subprocess.getoutput("ip route")
 
 
+def _handle_systemctl_failure(action: str, service: str, exit_code: int) -> None:
+    message = f"systemctl {action} {service} endete mit Exit-Code {exit_code}"
+    logging.warning(message)
+    if has_request_context():
+        flash(f"Warnung: {message}")
+
+
+def _call_systemctl(action: str, service: str) -> bool:
+    exit_code = subprocess.call(["sudo", "systemctl", action, service])
+    if exit_code != 0:
+        _handle_systemctl_failure(action, service, exit_code)
+        return False
+    return True
+
+
 def setup_ap():
     try:
         if not has_network():
             logging.info("Kein Netzwerk – starte AP-Modus")
-            subprocess.call(["sudo", "systemctl", "start", "dnsmasq"])
-            subprocess.call(["sudo", "systemctl", "start", "hostapd"])
-        else:
-            disable_ap()
+            if not _call_systemctl("start", "dnsmasq"):
+                return False
+            if not _call_systemctl("start", "hostapd"):
+                return False
+            return True
+        return disable_ap()
     except (FileNotFoundError, OSError) as exc:
         logging.error("sudo oder systemctl nicht gefunden: %s", exc)
         if has_request_context():
@@ -3044,14 +3061,17 @@ def setup_ap():
 
 def disable_ap():
     try:
-        subprocess.call(["sudo", "systemctl", "stop", "hostapd"])
-        subprocess.call(["sudo", "systemctl", "stop", "dnsmasq"])
+        if not _call_systemctl("stop", "hostapd"):
+            return False
+        if not _call_systemctl("stop", "dnsmasq"):
+            return False
     except (FileNotFoundError, OSError) as exc:
         logging.error("sudo oder systemctl nicht gefunden: %s", exc)
         if has_request_context():
             flash("sudo oder systemctl nicht gefunden")
         return False
     logging.info("AP-Modus deaktiviert")
+    return True
 
 
 # ---- Flask Web-UI ----
