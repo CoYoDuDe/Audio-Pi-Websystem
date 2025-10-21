@@ -100,7 +100,14 @@ sudo systemctl enable --now audio-pi.service
 
 ## Datenbank-Initialisierung
 
-Bei der ersten Ausführung legt die Anwendung automatisch die SQLite-Datenbank `audio.db` an und erzeugt die benötigten Tabellen sowie einen Standard-Benutzer (`admin` / `password`). Es ist daher nicht notwendig, eine vorgefüllte Datenbank mitzuliefern. Wenn `audio.db` nicht existiert, wird sie beim Start erstellt.
+Beim ersten Start legt die Anwendung automatisch die SQLite-Datenbank `audio.db` an, erzeugt sämtliche Tabellen und erstellt den Benutzer `admin`. Ein hart codiertes Standard-Passwort existiert nicht mehr:
+
+- **Eigenes Startpasswort hinterlegen:** Wenn beim allerersten Start die Umgebungsvariable `INITIAL_ADMIN_PASSWORD` gesetzt ist (z. B. `export INITIAL_ADMIN_PASSWORD='DeinSicheresPasswort'` oder als zusätzliche `Environment=`-Zeile in `audio-pi.service`), wird genau dieses Passwort verwendet und gehasht gespeichert.
+- **Automatische Generierung:** Ist `INITIAL_ADMIN_PASSWORD` nicht gesetzt, generiert die Anwendung einmalig ein zufälliges 16-Zeichen-Passwort. Der Klartext wird direkt beim Start als Warnung in die Logdatei geschrieben.
+
+Die Logdatei befindet sich im Arbeitsverzeichnis der Anwendung (standardmäßig das Projektverzeichnis, z. B. `/opt/Audio-Pi-Websystem/app.log`). Das zufällig erzeugte Passwort lässt sich danach mit `tail -n 50 app.log` bzw. bei systemd-Installationen mit `sudo tail -n 50 /opt/Audio-Pi-Websystem/app.log` nachvollziehen. Sobald der Eintrag gelesen wurde, sollte die Logdatei vor unbefugtem Zugriff geschützt bzw. bereinigt werden.
+
+> **Wichtig:** Nach der ersten Anmeldung muss das Passwort über die Weboberfläche (Bereich **System → Passwort ändern**) unmittelbar durch ein neues, sicheres Passwort ersetzt werden. Die Datenbank markiert den Benutzer bis zur Änderung als `must_change_password`, wodurch ein Passwortwechsel erzwungen wird.
 
 ## Konfiguration
 
