@@ -466,6 +466,12 @@ if [ "$AP_CONFIRM" = "j" ] || [ "$AP_CONFIRM" = "ja" ]; then
     ensure_hostapd_daemon_conf
     create_dnsmasq_conf
     configure_ap_networking
+    if sudo systemctl unmask hostapd; then
+        echo "hostapd-Service erfolgreich entmaskiert."
+    fi
+    if sudo systemctl unmask dnsmasq; then
+        echo "dnsmasq-Service erfolgreich entmaskiert."
+    fi
     sudo systemctl enable --now hostapd
     sudo systemctl enable --now dnsmasq
     AP_CONFIGURED=1
