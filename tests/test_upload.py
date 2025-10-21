@@ -75,16 +75,17 @@ def test_upload_twice_generates_new_name(client):
     )
     assert b"Passwort ge\xc3\xa4ndert" in change_response.data
 
-    data = {"file": (io.BytesIO(b"data"), "song.mp3")}
-    res1 = csrf_post(client, "/upload", data=data, follow_redirects=True)
+    def make_data():
+        return {"file": (io.BytesIO(b"data"), "song.mp3")}
+
+    res1 = csrf_post(client, "/upload", data=make_data(), follow_redirects=True)
     assert b"hochgeladen" in res1.data
     files = sorted(upload_dir.iterdir())
     assert len(files) == 1
     first_name = files[0].name
     assert first_name == "song.mp3"
 
-    data = {"file": (io.BytesIO(b"data"), "song.mp3")}
-    res2 = csrf_post(client, "/upload", data=data, follow_redirects=True)
+    res2 = csrf_post(client, "/upload", data=make_data(), follow_redirects=True)
     assert b"bereits vorhanden" in res2.data
     files = sorted(upload_dir.iterdir())
     assert len(files) == 2
@@ -100,3 +101,60 @@ def test_upload_twice_generates_new_name(client):
         assert duration == pytest.approx(1.234, rel=1e-3)
     conn.close()
     assert {first_name, second_name} == db_names
+
+
+def test_upload_same_second_does_not_overwrite(client, monkeypatch):
+    client, upload_dir, app_module = client
+
+    login_data = {"username": "admin", "password": "password"}
+    response = csrf_post(client, "/login", data=login_data, follow_redirects=True)
+    assert response.status_code == 200
+    change_response = csrf_post(
+        client,
+        "/change_password",
+        data={"old_password": "password", "new_password": "password1234"},
+        follow_redirects=True,
+        source_url="/change_password",
+    )
+    assert b"Passwort ge\xc3\xa4ndert" in change_response.data
+
+    original_datetime = app_module.datetime
+
+    fixed_now = original_datetime(2024, 1, 1, 12, 0, 0)
+
+    class FixedDateTime(original_datetime):
+        @classmethod
+        def now(cls, tz=None):  # pragma: no cover - wird indirekt verwendet
+            return fixed_now
+
+    monkeypatch.setattr(app_module, "datetime", FixedDateTime)
+
+    def make_data():
+        return {"file": (io.BytesIO(b"data"), "song.mp3")}
+
+    res1 = csrf_post(client, "/upload", data=make_data(), follow_redirects=True)
+    assert b"hochgeladen" in res1.data
+
+    timestamp_label = FixedDateTime.now().strftime("%Y%m%d_%H%M%S")
+    expected_second = f"song_{timestamp_label}.mp3"
+    expected_third = f"song_{timestamp_label}_2.mp3"
+
+    res2 = csrf_post(client, "/upload", data=make_data(), follow_redirects=True)
+    assert b"(Versuch 1)" in res2.data
+    assert (upload_dir / expected_second).exists()
+
+    res3 = csrf_post(client, "/upload", data=make_data(), follow_redirects=True)
+    assert b"(Versuch 2)" in res3.data
+    assert (upload_dir / expected_third).exists()
+
+    files = sorted(p.name for p in upload_dir.iterdir())
+    assert {"song.mp3", expected_second, expected_third} == set(files)
+
+    conn = sqlite3.connect(app_module.DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT filename FROM audio_files")
+    rows = cursor.fetchall()
+    conn.close()
+
+    db_names = {row[0] for row in rows}
+    assert {"song.mp3", expected_second, expected_third} == db_names
