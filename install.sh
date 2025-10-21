@@ -32,7 +32,7 @@ TARGET_GROUP=$(id -gn "$TARGET_USER")
 TARGET_HOME=$(eval echo "~$TARGET_USER")
 printf 'export FLASK_SECRET_KEY=%q\n' "$SECRET" | sudo tee -a "$TARGET_HOME/.profile"
 echo "FLASK_SECRET_KEY wurde in $TARGET_HOME/.profile hinterlegt."
-SYSTEMD_ESCAPED_SECRET=$(systemd-escape -- "$SECRET")
+SED_ESCAPED_SECRET=$(printf '%s' "$SECRET" | sed -e 's/[&/]/\\&/g')
 
 # I²C für RTC aktivieren
 sudo raspi-config nonint do_i2c 0
@@ -495,7 +495,7 @@ fi
 # systemd-Dienst einrichten
 sudo cp audio-pi.service /etc/systemd/system/
 sudo sed -i "s|/opt/Audio-Pi-Websystem|$(pwd)|g" /etc/systemd/system/audio-pi.service
-sudo sed -i "s|Environment=FLASK_SECRET_KEY=.*|Environment=FLASK_SECRET_KEY=$SYSTEMD_ESCAPED_SECRET|" /etc/systemd/system/audio-pi.service
+sudo sed -i "s|Environment=FLASK_SECRET_KEY=.*|Environment=FLASK_SECRET_KEY=$SED_ESCAPED_SECRET|" /etc/systemd/system/audio-pi.service
 sudo sed -i "s|^User=.*|User=$TARGET_USER|" /etc/systemd/system/audio-pi.service
 sudo sed -i "s|^Group=.*|Group=$TARGET_GROUP|" /etc/systemd/system/audio-pi.service
 sudo sed -i "s/__UID__/$TARGET_UID/" /etc/systemd/system/audio-pi.service
