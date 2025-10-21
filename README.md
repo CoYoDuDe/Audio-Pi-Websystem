@@ -90,12 +90,12 @@ bevor `app.py` ausgeführt wird. Zusätzlich setzt die Service-Datei
 `XDG_RUNTIME_DIR=/run/user/1000`, damit PulseAudio auch ohne laufende Sitzung
 funktioniert. 
 
-> **Wichtig:** In der Vorlage `audio-pi.service` ist `Environment=FLASK_SECRET_KEY=__CHANGE_ME__`
+> **Wichtig:** In der Vorlage `audio-pi.service` ist `Environment="FLASK_SECRET_KEY=__CHANGE_ME__"`
 > als Platzhalter hinterlegt. Der Installer ersetzt diesen inzwischen automatisch
 > durch `Environment="FLASK_SECRET_KEY=<dein_schlüssel>"` und maskiert dabei
 > mindestens doppelte Anführungszeichen (`"`), Backslashes (`\`) und Dollarzeichen (`$`).
 > Wer die Unit manuell installiert, sollte dieselbe Maskierung verwenden, z. B. via
-> `sudo sed -i "s|^Environment=FLASK_SECRET_KEY=.*|Environment=\"FLASK_SECRET_KEY=mein\ \"Secret\"\"|" audio-pi.service`.
+> `sudo sed -i "s|^Environment=.*FLASK_SECRET_KEY=.*|Environment=\"FLASK_SECRET_KEY=mein\ \"Secret\"\"|" audio-pi.service`.
 
 Nach der Installation lässt sich das gesetzte Secret – auch mit Leerzeichen – per
 
@@ -158,6 +158,11 @@ Nachgang manuell editieren (z. B. `/etc/dhcpcd.conf` und
 `/etc/dnsmasq.d/audio-pi.conf`). Nach Änderungen empfiehlt sich ein Neustart des
 `dhcpcd`-Dienstes bzw. ein Reboot, damit alle Komponenten die neuen Einstellungen
 übernehmen.
+
+> **Hinweis:** Da aktuelle Raspberry-Pi-Images `hostapd` und teilweise auch `dnsmasq`
+> standardmäßig maskieren, hebt der Installer bestehende Masken automatisch per
+> `systemctl unmask` auf, bevor die Dienste mit `systemctl enable --now` aktiviert
+> werden.
 
 
 ## Update aus dem Git-Repository
