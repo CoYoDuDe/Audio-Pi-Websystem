@@ -501,7 +501,8 @@ fi
 
 # systemd-Dienst einrichten
 sudo cp audio-pi.service /etc/systemd/system/
-sudo sed -i "s|/opt/Audio-Pi-Websystem|$(pwd)|g" /etc/systemd/system/audio-pi.service
+SYSTEMD_SAFE_PWD=$(printf '%s' "$(pwd)" | sed -e 's/[\\&|]/\\&/g')
+sudo sed -i "s|/opt/Audio-Pi-Websystem|$SYSTEMD_SAFE_PWD|g" /etc/systemd/system/audio-pi.service
 sudo sed -i "s|^Environment=FLASK_SECRET_KEY=.*|Environment=\"FLASK_SECRET_KEY=$SYSTEMD_SED_SAFE_SECRET\"|" /etc/systemd/system/audio-pi.service
 sudo sed -i "s|^User=.*|User=$TARGET_USER|" /etc/systemd/system/audio-pi.service
 sudo sed -i "s|^Group=.*|Group=$TARGET_GROUP|" /etc/systemd/system/audio-pi.service
