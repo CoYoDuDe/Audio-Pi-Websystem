@@ -134,6 +134,31 @@ Wichtige Einstellungen können über Umgebungsvariablen angepasst werden:
 Weitere Variablen sind im Quelltext dokumentiert. Wird ein Port kleiner 1024
 eingesetzt, sind – je nach Startmethode – entsprechende Capabilities oder Root-Rechte notwendig (siehe Hinweise oben).
 
+### WLAN-Access-Point
+
+Der Installer richtet auf Wunsch weiterhin `hostapd` und `dnsmasq` ein, fragt
+seit dem Update zusätzlich nach dem gewünschten Subnetz-Präfix (Standard: `/24`)
+und setzt die Adresse unmittelbar per `ip addr replace` auf dem gewählten
+WLAN-Interface. Damit der Pi die Adresse auch nach einem Neustart behält,
+schreibt das Skript einen markierten Abschnitt in `/etc/dhcpcd.conf` und legt
+vorher automatisch ein Backup mit Zeitstempel an. Der Block sieht beispielsweise
+so aus:
+
+```
+# Audio-Pi Access Point configuration
+interface wlan0
+static ip_address=192.168.50.1/24
+nohook wpa_supplicant
+# Audio-Pi Access Point configuration end
+```
+
+Wer ein anderes Subnetz oder eine andere Präfix-Länge benötigt, kann die Werte
+bereits während der Installation anpassen oder die erzeugte Konfiguration im
+Nachgang manuell editieren (z. B. `/etc/dhcpcd.conf` und
+`/etc/dnsmasq.d/audio-pi.conf`). Nach Änderungen empfiehlt sich ein Neustart des
+`dhcpcd`-Dienstes bzw. ein Reboot, damit alle Komponenten die neuen Einstellungen
+übernehmen.
+
 
 ## Update aus dem Git-Repository
 
