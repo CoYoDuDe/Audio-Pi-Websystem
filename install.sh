@@ -22,9 +22,9 @@ sudo apt install -y libasound2-dev libpulse-dev libportaudio2 ffmpeg libffi-dev 
 pip install -r requirements.txt
 
 # Benutzer nach Secret fragen und in Profil speichern
-SECRET=""
-while [ -z "$SECRET" ]; do
-    read -rp "FLASK_SECRET_KEY (darf nicht leer sein): " SECRET
+unset SECRET
+while [ -z "${SECRET+x}" ] || [ -z "$SECRET" ]; do
+    IFS= read -r -p "FLASK_SECRET_KEY (darf nicht leer sein): " SECRET
 done
 TARGET_USER=${SUDO_USER:-$USER}
 TARGET_UID=$(id -u "$TARGET_USER")
