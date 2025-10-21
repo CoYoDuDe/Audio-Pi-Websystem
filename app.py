@@ -1,3 +1,5 @@
+import atexit
+import functools
 import os
 import time
 import subprocess
@@ -118,7 +120,8 @@ else:
 import sys
 import secrets
 import re
-from typing import Iterable, List, Optional, Tuple, Literal, Set
+from typing import Any, Callable, Iterable, List, Optional, Tuple, Literal, Set
+from hardware.buttons import ButtonAssignment, ButtonMonitor
 
 if GPIO_AVAILABLE:
     GPIOError = GPIO.error
@@ -329,6 +332,9 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
+gpio_handle: Optional[int] = None
+gpio_chip_id: Optional[int] = None
+
 if not TESTING and GPIO_AVAILABLE:
     _gpio_chip_candidates: List[int] = []
     _gpio_chip_seen: Set[int] = set()
@@ -349,7 +355,6 @@ if not TESTING and GPIO_AVAILABLE:
         if suffix.isdigit():
             _add_gpio_candidate(int(suffix))
 
-    gpio_handle = None
     _errors: List[Tuple[int, Exception]] = []
 
     for _chip_id in _gpio_chip_candidates:
@@ -358,6 +363,7 @@ if not TESTING and GPIO_AVAILABLE:
         except (GPIOError, OSError) as exc:
             _errors.append((_chip_id, exc))
         else:
+            gpio_chip_id = _chip_id
             logging.info(
                 "GPIO initialisiert für Verstärker (OUTPUT/HIGH = an, LOW = aus) - Nutzung von gpiochip%s",
                 _chip_id,
@@ -378,11 +384,12 @@ if not TESTING and GPIO_AVAILABLE:
                 "GPIO-Chip konnte nicht geöffnet werden, keine Kandidaten gefunden."
             )
 else:
-    gpio_handle = None
     if not TESTING and not GPIO_AVAILABLE:
         logging.warning(
             "lgpio nicht verfügbar, starte ohne Verstärkersteuerung."
         )
+    gpio_handle = None
+    gpio_chip_id = None
 amplifier_claimed = False
 
 # Track pause status manually since pygame lacks a get_paused() helper
@@ -3458,14 +3465,12 @@ def toggle_pause():
     return redirect(url_for("index"))
 
 
-@app.route("/stop_playback", methods=["POST"])
-@login_required
-def stop_playback():
+def _perform_stop_playback(*, flash_user: bool) -> bool:
+    global is_paused
     if not pygame_available:
         _notify_audio_unavailable("Wiedergabe kann nicht gestoppt werden")
-        return redirect(url_for("index"))
+        return False
     pygame.mixer.music.stop()
-    global is_paused
     is_paused = False
     if not is_bt_connected():
         deactivate_amplifier()
@@ -3473,7 +3478,15 @@ def stop_playback():
     if is_bt_connected():
         resume_bt_audio()
         load_loopback()
-    flash("Wiedergabe gestoppt")
+    if flash_user and has_request_context():
+        flash("Wiedergabe gestoppt")
+    return True
+
+
+@app.route("/stop_playback", methods=["POST"])
+@login_required
+def stop_playback():
+    _perform_stop_playback(flash_user=True)
     return redirect(url_for("index"))
 
 
@@ -4547,9 +4560,378 @@ def bluetooth_auto_accept() -> BluetoothActionResult:
     return "success"
 
 
+# --- GPIO Button Monitor ------------------------------------------------------
+
+button_monitor: Optional[ButtonMonitor] = None
+
+
+def _get_env_value(name: str) -> Optional[str]:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None
+
+
+def _parse_int_env(name: str) -> Optional[int]:
+    value = _get_env_value(name)
+    if value is None:
+        return None
+    try:
+        return int(value, 0)
+    except ValueError:
+        logging.warning("GPIO-Button-Monitor: Ungültiger Integer-Wert für %s: %s", name, value)
+        return None
+
+
+def _parse_float_env(name: str) -> Optional[float]:
+    value = _get_env_value(name)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        logging.warning("GPIO-Button-Monitor: Ungültiger Float-Wert für %s: %s", name, value)
+        return None
+
+
+def _normalize_pull(value: str) -> Optional[str]:
+    mapping = {
+        "up": "up",
+        "pull_up": "up",
+        "pull-up": "up",
+        "high": "up",
+        "down": "down",
+        "pull_down": "down",
+        "pull-down": "down",
+        "low": "down",
+        "none": "none",
+        "off": "none",
+        "float": "none",
+        "floating": "none",
+    }
+    return mapping.get(value.lower())
+
+
+def _normalize_edge(value: str) -> Optional[str]:
+    mapping = {
+        "rising": "rising",
+        "falling": "falling",
+        "both": "both",
+        "toggle": "both",
+        "change": "both",
+        "up": "rising",
+        "positive": "rising",
+        "down": "falling",
+        "negative": "falling",
+    }
+    return mapping.get(value.lower())
+
+
+def _resolve_default_pull() -> str:
+    value = _get_env_value("GPIO_BUTTON_DEFAULT_PULL")
+    if value:
+        normalized = _normalize_pull(value)
+        if normalized:
+            return normalized
+        logging.warning(
+            "GPIO-Button-Monitor: Ungültiger Default-Pull '%s', verwende 'up'",
+            value,
+        )
+    return "up"
+
+
+def _resolve_default_edge() -> str:
+    value = _get_env_value("GPIO_BUTTON_DEFAULT_EDGE")
+    if value:
+        normalized = _normalize_edge(value)
+        if normalized:
+            return normalized
+        logging.warning(
+            "GPIO-Button-Monitor: Ungültiger Default-Flankentyp '%s', verwende 'falling'",
+            value,
+        )
+    return "falling"
+
+
+def _resolve_default_debounce() -> int:
+    value = _parse_int_env("GPIO_BUTTON_DEFAULT_DEBOUNCE_MS")
+    if value is None:
+        return 150
+    if value < 0:
+        logging.warning(
+            "GPIO-Button-Monitor: Negative Standard-Entprellzeit (%s ms) – verwende 150 ms",
+            value,
+        )
+        return 150
+    return value
+
+
+def _resolve_pull(action: str, default_pull: str) -> str:
+    value = _get_env_value(f"GPIO_BUTTON_{action}_PULL")
+    if not value:
+        return default_pull
+    normalized = _normalize_pull(value)
+    if normalized:
+        return normalized
+    logging.warning(
+        "GPIO-Button-Monitor: Ungültiger Pull '%s' für Aktion %s – verwende %s",
+        value,
+        action,
+        default_pull,
+    )
+    return default_pull
+
+
+def _resolve_edge(action: str, default_edge: str) -> str:
+    value = _get_env_value(f"GPIO_BUTTON_{action}_EDGE")
+    if not value:
+        return default_edge
+    normalized = _normalize_edge(value)
+    if normalized:
+        return normalized
+    logging.warning(
+        "GPIO-Button-Monitor: Ungültiger Flankentyp '%s' für Aktion %s – verwende %s",
+        value,
+        action,
+        default_edge,
+    )
+    return default_edge
+
+
+def _resolve_debounce(action: str, default_debounce: int) -> int:
+    value = _parse_int_env(f"GPIO_BUTTON_{action}_DEBOUNCE_MS")
+    if value is None:
+        return default_debounce
+    if value < 0:
+        logging.warning(
+            "GPIO-Button-Monitor: Negative Entprellzeit (%s ms) für Aktion %s – verwende %s ms",
+            value,
+            action,
+            default_debounce,
+        )
+        return default_debounce
+    return value
+
+
+def _stop_playback_from_button() -> None:
+    if not _perform_stop_playback(flash_user=False):
+        logging.info(
+            "GPIO-Button-Monitor: Stop-Taster ausgelöst, aber keine Wiedergabe aktiv"
+        )
+
+
+def _enable_bluetooth_via_button() -> None:
+    try:
+        result = enable_bluetooth()
+    except FileNotFoundError as exc:
+        _handle_missing_bluetooth_command(exc, flash_user=False)
+        return
+    except subprocess.CalledProcessError as exc:
+        logging.error("GPIO-Button-Monitor: Bluetooth-Aktivierung fehlgeschlagen: %s", exc)
+        return
+
+    if result == "success":
+        logging.info("GPIO-Button-Monitor: Bluetooth per Taster aktiviert")
+    elif result == "missing_cli":
+        logging.warning(
+            "GPIO-Button-Monitor: Bluetooth-Taster – benötigte Tools nicht verfügbar"
+        )
+    else:
+        logging.error(
+            "GPIO-Button-Monitor: Bluetooth konnte per Taster nicht vollständig eingerichtet werden"
+        )
+
+
+def _disable_bluetooth_via_button() -> None:
+    try:
+        result = disable_bluetooth()
+    except FileNotFoundError as exc:
+        _handle_missing_bluetooth_command(exc, flash_user=False)
+        return
+    except subprocess.CalledProcessError as exc:
+        logging.error("GPIO-Button-Monitor: Bluetooth-Deaktivierung fehlgeschlagen: %s", exc)
+        return
+
+    if result == "success":
+        logging.info("GPIO-Button-Monitor: Bluetooth per Taster deaktiviert")
+    elif result == "missing_cli":
+        logging.warning(
+            "GPIO-Button-Monitor: Bluetooth-Taster – benötigte Tools nicht verfügbar"
+        )
+    else:
+        logging.error(
+            "GPIO-Button-Monitor: Bluetooth konnte per Taster nicht deaktiviert werden"
+        )
+
+
+def _build_button_assignments() -> List[ButtonAssignment]:
+    if not GPIO_AVAILABLE:
+        logging.info(
+            "GPIO-Button-Monitor: lgpio nicht verfügbar, Taster-Steuerung deaktiviert"
+        )
+        return []
+
+    assignments: List[ButtonAssignment] = []
+    default_pull = _resolve_default_pull()
+    default_edge = _resolve_default_edge()
+    default_debounce = _resolve_default_debounce()
+
+    def _add_assignment(
+        action: str,
+        pin: int,
+        callback: Callable[..., None],
+        *,
+        args: Tuple[Any, ...] = (),
+        kwargs: Optional[dict] = None,
+    ) -> None:
+        pull = _resolve_pull(action, default_pull)
+        edge = _resolve_edge(action, default_edge)
+        debounce = _resolve_debounce(action, default_debounce)
+        try:
+            assignment = ButtonAssignment(
+                name=action.lower(),
+                pin=pin,
+                pull=pull,
+                edge=edge,
+                debounce_ms=debounce,
+                callback=callback,
+                args=args,
+                kwargs=dict(kwargs or {}),
+            )
+        except ValueError as exc:
+            logging.error(
+                "GPIO-Button-Monitor: Konfiguration für Aktion %s ungültig: %s",
+                action,
+                exc,
+            )
+            return
+
+        assignments.append(assignment)
+        logging.info(
+            "GPIO-Button-Monitor: Aktion '%s' → Pin %s (Pull=%s, Edge=%s, Debounce=%s ms)",
+            assignment.name,
+            pin,
+            pull,
+            edge,
+            debounce,
+        )
+
+    play_pin = _parse_int_env("GPIO_BUTTON_PLAY_PIN")
+    if play_pin is not None:
+        item_id = _parse_int_env("GPIO_BUTTON_PLAY_ITEM_ID")
+        item_type_raw = _get_env_value("GPIO_BUTTON_PLAY_ITEM_TYPE")
+        if item_id is None or not item_type_raw:
+            logging.warning(
+                "GPIO-Button-Monitor: PLAY-Taster konfiguriert, aber Item-ID oder -Typ fehlen"
+            )
+        else:
+            item_type = item_type_raw.lower()
+            if item_type not in PLAY_NOW_ALLOWED_TYPES:
+                logging.warning(
+                    "GPIO-Button-Monitor: PLAY-Taster mit unbekanntem Item-Typ '%s' konfiguriert",
+                    item_type_raw,
+                )
+            else:
+                delay = _parse_float_env("GPIO_BUTTON_PLAY_DELAY_SEC")
+                if delay is None:
+                    delay = float(VERZOEGERUNG_SEC)
+                elif delay < 0:
+                    logging.warning(
+                        "GPIO-Button-Monitor: Negativer Verzögerungswert für PLAY (%s) – verwende 0",
+                        delay,
+                    )
+                    delay = 0.0
+
+                volume_value = _parse_int_env("GPIO_BUTTON_PLAY_VOLUME_PERCENT")
+                if volume_value is None:
+                    volume_percent = 100
+                else:
+                    volume_percent = max(0, min(100, volume_value))
+                    if volume_value != volume_percent:
+                        logging.warning(
+                            "GPIO-Button-Monitor: Lautstärke für PLAY außerhalb 0-100 (war %s) – gekappt auf %s",
+                            volume_value,
+                            volume_percent,
+                        )
+
+                callback = functools.partial(
+                    play_item,
+                    item_id,
+                    item_type,
+                    delay,
+                    False,
+                    volume_percent=volume_percent,
+                )
+                _add_assignment("PLAY", play_pin, callback)
+
+    stop_pin = _parse_int_env("GPIO_BUTTON_STOP_PIN")
+    if stop_pin is not None:
+        _add_assignment("STOP", stop_pin, _stop_playback_from_button)
+
+    bt_on_pin = _parse_int_env("GPIO_BUTTON_BT_ON_PIN")
+    if bt_on_pin is not None:
+        _add_assignment("BT_ON", bt_on_pin, _enable_bluetooth_via_button)
+
+    bt_off_pin = _parse_int_env("GPIO_BUTTON_BT_OFF_PIN")
+    if bt_off_pin is not None:
+        _add_assignment("BT_OFF", bt_off_pin, _disable_bluetooth_via_button)
+
+    return assignments
+
+
+def _start_button_monitor() -> None:
+    global button_monitor
+
+    if TESTING:
+        logging.debug("GPIO-Button-Monitor: Testmodus aktiv – Monitor wird nicht gestartet")
+        return
+
+    assignments = _build_button_assignments()
+    if not assignments:
+        logging.info("GPIO-Button-Monitor: Keine Taster-Konfiguration gefunden")
+        return
+
+    poll_interval = _parse_float_env("GPIO_BUTTON_POLL_INTERVAL_SEC")
+    if poll_interval is None:
+        poll_interval = 0.01
+    elif poll_interval <= 0:
+        logging.warning(
+            "GPIO-Button-Monitor: Poll-Intervall %s ist ungültig – verwende 0.01 s",
+            poll_interval,
+        )
+        poll_interval = 0.01
+
+    monitor = ButtonMonitor(
+        assignments,
+        chip_id=gpio_chip_id,
+        poll_interval=poll_interval,
+        name="gpio-button-monitor",
+    )
+    if monitor.start():
+        button_monitor = monitor
+    else:
+        logging.error("GPIO-Button-Monitor: Start fehlgeschlagen")
+
+
+def _stop_button_monitor() -> None:
+    global button_monitor
+    monitor = button_monitor
+    if monitor is None:
+        return
+    try:
+        monitor.stop(timeout=2.0)
+    finally:
+        button_monitor = None
+
+
+atexit.register(_stop_button_monitor)
+
+
 if not TESTING:
     threading.Thread(target=bluetooth_auto_accept, daemon=True).start()
     threading.Thread(target=bt_audio_monitor, daemon=True).start()
+    _start_button_monitor()
 
 if __name__ == "__main__":
     debug = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true", "yes")
@@ -4567,6 +4949,7 @@ if __name__ == "__main__":
         # Scheduler nur stoppen, wenn er wirklich gestartet wurde (z.B. nicht im TESTING-Modus)
         if getattr(scheduler, "running", False):
             scheduler.shutdown()
+        _stop_button_monitor()
         if not TESTING and GPIO_AVAILABLE and gpio_handle is not None:
             try:
                 deactivate_amplifier()
