@@ -101,6 +101,24 @@ apt_get() {
     fi
 }
 
+validate_chmod_mode() {
+    local value="$1"
+    local var_name="$2"
+    if [[ ! "$value" =~ ^[0-7]{3,4}$ ]]; then
+        if [ -n "$var_name" ]; then
+            echo "Ungültiger Wert für ${var_name}: '$value'. Erwartet wird eine oktale chmod-Angabe (z. B. 775 oder 660)." >&2
+        else
+            echo "Ungültige chmod-Angabe: '$value'. Erwartet werden drei oder vier oktale Ziffern." >&2
+        fi
+        exit 1
+    fi
+}
+
+UPLOAD_DIR_MODE="${INSTALL_UPLOAD_DIR_MODE:-775}"
+LOG_FILE_MODE="${INSTALL_LOG_FILE_MODE:-660}"
+validate_chmod_mode "$UPLOAD_DIR_MODE" INSTALL_UPLOAD_DIR_MODE
+validate_chmod_mode "$LOG_FILE_MODE" INSTALL_LOG_FILE_MODE
+
 ARG_FLASK_SECRET_KEY=""
 ARG_RTC_MODE=""
 ARG_RTC_ADDRESSES=""
@@ -1170,11 +1188,13 @@ apt_get install -y alsa-utils
 
 # Upload-Verzeichnis anlegen
 mkdir -p uploads
-chmod 777 uploads
+sudo chown "$TARGET_USER:$TARGET_GROUP" uploads
+sudo chmod "$UPLOAD_DIR_MODE" uploads
 
 # Logfile anlegen
 touch app.log
-chmod 666 app.log
+sudo chown "$TARGET_USER:$TARGET_GROUP" app.log
+sudo chmod "$LOG_FILE_MODE" app.log
 
 # DB anlegen falls nicht da (Initialisierung passiert beim ersten Start)
 if [ ! -f audio.db ]; then

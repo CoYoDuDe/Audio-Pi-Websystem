@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=simple
 User=pi
-Group=audio
+Group=pi
 WorkingDirectory=/opt/Audio-Pi-Websystem
 ExecStartPre=/bin/sleep 10
 Environment=FLASK_DEBUG=0
