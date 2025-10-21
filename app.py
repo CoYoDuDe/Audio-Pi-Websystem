@@ -3940,8 +3940,10 @@ def wlan_connect():
                 len(raw_password),
             )
             return redirect(url_for("index"))
+    base_cmd = ["sudo", "wpa_cli", "-i", "wlan0"]
+    net_id: Optional[str] = None
+
     try:
-        base_cmd = ["sudo", "wpa_cli", "-i", "wlan0"]
         net_id = _run_wpa_cli(base_cmd + ["add_network"], expect_ok=False).strip()
         _run_wpa_cli(base_cmd + ["set_network", net_id, "ssid", formatted_ssid])
         if is_open_network:
@@ -3967,6 +3969,18 @@ def wlan_connect():
             getattr(e, "output", ""),
             getattr(e, "stderr", ""),
         )
+        if net_id:
+            try:
+                _run_wpa_cli(base_cmd + ["remove_network", net_id], expect_ok=False)
+                logging.info(
+                    "Unvollständiges WLAN-Netzwerk %s nach Fehler entfernt.", net_id
+                )
+            except Exception as cleanup_error:  # pragma: no cover - Logging wird getestet
+                logging.warning(
+                    "Aufräumen des WLAN-Netzwerks %s fehlgeschlagen: %s",
+                    net_id,
+                    cleanup_error,
+                )
         flash("Fehler beim WLAN-Verbindungsaufbau. Details im Log einsehbar.")
     return redirect(url_for("index"))
 

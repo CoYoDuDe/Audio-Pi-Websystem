@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import subprocess
 from subprocess import CompletedProcess
 
 from tests.csrf_utils import csrf_post
@@ -290,3 +291,49 @@ def test_wlan_connect_fail_stops_sequence(client, monkeypatch):
         call for call in calls if len(call) > 4 and call[4] == "enable_network"
     ]
     assert enable_calls == []
+
+
+def test_wlan_connect_removes_network_on_failure(client, monkeypatch):
+    flask_client, app_module = client
+    calls = []
+
+    def fake_run_wpa_cli(args, expect_ok=True):
+        calls.append((args, expect_ok))
+        if args[-1] == "add_network":
+            return "9"
+        if args[4:7] == ["set_network", "9", "ssid"]:
+            return "OK"
+        if args[4:7] == ["set_network", "9", "psk"]:
+            raise subprocess.CalledProcessError(
+                1, args, output="FAIL invalid", stderr=""
+            )
+        if args[-2:] == ["remove_network", "9"]:
+            return "OK"
+        return "OK"
+
+    _login_admin(flask_client)
+    monkeypatch.setattr(app_module, "_run_wpa_cli", fake_run_wpa_cli)
+
+    response = csrf_post(
+        flask_client,
+        "/wlan_connect",
+        data={"ssid": "CleanupNet", "password": "secretpass"},
+        follow_redirects=False,
+        source_url="/change_password",
+    )
+
+    assert response.status_code == 302
+
+    remove_calls = [
+        entry for entry in calls if entry[0][-2:] == ["remove_network", "9"]
+    ]
+    assert len(remove_calls) == 1
+    assert remove_calls[0][1] is False
+
+    psk_call_index = next(
+        index
+        for index, (args, _expect_ok) in enumerate(calls)
+        if args[4:7] == ["set_network", "9", "psk"]
+    )
+    remove_call_index = calls.index(remove_calls[0])
+    assert remove_call_index > psk_call_index
