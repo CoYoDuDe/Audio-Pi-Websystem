@@ -88,9 +88,19 @@ bevor `app.py` ausgeführt wird. Zusätzlich setzt die Service-Datei
 funktioniert. 
 
 > **Wichtig:** In der Vorlage `audio-pi.service` ist `Environment=FLASK_SECRET_KEY=__CHANGE_ME__`
-> als Platzhalter hinterlegt. Wer die Unit manuell installiert, muss diesen
-> Wert vor dem Kopieren durch einen sicheren Schlüssel ersetzen, z. B. via
-> `sudo sed -i "s|Environment=FLASK_SECRET_KEY=.*|Environment=FLASK_SECRET_KEY=<dein_schlüssel>|" audio-pi.service`.
+> als Platzhalter hinterlegt. Der Installer ersetzt diesen inzwischen automatisch
+> durch `Environment="FLASK_SECRET_KEY=<dein_schlüssel>"` und maskiert dabei
+> mindestens doppelte Anführungszeichen (`"`), Backslashes (`\`) und Dollarzeichen (`$`).
+> Wer die Unit manuell installiert, sollte dieselbe Maskierung verwenden, z. B. via
+> `sudo sed -i "s|^Environment=FLASK_SECRET_KEY=.*|Environment=\"FLASK_SECRET_KEY=mein\ \"Secret\"\"|" audio-pi.service`.
+
+Nach der Installation lässt sich das gesetzte Secret – auch mit Leerzeichen – per
+
+```bash
+systemctl show --property=Environment audio-pi.service
+```
+
+überprüfen.
 
 Sollte die Unit manuell neu geladen werden müssen, genügt:
 ```bash
