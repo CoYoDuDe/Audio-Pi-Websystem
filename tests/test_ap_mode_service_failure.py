@@ -47,6 +47,20 @@ def test_disable_ap_logs_warning_on_service_failure(monkeypatch, caplog):
     )
 
 
+def test_disable_ap_stops_dnsmasq_even_if_hostapd_fails(monkeypatch):
+    calls = []
+
+    def fake_call(cmd, *_args, **_kwargs):
+        service = cmd[-1]
+        calls.append(service)
+        return 1 if service == "hostapd" else 0
+
+    monkeypatch.setattr(app.subprocess, "call", fake_call)
+
+    assert app.disable_ap() is False
+    assert calls == ["hostapd", "dnsmasq"]
+
+
 def test_setup_ap_propagates_disable_failure(monkeypatch):
     monkeypatch.setattr(app, "has_network", lambda: True)
 
