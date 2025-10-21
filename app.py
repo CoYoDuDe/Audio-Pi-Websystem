@@ -3061,17 +3061,17 @@ def setup_ap():
 
 def disable_ap():
     try:
-        if not _call_systemctl("stop", "hostapd"):
-            return False
-        if not _call_systemctl("stop", "dnsmasq"):
-            return False
+        hostapd_stopped = _call_systemctl("stop", "hostapd")
+        dnsmasq_stopped = _call_systemctl("stop", "dnsmasq")
     except (FileNotFoundError, OSError) as exc:
         logging.error("sudo oder systemctl nicht gefunden: %s", exc)
         if has_request_context():
             flash("sudo oder systemctl nicht gefunden")
         return False
-    logging.info("AP-Modus deaktiviert")
-    return True
+    if hostapd_stopped and dnsmasq_stopped:
+        logging.info("AP-Modus deaktiviert")
+        return True
+    return False
 
 
 # ---- Flask Web-UI ----
