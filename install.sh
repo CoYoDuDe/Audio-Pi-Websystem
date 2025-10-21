@@ -199,6 +199,10 @@ CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 INSERT OR REPLACE INTO settings (key, value) VALUES ('rtc_module_type', '$RTC_MODULE_ESC');
 INSERT OR REPLACE INTO settings (key, value) VALUES ('rtc_addresses', '$RTC_ADDRESS_ESC');
 SQL
+    if [ -f audio.db ]; then
+        sudo chown "$TARGET_USER:$TARGET_GROUP" audio.db
+        sudo chmod 660 audio.db
+    fi
     echo "RTC-Einstellungen wurden in audio.db übernommen."
 else
     echo "Warnung: sqlite3 nicht verfügbar – RTC-Einstellungen konnten nicht gespeichert werden."
@@ -308,6 +312,10 @@ if [ "$HAT_SELECTED_KEY" != "skip" ]; then
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 INSERT OR REPLACE INTO settings (key, value) VALUES ('dac_sink_name', '$DAC_SINK_ESC');
 SQL
+        if [ -f audio.db ]; then
+            sudo chown "$TARGET_USER:$TARGET_GROUP" audio.db
+            sudo chmod 660 audio.db
+        fi
         echo "DAC-Sink-Vorgabe wurde in audio.db gespeichert."
     else
         echo "Warnung: sqlite3 nicht verfügbar – DAC-Sink konnte nicht gespeichert werden."
@@ -476,7 +484,13 @@ touch app.log
 chmod 666 app.log
 
 # DB anlegen falls nicht da (Initialisierung passiert beim ersten Start)
-[ -f audio.db ] || touch audio.db
+if [ ! -f audio.db ]; then
+    touch audio.db
+fi
+if [ -f audio.db ]; then
+    sudo chown "$TARGET_USER:$TARGET_GROUP" audio.db
+    sudo chmod 660 audio.db
+fi
 
 # systemd-Dienst einrichten
 sudo cp audio-pi.service /etc/systemd/system/
