@@ -157,3 +157,32 @@ def test_perform_internet_time_sync_handles_missing_systemctl(monkeypatch, app_m
     assert ["sudo", "systemctl", "start", "systemd-timesyncd"] in commands
     assert success is False
     assert any("sudo" in message.lower() or "systemctl" in message.lower() for message in messages)
+
+
+def test_perform_internet_time_sync_handles_missing_ntpdate(monkeypatch, app_module):
+    commands = []
+    rtc_called = False
+
+    def fake_check_call(cmd, *args, **kwargs):
+        commands.append(cmd)
+        if cmd == ["sudo", "ntpdate", "pool.ntp.org"]:
+            raise FileNotFoundError(2, "No such file or directory", "ntpdate")
+        return 0
+
+    def fake_set_rtc(dt):
+        nonlocal rtc_called
+        rtc_called = True
+
+    monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
+    monkeypatch.setattr(app_module, "set_rtc", fake_set_rtc)
+
+    success, messages = app_module.perform_internet_time_sync()
+
+    assert ["sudo", "systemctl", "stop", "systemd-timesyncd"] in commands
+    assert ["sudo", "ntpdate", "pool.ntp.org"] in commands
+    assert rtc_called is False
+    assert success is False
+    assert any(
+        "Kommando 'ntpdate' nicht gefunden, Internet-Sync abgebrochen" in message
+        for message in messages
+    )
