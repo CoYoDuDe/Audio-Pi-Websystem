@@ -168,6 +168,34 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now audio-pi.service
 ```
 
+### Dateipfade & Rechte
+
+`install.sh` legt das Upload-Verzeichnis `uploads/` und die Logdatei `app.log` jetzt automatisch mit den Rechten des Dienstbenutzers an. Sowohl Besitzer als auch Gruppe werden auf den während der Installation gewählten Account (`$TARGET_USER:$TARGET_GROUP`) gesetzt, damit der systemd-Dienst ohne zusätzliche Privilegien schreiben kann. Standardmäßig gelten dabei folgende Modi:
+
+- `uploads/`: `chmod 775` (Schreib-/Leserechte für Benutzer und Gruppe, nur Lesen für andere)
+- `app.log`: `chmod 660` (Schreib-/Leserechte für Benutzer und Gruppe, kein Zugriff für andere)
+
+Wer ein vollständig geschlossenes System betreibt, kann die Werte bereits beim Installationslauf anpassen, z. B. `INSTALL_UPLOAD_DIR_MODE=750` und `INSTALL_LOG_FILE_MODE=640` für ausschließlichen Gruppen-/Benutzerzugriff. Die Angaben müssen als oktale chmod-Werte (drei oder vier Stellen) übergeben werden:
+
+```bash
+sudo INSTALL_FLASK_SECRET_KEY="$(openssl rand -hex 32)" \
+     INSTALL_UPLOAD_DIR_MODE=750 \
+     INSTALL_LOG_FILE_MODE=640 \
+     INSTALL_AP_SETUP=no \
+     bash install.sh --non-interactive
+```
+
+Alle beteiligten Prozesse laufen über dieselben Account-Daten: `audio-pi.service` setzt `User=` und `Group=` auf den oben genannten Benutzer bzw. dessen Primärgruppe, sodass Schreibrechte für Uploads und Logfiles konsistent bleiben.
+
+Zusätzliche Benutzer (z. B. für SFTP-Transfers) werden sauber über Gruppenrechte eingebunden. Ermittle zunächst die Primärgruppe des Dienstkontos und füge danach den gewünschten Benutzer hinzu – die Upload- und Log-Rechte greifen damit automatisch:
+
+```bash
+SERVICE_GROUP=$(id -gn <dienstbenutzer>)
+sudo usermod -aG "$SERVICE_GROUP" <dein_benutzername>
+```
+
+Der Zugriff lässt sich anschließend mit `stat uploads app.log` prüfen; Schreiben ist ausschließlich für den Dienstaccount und Mitglieder der vergebenen Gruppe erlaubt.
+
 ## Datenbank-Initialisierung
 
 Beim ersten Start legt die Anwendung automatisch die SQLite-Datenbank `audio.db` an, erzeugt sämtliche Tabellen und erstellt den Benutzer `admin`. Ein hart codiertes Standard-Passwort existiert nicht mehr:
