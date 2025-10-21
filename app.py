@@ -2423,7 +2423,15 @@ def play_item(item_id, item_type, delay, is_schedule=False, volume_percent=100):
                 os.remove(temp_path)
             except FileNotFoundError:
                 pass
-            deactivate_amplifier()
+            bt_connected = is_bt_connected()
+            if bt_connected:
+                logging.info(
+                    "Bluetooth-Verbindung aktiv – Endstufe bleibt eingeschaltet und Loopback wird reaktiviert."
+                )
+                resume_bt_audio()
+                load_loopback()
+            else:
+                deactivate_amplifier()
             logging.info("Wiedergabe beendet")
 
 

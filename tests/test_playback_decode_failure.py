@@ -185,3 +185,46 @@ def test_play_now_thread_handles_decode_error(monkeypatch, tmp_path, caplog):
     assert dummy_music.loaded_files == []
     assert any("Konnte Audiodatei" in message for message in error_messages)
     assert "Abspielen gestartet" in messages
+
+
+def test_play_item_keeps_amp_active_for_bt(monkeypatch, tmp_path, caplog):
+    app_module, _dummy_music = _setup_app(monkeypatch, tmp_path)
+
+    @contextmanager
+    def dummy_connection():
+        class DummyCursor:
+            def execute(self, *_args, **_kwargs):
+                return None
+
+            def fetchone(self):
+                return {"filename": "missing.mp3", "duration_seconds": 5}
+
+        yield (None, DummyCursor())
+
+    monkeypatch.setattr(app_module, "get_db_connection", dummy_connection)
+
+    calls = {"deactivate": 0, "resume": 0, "loopback": 0}
+
+    def fake_deactivate():
+        calls["deactivate"] += 1
+
+    def fake_resume():
+        calls["resume"] += 1
+
+    def fake_loopback():
+        calls["loopback"] += 1
+
+    monkeypatch.setattr(app_module, "deactivate_amplifier", fake_deactivate)
+    monkeypatch.setattr(app_module, "resume_bt_audio", fake_resume)
+    monkeypatch.setattr(app_module, "load_loopback", fake_loopback)
+    monkeypatch.setattr(app_module, "is_bt_connected", lambda: True)
+
+    with caplog.at_level(logging.INFO):
+        app_module.play_item(1, "file", delay=0, is_schedule=True)
+
+    assert calls["deactivate"] == 0
+    assert calls["resume"] == 1
+    assert calls["loopback"] == 1
+    assert any(
+        "Bluetooth-Verbindung aktiv" in record.message for record in caplog.records
+    )
