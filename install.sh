@@ -379,12 +379,24 @@ EOF
 
 create_dnsmasq_conf() {
     local default_ap_ip="192.168.50.1"
+    local default_ap_prefix="24"
     local default_dhcp_start="192.168.50.50"
     local default_dhcp_end="192.168.50.150"
     local default_dhcp_time="24h"
 
     read -rp "Statische AP-IP [${default_ap_ip}]: " AP_IPV4
     AP_IPV4=${AP_IPV4:-$default_ap_ip}
+
+    read -rp "AP-Subnetz-Präfix (CIDR, z.B. 24) [${default_ap_prefix}]: " AP_IPV4_PREFIX
+    AP_IPV4_PREFIX=${AP_IPV4_PREFIX:-$default_ap_prefix}
+    AP_IPV4_PREFIX=${AP_IPV4_PREFIX//[^0-9]/}
+    if [ -z "$AP_IPV4_PREFIX" ]; then
+        AP_IPV4_PREFIX=$default_ap_prefix
+    fi
+    if ! [[ $AP_IPV4_PREFIX =~ ^([0-9]|[1-2][0-9]|3[0-2])$ ]]; then
+        echo "Warnung: Ungültiger Präfix '$AP_IPV4_PREFIX', verwende ${default_ap_prefix}."
+        AP_IPV4_PREFIX=$default_ap_prefix
+    fi
 
     read -rp "DHCP-Startadresse [${default_dhcp_start}]: " DHCP_RANGE_START
     DHCP_RANGE_START=${DHCP_RANGE_START:-$default_dhcp_start}
@@ -424,6 +436,50 @@ configure_ap_networking() {
 
     echo "Aktiviere WLAN-Sendeeinheit..."
     sudo rfkill unblock wlan || true
+
+    local cidr_suffix="${AP_IPV4_PREFIX:-24}"
+    if ! [[ $cidr_suffix =~ ^([0-9]|[1-2][0-9]|3[0-2])$ ]]; then
+        echo "Warnung: Ungültiger Präfix '$cidr_suffix', verwende 24."
+        cidr_suffix="24"
+    fi
+    if [ -n "$AP_IPV4" ]; then
+        echo "Setze statische IP ${AP_IPV4}/${cidr_suffix} auf ${AP_INTERFACE}..."
+        sudo ip addr replace "${AP_IPV4}/${cidr_suffix}" dev "$AP_INTERFACE"
+        sudo ip link set "$AP_INTERFACE" up
+
+        echo "Aktualisiere /etc/dhcpcd.conf für die AP-Schnittstelle..."
+        local dhcpcd_conf="/etc/dhcpcd.conf"
+        local timestamp
+        timestamp=$(date +%s)
+        if [ -f "$dhcpcd_conf" ]; then
+            local dhcpcd_backup="${dhcpcd_conf}.bak.${timestamp}"
+            sudo cp "$dhcpcd_conf" "$dhcpcd_backup"
+            echo "Backup erstellt: ${dhcpcd_backup}"
+        else
+            echo "Hinweis: ${dhcpcd_conf} existierte nicht und wird neu angelegt."
+            sudo touch "$dhcpcd_conf"
+        fi
+
+        local tmp_file
+        tmp_file=$(mktemp)
+        sudo awk '
+            BEGIN { skip=0 }
+            /^# Audio-Pi Access Point configuration$/ { skip=1; next }
+            /^# Audio-Pi Access Point configuration end$/ { skip=0; next }
+            skip { next }
+            { print }
+        ' "$dhcpcd_conf" > "$tmp_file"
+        sudo mv "$tmp_file" "$dhcpcd_conf"
+        sudo chmod 644 "$dhcpcd_conf"
+        sudo tee -a "$dhcpcd_conf" >/dev/null <<EOF
+# Audio-Pi Access Point configuration
+interface ${AP_INTERFACE}
+static ip_address=${AP_IPV4}/${cidr_suffix}
+nohook wpa_supplicant
+# Audio-Pi Access Point configuration end
+EOF
+        echo "Statische Adresse ${AP_IPV4}/${cidr_suffix} dauerhaft in ${dhcpcd_conf} eingetragen."
+    fi
 
     echo "Aktiviere IPv4-Forwarding..."
     if sudo grep -q '^[[:space:]]*#\?net\.ipv4\.ip_forward' /etc/sysctl.conf; then
