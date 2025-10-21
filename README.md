@@ -43,6 +43,9 @@ Dienstbenutzer (`$TARGET_USER:$TARGET_GROUP`) gehört und mit `chmod 660`
 beschreibbare Rechte erhält, unabhängig davon, ob die Datei neu angelegt oder
 bereits vorhanden war.
 
+> **Neu:** Der Installer übernimmt Secrets inklusive Sonderzeichen (z. B. `/`, `&`, Leerzeichen)
+> unverändert sowohl für den interaktiven Start als auch für den systemd-Dienst.
+
 **2. Umgebung einrichten**
 ```bash
 bash setup_env.sh
