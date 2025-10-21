@@ -44,7 +44,8 @@ beschreibbare Rechte erhält, unabhängig davon, ob die Datei neu angelegt oder
 bereits vorhanden war.
 
 > **Neu:** Der Installer übernimmt Secrets inklusive Sonderzeichen (z. B. `/`, `&`, Leerzeichen)
-> unverändert sowohl für den interaktiven Start als auch für den systemd-Dienst.
+> sowie führender/abschließender Leerzeichen unverändert sowohl für den interaktiven Start
+> als auch für den systemd-Dienst.
 > **Neu:** Installationen in Pfaden mit Leerzeichen, `&`, `|` oder Backslashes werden bei der
 > systemd-Unit jetzt automatisch korrekt eingetragen.
 
