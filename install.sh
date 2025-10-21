@@ -527,7 +527,12 @@ SYSTEMD_SED_SAFE_SECRET=$(printf '%s' "$SYSTEMD_QUOTED_SECRET" | sed -e 's/[&|]/
 
 # I²C für RTC aktivieren
 sudo raspi-config nonint do_i2c 0
-echo "i2c-dev" | sudo tee -a /etc/modules
+if sudo grep -q '^i2c-dev$' /etc/modules; then
+    echo "i2c-dev ist bereits in /etc/modules eingetragen – überspringe."
+else
+    echo "Füge i2c-dev zu /etc/modules hinzu."
+    printf 'i2c-dev\n' | sudo tee -a /etc/modules >/dev/null
+fi
 
 # Werkzeuge für die automatische RTC-Erkennung bereitstellen
 apt_get install -y i2c-tools
