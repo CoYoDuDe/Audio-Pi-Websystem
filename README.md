@@ -43,6 +43,50 @@ Dienstbenutzer (`$TARGET_USER:$TARGET_GROUP`) gehört und mit `chmod 660`
 beschreibbare Rechte erhält, unabhängig davon, ob die Datei neu angelegt oder
 bereits vorhanden war.
 
+Seit dem aktuellen Update lassen sich alle Dialoge per CLI-Flag oder per
+Umgebungsvariablen mit dem Präfix `INSTALL_…` vorbelegen. Sobald alle
+Pflichtwerte gesetzt sind, läuft `install.sh` vollständig automatisch. Das
+Kommando `./install.sh --help` listet alle verfügbaren Optionen auf.
+
+**Beispiele für automatisierte Aufrufe:**
+
+```bash
+# Vollautomatische Installation ohne Access Point, Werte per Umgebungsvariablen
+sudo INSTALL_FLASK_SECRET_KEY="$(openssl rand -hex 32)" \
+     INSTALL_RTC_MODE=auto \
+     INSTALL_RTC_ACCEPT_DETECTION=yes \
+     INSTALL_AP_SETUP=no \
+     HAT_MODEL=hifiberry_dacplus \
+     bash install.sh --non-interactive
+
+# Gleiche Installation mit expliziten CLI-Flags inkl. Access-Point-Konfiguration
+sudo bash install.sh \
+     --flask-secret-key "$(openssl rand -hex 32)" \
+     --rtc-mode ds3231 --rtc-accept-detection yes \
+     --hat-model hifiberry_amp2 \
+     --ap --ap-ssid AudioPiAP --ap-passphrase "AudioPiSecure!" \
+     --ap-country DE --ap-interface wlan0 \
+     --ap-ipv4 192.168.50.1 --ap-prefix 24 \
+     --ap-dhcp-start 192.168.50.50 --ap-dhcp-end 192.168.50.150 \
+     --ap-dhcp-lease 24h --ap-wan eth0 \
+     --non-interactive
+```
+
+Dabei gilt:
+
+- `--flask-secret-key` / `INSTALL_FLASK_SECRET_KEY` setzen das notwendige Flask-Secret.
+- `--rtc-mode` (`auto`, `pcf8563`, `ds3231`, `skip`) und `--rtc-accept-detection`
+  steuern die RTC-Erkennung; Adressen (`--rtc-addresses`) und Overlays
+  (`--rtc-overlay`) lassen sich ebenfalls vorbelegen.
+- HAT-Voreinstellungen können über `--hat-*` Flags oder die bekannten Variablen
+  (`HAT_MODEL`, `HAT_DTOOVERLAY`, `HAT_SINK_NAME`, …) erfolgen.
+- Für den WLAN-Access-Point existieren Flags wie `--ap-ssid`,
+  `--ap-passphrase`, `--ap-channel`, `--ap-country`, `--ap-interface`,
+  `--ap-ipv4`, `--ap-prefix`, `--ap-dhcp-start`, `--ap-dhcp-end`,
+  `--ap-dhcp-lease` und `--ap-wan`. Ohne vollständige Angaben wechselt der
+  Installer automatisch in den Dialogmodus oder – bei `--non-interactive` –
+  bricht mit einer passenden Fehlermeldung ab.
+
 > **Neu:** Der Installer übernimmt Secrets inklusive Sonderzeichen (z. B. `/`, `&`, Leerzeichen)
 > sowie führender/abschließender Leerzeichen unverändert sowohl für den interaktiven Start
 > als auch für den systemd-Dienst.
@@ -163,6 +207,11 @@ Nachgang manuell editieren (z. B. `/etc/dhcpcd.conf` und
 `/etc/dnsmasq.d/audio-pi.conf`). Nach Änderungen empfiehlt sich ein Neustart des
 `dhcpcd`-Dienstes bzw. ein Reboot, damit alle Komponenten die neuen Einstellungen
 übernehmen.
+
+> 💡 Für automatisierte Setups lassen sich alle Access-Point-Parameter per
+> `INSTALL_AP_*` Variablen oder `--ap-*` Flags vorkonfigurieren. Zusammen mit
+> `--ap` und `--non-interactive` entfällt jede manuelle Eingabe; fehlt ein Pflichtwert,
+> bricht der Installer mit einer Fehlermeldung ab.
 
 > **Hinweis:** Da aktuelle Raspberry-Pi-Images `hostapd` und teilweise auch `dnsmasq`
 > standardmäßig maskieren, hebt der Installer bestehende Masken automatisch per
