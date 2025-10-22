@@ -12,6 +12,9 @@ import multiprocessing
 import os
 from typing import Callable
 
+# Verhindert, dass app.py während des Preloads eigenständig Hintergrunddienste startet.
+os.environ.setdefault("AUDIO_PI_SUPPRESS_AUTOSTART", "1")
+
 
 def _read_int_from_env(name: str, default: int, *, minimum: int | None = None) -> int:
     value = os.getenv(name)
@@ -78,3 +81,70 @@ capture_output = True
 errorlog = "-"
 accesslog = "-"
 loglevel = os.getenv("AUDIO_PI_GUNICORN_LOGLEVEL", "info")
+
+_logger = logging.getLogger(__name__)
+_BACKGROUND_SERVICE_OWNER = multiprocessing.Value("i", 0)
+
+
+def _ensure_app_module():
+    try:
+        import app  # type: ignore
+    except Exception:  # pragma: no cover - Fehler wird im Aufrufer geloggt
+        raise
+    return app
+
+
+def post_fork(server, worker):  # pragma: no cover - Wird in Tests simuliert
+    """Startet Hintergrunddienste genau einmal nach dem Fork."""
+
+    with _BACKGROUND_SERVICE_OWNER.get_lock():
+        if _BACKGROUND_SERVICE_OWNER.value not in (0, worker.pid):
+            return
+
+        try:
+            app_module = _ensure_app_module()
+            started = app_module.start_background_services()
+        except Exception:  # pragma: no cover - Fehlerführung via Gunicorn
+            _logger.exception(
+                "Start der Hintergrunddienste im Worker %s fehlgeschlagen.",
+                worker.pid,
+            )
+            raise
+
+        if started:
+            _logger.info("Hintergrunddienste im Worker %s gestartet.", worker.pid)
+        else:
+            _logger.debug(
+                "Hintergrunddienste waren bereits aktiv (Worker %s).",
+                worker.pid,
+            )
+        _BACKGROUND_SERVICE_OWNER.value = worker.pid
+
+
+def worker_exit(server, worker):  # pragma: no cover - Wird in Tests simuliert
+    """Stoppt Hintergrunddienste, wenn der verantwortliche Worker endet."""
+
+    with _BACKGROUND_SERVICE_OWNER.get_lock():
+        if _BACKGROUND_SERVICE_OWNER.value != worker.pid:
+            return
+
+        try:
+            app_module = _ensure_app_module()
+            stopped = app_module.stop_background_services()
+        except Exception:
+            _logger.exception(
+                "Stoppen der Hintergrunddienste im Worker %s fehlgeschlagen.",
+                worker.pid,
+            )
+        else:
+            if stopped:
+                _logger.info(
+                    "Hintergrunddienste durch Worker %s gestoppt.", worker.pid
+                )
+            else:
+                _logger.debug(
+                    "Worker %s meldete bereits gestoppte Hintergrunddienste.",
+                    worker.pid,
+                )
+        finally:
+            _BACKGROUND_SERVICE_OWNER.value = 0

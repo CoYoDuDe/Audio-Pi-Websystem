@@ -8,6 +8,10 @@ import types
 import glob
 from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.base import (
+    SchedulerAlreadyRunningError,
+    SchedulerNotRunningError,
+)
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 import sqlite3
@@ -158,6 +162,7 @@ def _env_to_bool(value):
 
 
 TESTING = _env_to_bool(TESTING_RAW)
+SUPPRESS_AUTOSTART = _env_to_bool(os.getenv("AUDIO_PI_SUPPRESS_AUTOSTART"))
 app.testing = TESTING
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
@@ -1234,6 +1239,8 @@ else:
 # Scheduler
 LOCAL_TZ = datetime.now().astimezone().tzinfo
 scheduler = BackgroundScheduler(timezone=LOCAL_TZ)
+_BACKGROUND_SERVICES_LOCK = threading.RLock()
+_BACKGROUND_SERVICES_STARTED = False
 AUTO_REBOOT_JOB_ID = "auto_reboot_job"
 AUTO_REBOOT_MISFIRE_GRACE_SECONDS = 300
 AUTO_REBOOT_WEEKDAYS = [
@@ -2969,11 +2976,58 @@ def load_schedules():
         update_auto_reboot_job()
 
 
-if not TESTING:
-    skip_past_once_schedules()
-    load_schedules()
-    update_auto_reboot_job()
-    scheduler.start()
+def start_background_services(*, force: bool = False) -> bool:
+    """Startet Scheduler und abhängige Hintergrundaufgaben idempotent."""
+
+    global _BACKGROUND_SERVICES_STARTED
+
+    with _BACKGROUND_SERVICES_LOCK:
+        if _BACKGROUND_SERVICES_STARTED and not force:
+            logging.debug("Hintergrunddienste bereits gestartet – kein erneuter Start.")
+            return False
+
+        skip_past_once_schedules()
+        load_schedules()
+        update_auto_reboot_job()
+
+        try:
+            if not getattr(scheduler, "running", False):
+                scheduler.start()
+        except SchedulerAlreadyRunningError:
+            logging.debug("Scheduler läuft bereits – Start übersprungen.")
+        _BACKGROUND_SERVICES_STARTED = True
+        logging.info("Hintergrunddienste initialisiert.")
+        return True
+
+
+def stop_background_services(*, wait: bool = False) -> bool:
+    """Stoppt Scheduler und bereinigt Ressourcen idempotent."""
+
+    global _BACKGROUND_SERVICES_STARTED
+
+    with _BACKGROUND_SERVICES_LOCK:
+        was_running = bool(getattr(scheduler, "running", False))
+        try:
+            if was_running:
+                scheduler.shutdown(wait=wait)
+        except SchedulerNotRunningError:
+            logging.debug("Scheduler war beim Stoppen bereits beendet.")
+            was_running = False
+        finally:
+            _BACKGROUND_SERVICES_STARTED = False
+
+        if was_running:
+            logging.info("Hintergrunddienste gestoppt.")
+        return was_running
+
+
+if not TESTING and not SUPPRESS_AUTOSTART:
+    try:
+        start_background_services()
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Autostart der Hintergrunddienste fehlgeschlagen."
+        )
 
 
 # --- Bluetooth-Hilfsfunktionen ---
@@ -5673,6 +5727,7 @@ def _refresh_button_monitor_configuration() -> None:
 
 
 atexit.register(_stop_button_monitor)
+atexit.register(stop_background_services)
 
 
 if not TESTING:
@@ -5692,7 +5747,7 @@ if __name__ == "__main__":
         )
         logging.error(message)
         if getattr(scheduler, "running", False):
-            scheduler.shutdown()
+            stop_background_services()
         _stop_button_monitor()
         if not TESTING and GPIO_AVAILABLE and gpio_handle is not None:
             try:
@@ -5712,11 +5767,12 @@ if __name__ == "__main__":
         )
         port = 80
     try:
+        start_background_services()
         app.run(host="0.0.0.0", port=port, debug=debug)
     finally:
         # Scheduler nur stoppen, wenn er wirklich gestartet wurde (z.B. nicht im TESTING-Modus)
         if getattr(scheduler, "running", False):
-            scheduler.shutdown()
+            stop_background_services()
         _stop_button_monitor()
         if not TESTING and GPIO_AVAILABLE and gpio_handle is not None:
             try:
