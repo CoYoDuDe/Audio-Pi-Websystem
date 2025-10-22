@@ -137,6 +137,8 @@ Dabei gilt:
 > als auch für den systemd-Dienst.
 > **Neu:** Installationen in Pfaden mit Leerzeichen, `&`, `|` oder Backslashes werden bei der
 > systemd-Unit jetzt automatisch korrekt eingetragen.
+> **Neu:** Bereits vorhandene `export FLASK_SECRET_KEY=…`-Zeilen in `~/.profile` werden gezielt
+> ersetzt, statt dass zusätzliche Einträge angehängt werden.
 
 **2. Umgebung einrichten**
 ```bash
