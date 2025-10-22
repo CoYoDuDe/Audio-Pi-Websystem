@@ -77,6 +77,7 @@ def _patch_common_dependencies(monkeypatch, dummy_gpio):
 
     monkeypatch.setenv("FLASK_SECRET_KEY", "testkey")
     monkeypatch.setenv("TESTING", "0")
+    monkeypatch.setenv("AUDIO_PI_SUPPRESS_AUTOSTART", "1")
     monkeypatch.setitem(sys.modules, "pygame", dummy_pygame)
     monkeypatch.setitem(sys.modules, "lgpio", dummy_gpio)
     monkeypatch.setattr("subprocess.getoutput", lambda _cmd: "Lautstärke: 50%")
@@ -150,3 +151,50 @@ def test_gpio_init_logs_after_all_candidates_fail(monkeypatch):
 
     # activate_amplifier darf trotz fehlendem GPIO-Handle keine Exception werfen
     app_module.activate_amplifier()
+
+
+def test_button_monitor_lifecycle_managed_by_background_services(monkeypatch):
+    dummy_gpio = _create_dummy_gpio({4: "handle-4"})
+    _patch_common_dependencies(monkeypatch, dummy_gpio)
+    monkeypatch.setattr("glob.glob", lambda pattern: ["/dev/gpiochip4"])
+
+    app_module = importlib.import_module("app")
+    monkeypatch.setattr(app_module, "skip_past_once_schedules", lambda: None)
+    monkeypatch.setattr(app_module, "load_schedules", lambda: None)
+    monkeypatch.setattr(app_module, "update_auto_reboot_job", lambda: None)
+
+    class _DummyScheduler:
+        def __init__(self):
+            self.running = False
+
+        def start(self):
+            self.running = True
+
+        def shutdown(self, wait=False):
+            self.running = False
+
+    dummy_scheduler = _DummyScheduler()
+    monkeypatch.setattr(app_module, "scheduler", dummy_scheduler, raising=False)
+
+    monitor_state = {"running": False}
+
+    def fake_start_button_monitor():
+        monitor_state["running"] = True
+
+    def fake_stop_button_monitor():
+        if monitor_state["running"]:
+            monitor_state["running"] = False
+
+    monkeypatch.setattr(app_module, "_start_button_monitor", fake_start_button_monitor)
+    monkeypatch.setattr(app_module, "_stop_button_monitor", fake_stop_button_monitor)
+    monkeypatch.setattr(app_module, "bluetooth_auto_accept", lambda: "success")
+    monkeypatch.setattr(app_module, "_start_bt_audio_monitor_thread", lambda: None)
+    monkeypatch.setattr(app_module, "_stop_bt_audio_monitor_thread", lambda: None)
+
+    app_module._BACKGROUND_SERVICES_STARTED = False
+
+    assert app_module.start_background_services(force=True) is True
+    assert monitor_state["running"] is True
+
+    assert app_module.stop_background_services() is True
+    assert monitor_state["running"] is False

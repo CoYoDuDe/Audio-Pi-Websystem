@@ -2981,6 +2981,8 @@ def start_background_services(*, force: bool = False) -> bool:
 
     global _BACKGROUND_SERVICES_STARTED
 
+    start_helpers = False
+
     with _BACKGROUND_SERVICES_LOCK:
         if _BACKGROUND_SERVICES_STARTED and not force:
             logging.debug("Hintergrunddienste bereits gestartet – kein erneuter Start.")
@@ -2996,14 +2998,26 @@ def start_background_services(*, force: bool = False) -> bool:
         except SchedulerAlreadyRunningError:
             logging.debug("Scheduler läuft bereits – Start übersprungen.")
         _BACKGROUND_SERVICES_STARTED = True
+        start_helpers = True
         logging.info("Hintergrunddienste initialisiert.")
-        return True
+
+    if start_helpers and not TESTING:
+        if force:
+            _stop_bt_audio_monitor_thread()
+            _stop_button_monitor()
+        _start_bluetooth_auto_accept_thread()
+        _start_bt_audio_monitor_thread()
+        _start_button_monitor()
+
+    return True
 
 
 def stop_background_services(*, wait: bool = False) -> bool:
     """Stoppt Scheduler und bereinigt Ressourcen idempotent."""
 
     global _BACKGROUND_SERVICES_STARTED
+
+    helpers_were_active = False
 
     with _BACKGROUND_SERVICES_LOCK:
         was_running = bool(getattr(scheduler, "running", False))
@@ -3014,20 +3028,17 @@ def stop_background_services(*, wait: bool = False) -> bool:
             logging.debug("Scheduler war beim Stoppen bereits beendet.")
             was_running = False
         finally:
+            helpers_were_active = _BACKGROUND_SERVICES_STARTED
             _BACKGROUND_SERVICES_STARTED = False
 
         if was_running:
             logging.info("Hintergrunddienste gestoppt.")
-        return was_running
 
+    if helpers_were_active:
+        _stop_bt_audio_monitor_thread()
+        _stop_button_monitor()
 
-if not TESTING and not SUPPRESS_AUTOSTART:
-    try:
-        start_background_services()
-    except Exception:
-        logging.getLogger(__name__).exception(
-            "Autostart der Hintergrunddienste fehlgeschlagen."
-        )
+    return was_running
 
 
 # --- Bluetooth-Hilfsfunktionen ---
@@ -3344,6 +3355,10 @@ def load_loopback():
 
 
 # --- Bluetooth Audio Monitor (A2DP-Sink Erkennung & Verstärkersteuerung) ---
+_bt_audio_monitor_thread: Optional[threading.Thread] = None
+_bt_audio_monitor_stop_event: Optional[threading.Event] = None
+
+
 def is_bt_audio_active():
     # Prüft, ob ein Bluetooth-Audio-Stream anliegt (A2DP)
     sinks_output = _run_pactl_command("list", "short", "sinks")
@@ -3380,11 +3395,12 @@ def is_bt_audio_active():
         if any(name in sink_input for name in bluetooth_sink_names):
             return True
     return False
-
-
-def bt_audio_monitor():
+def bt_audio_monitor(stop_event: Optional[threading.Event] = None) -> None:
     was_active = False
     while True:
+        if stop_event is not None and stop_event.is_set():
+            break
+
         active = is_bt_audio_active()
         if active:
             cap = get_bluetooth_volume_cap_percent()
@@ -3397,7 +3413,67 @@ def bt_audio_monitor():
             deactivate_amplifier()
             was_active = False
             logging.info("Bluetooth Audio gestoppt, Verstärker AUS")
-        time.sleep(3)
+
+        if stop_event is not None:
+            if stop_event.wait(3):
+                break
+        else:
+            time.sleep(3)
+
+    if was_active:
+        deactivate_amplifier()
+        logging.info("Bluetooth Audio gestoppt, Verstärker AUS (Shutdown)")
+    logging.debug("Bluetooth Audio Monitor beendet")
+
+
+def _start_bluetooth_auto_accept_thread() -> None:
+    thread = threading.Thread(
+        target=bluetooth_auto_accept,
+        name="bluetooth-auto-accept",
+        daemon=True,
+    )
+    thread.start()
+
+
+def _start_bt_audio_monitor_thread() -> None:
+    global _bt_audio_monitor_thread, _bt_audio_monitor_stop_event
+
+    existing = _bt_audio_monitor_thread
+    if existing and existing.is_alive():
+        return
+
+    stop_event = threading.Event()
+    _bt_audio_monitor_stop_event = stop_event
+    thread = threading.Thread(
+        target=bt_audio_monitor,
+        kwargs={"stop_event": stop_event},
+        name="bt-audio-monitor",
+        daemon=True,
+    )
+    _bt_audio_monitor_thread = thread
+    thread.start()
+
+
+def _stop_bt_audio_monitor_thread(timeout: float = 2.0) -> None:
+    global _bt_audio_monitor_thread, _bt_audio_monitor_stop_event
+
+    thread = _bt_audio_monitor_thread
+    if thread is None:
+        return
+
+    stop_event = _bt_audio_monitor_stop_event
+    if stop_event is not None:
+        stop_event.set()
+
+    thread.join(timeout=timeout)
+
+    if thread.is_alive():
+        logging.warning(
+            "Bluetooth-Audio-Monitor: Thread konnte nicht sauber beendet werden"
+        )
+
+    _bt_audio_monitor_thread = None
+    _bt_audio_monitor_stop_event = None
 
 
 # AP-Modus
@@ -5730,10 +5806,13 @@ atexit.register(_stop_button_monitor)
 atexit.register(stop_background_services)
 
 
-if not TESTING:
-    threading.Thread(target=bluetooth_auto_accept, daemon=True).start()
-    threading.Thread(target=bt_audio_monitor, daemon=True).start()
-    _start_button_monitor()
+if not TESTING and not SUPPRESS_AUTOSTART:
+    try:
+        start_background_services()
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Autostart der Hintergrunddienste fehlgeschlagen."
+        )
 
 if __name__ == "__main__":
     dev_flag = os.environ.get("AUDIO_PI_USE_DEV_SERVER", "").strip().lower()
