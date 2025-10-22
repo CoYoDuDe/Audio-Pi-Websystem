@@ -1,4 +1,5 @@
 import logging
+import threading
 
 import pytest
 
@@ -69,3 +70,75 @@ def test_bluetooth_auto_accept_failure(monkeypatch, client, caplog):
         in record.getMessage()
         for record in caplog.records
     )
+
+
+def test_start_background_services_triggers_bluetooth_helpers(monkeypatch, client):
+    _flask_client, app_module = client
+
+    monkeypatch.setattr(app_module, "TESTING", False, raising=False)
+    monkeypatch.setattr(app_module, "skip_past_once_schedules", lambda: None)
+    monkeypatch.setattr(app_module, "load_schedules", lambda: None)
+    monkeypatch.setattr(app_module, "update_auto_reboot_job", lambda: None)
+
+    class _DummyScheduler:
+        def __init__(self):
+            self.running = False
+
+        def start(self):
+            self.running = True
+
+        def shutdown(self, wait=False):
+            self.running = False
+
+    dummy_scheduler = _DummyScheduler()
+    monkeypatch.setattr(app_module, "scheduler", dummy_scheduler, raising=False)
+
+    auto_accept_called = threading.Event()
+
+    def fake_auto_accept():
+        auto_accept_called.set()
+        return "success"
+
+    monitor_calls = []
+    bt_monitor_state = {"running": False}
+    button_state = {"running": False}
+
+    monkeypatch.setattr(app_module, "bluetooth_auto_accept", fake_auto_accept)
+
+    def fake_start_bt_monitor():
+        bt_monitor_state["running"] = True
+        monitor_calls.append("start")
+
+    def fake_stop_bt_monitor():
+        if bt_monitor_state["running"]:
+            bt_monitor_state["running"] = False
+            monitor_calls.append("stop")
+
+    def fake_start_button_monitor():
+        button_state["running"] = True
+        monitor_calls.append("button_start")
+
+    def fake_stop_button_monitor():
+        if button_state["running"]:
+            button_state["running"] = False
+            monitor_calls.append("button_stop")
+
+    monkeypatch.setattr(app_module, "_start_bt_audio_monitor_thread", fake_start_bt_monitor)
+    monkeypatch.setattr(app_module, "_stop_bt_audio_monitor_thread", fake_stop_bt_monitor)
+    monkeypatch.setattr(app_module, "_start_button_monitor", fake_start_button_monitor)
+    monkeypatch.setattr(app_module, "_stop_button_monitor", fake_stop_button_monitor)
+
+    app_module._BACKGROUND_SERVICES_STARTED = False
+
+    assert app_module.start_background_services(force=True) is True
+    assert auto_accept_called.wait(1.0)
+    assert bt_monitor_state["running"] is True
+    assert button_state["running"] is True
+    assert "start" in monitor_calls
+    assert "button_start" in monitor_calls
+
+    assert app_module.stop_background_services() is True
+    assert bt_monitor_state["running"] is False
+    assert button_state["running"] is False
+    assert "stop" in monitor_calls
+    assert "button_stop" in monitor_calls
