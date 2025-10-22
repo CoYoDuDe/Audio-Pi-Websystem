@@ -188,10 +188,14 @@ app.py` aufzurufen, startet systemd jetzt Gunicorn aus der virtuellen Umgebung
 für mehrere Worker-Threads, optionale Hot-ReLoads (`systemctl reload` sendet
 ein HUP) und sauberere Logs (`capture_output` leitet alles an `journalctl`
 weiter). Durch `ExecStartPre=/bin/sleep 10` wartet der Dienst nach dem Booten
-zehn Sekunden, bevor Gunicorn mit der App initialisiert wird. Zusätzlich setzt
-die Service-Datei `XDG_RUNTIME_DIR=/run/user/1000`, damit PulseAudio auch ohne
-laufende Sitzung funktioniert. `TimeoutStartSec`, `TimeoutStopSec` und
-`RestartSec` sorgen für robuste Neustarts bei fehlerhaften Deployments oder
+zehn Sekunden, bevor Gunicorn mit der App initialisiert wird. Zusätzlich
+richtet die Service-Datei via `RuntimeDirectory=audio-pi` ein privates
+Laufzeitverzeichnis ein und setzt `XDG_RUNTIME_DIR=/run/audio-pi`, damit
+PulseAudio auch ohne laufende Sitzung funktioniert. Systemd erzeugt das
+Verzeichnis bei jedem Start neu; das Installationsskript ergänzt ergänzend eine
+`tmpfiles.d`-Regel, sodass `/run/audio-pi` und `/run/user/<UID>` bereits beim
+Boot mit den passenden Rechten anliegen. `TimeoutStartSec`, `TimeoutStopSec`
+und `RestartSec` sorgen für robuste Neustarts bei fehlerhaften Deployments oder
 unerwarteten Ausstiegen.
 
 Die Gunicorn-Optionen lassen sich zentral in `gunicorn.conf.py` anpassen. Der
@@ -258,6 +262,8 @@ sudo INSTALL_FLASK_SECRET_KEY="$(openssl rand -hex 32)" \
      INSTALL_AP_SETUP=no \
      bash install.sh --non-interactive
 ```
+
+Damit PulseAudio ohne Desktop-Sitzung verfügbar bleibt, ergänzt das Installationsskript den ausgewählten Dienstbenutzer automatisch um die Gruppen `pulse`, `pulse-access` und `audio`. Dadurch kann der Dienst sowohl das PulseAudio-Socket-Verzeichnis als auch das ALSA-Backend direkt verwenden.
 
 Alle beteiligten Prozesse laufen über dieselben Account-Daten: `audio-pi.service` setzt `User=` und `Group=` auf den oben genannten Benutzer bzw. dessen Primärgruppe, sodass Schreibrechte für Uploads und Logfiles konsistent bleiben.
 
