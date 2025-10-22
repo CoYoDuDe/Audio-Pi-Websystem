@@ -50,6 +50,20 @@ Im Bereich "System" der Weboberfläche befinden sich Buttons zum Ein- und
 Ausschalten von Bluetooth sowie Schaltflächen zum geordneten Neustart oder
 Herunterfahren des Raspberry Pi.
 
+## Hardware / Verkabelung
+
+| Signal / Funktion                     | GPIO (BCM) | Hinweise |
+|---------------------------------------|------------|----------|
+| Endstufen-Freigabe (Standardbetrieb)  | 17         | Wird vom Websystem automatisch geschaltet. High = Endstufe an, Low = aus. |
+| Endstufen-Freigabe (HiFiBerry Amp2)   | 18         | Optional: Einige HiFiBerry-HATs (Amp2) nutzen GPIO18 als Enable-Pin und können hierüber aktiviert werden. |
+| I²C SDA1                              | 2          | Frei verfügbar, z.&nbsp;B. für RTC-Module oder Sensoren. |
+| I²C SCL1                              | 3          | Frei verfügbar und bereits für die optionale RTC-Unterstützung vorgesehen. |
+
+Weitere GPIOs (z.&nbsp;B. 4, 5, 6, 12, 13, 16, 19, 26) bleiben unbelegt und können für Taster,
+Relais oder andere Erweiterungen genutzt werden, solange sie nicht mit dem konfigurierten
+Endstufen-Pin kollidieren. Die Weboberfläche prüft beim Speichern von Taster- oder
+Verstärker-Pins automatisch auf Konflikte und fordert bei Überschneidungen zur Anpassung auf.
+
 ---
 
 ## Schnellstart

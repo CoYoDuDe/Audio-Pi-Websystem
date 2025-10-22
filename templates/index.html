@@ -47,6 +47,37 @@
     {% endif %}
 </section>
 
+<section id="amplifier-settings">
+    <h3>Verstärker-GPIO</h3>
+    {% set amplifier_source = status.get('amplifier_gpio_pin_source', 'default') %}
+    {% set amplifier_source_labels = {'default': 'Standard', 'settings': 'Benutzerdefiniert'} %}
+    <form action="{{ url_for('save_amplifier_pin') }}" method="POST" class="amplifier-pin-form" style="display:flex;flex-direction:column;gap:0.5rem;max-width:20rem;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label for="amplifier-gpio-pin" style="display:flex;flex-direction:column;gap:0.25rem;">
+            GPIO-Pin für die Endstufe
+            <input
+                type="number"
+                id="amplifier-gpio-pin"
+                name="amplifier_gpio_pin"
+                min="0"
+                required
+                value="{{ status.get('amplifier_gpio_pin', status.get('amplifier_gpio_pin_default', 17)) }}"
+            >
+        </label>
+        <small>
+            Aktuell: GPIO{{ status.get('amplifier_gpio_pin', status.get('amplifier_gpio_pin_default', 17)) }}
+            ({{ amplifier_source_labels.get(amplifier_source, amplifier_source) }}).
+            Standard ist GPIO{{ status.get('amplifier_gpio_pin_default', 17) }}.
+            Für den HiFiBerry&nbsp;Amp2 kann alternativ GPIO18 genutzt werden.
+        </small>
+        <small>
+            Hinweis: Die I²C-Leitungen GPIO2&nbsp;(SDA1) und GPIO3&nbsp;(SCL1) bleiben unbelegt – z.&nbsp;B. für RTC-Module oder Sensoren.
+            Weitere freie GPIOs können für Taster oder Relais vergeben werden, solange sie nicht mit diesem Verstärker-Pin kollidieren.
+        </small>
+        <button type="submit" class="btn" style="align-self:flex-start;">Speichern</button>
+    </form>
+</section>
+
 <section id="audio-sink-settings">
     <h3>Audio-Sink Konfiguration</h3>
     <form action="{{ url_for('save_dac_sink') }}" method="POST" class="dac-sink-form" style="display:flex;flex-direction:column;gap:0.5rem;max-width:32rem;">
