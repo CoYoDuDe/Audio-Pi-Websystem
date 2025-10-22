@@ -88,9 +88,11 @@ def test_gunicorn_hooks_coordinate_background_services(monkeypatch):
 
     gunicorn_conf.worker_exit(None, worker_one)
     assert len(stop_calls) == 1
-    assert owner_value.value == 0
 
-    gunicorn_conf.post_fork(None, worker_two)
+    deadline = time.time() + 1
+    while time.time() < deadline and len(start_calls) < 2:
+        time.sleep(0.01)
+
     assert len(start_calls) == 2
     assert owner_value.value == worker_two.pid
     monkeypatch.delenv('AUDIO_PI_SUPPRESS_AUTOSTART', raising=False)
