@@ -16,7 +16,7 @@ import calendar
 import fnmatch
 import math
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from datetime import date, datetime, timedelta
 from flask import (
     Flask,
@@ -191,6 +191,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 DB_FILE = os.getenv("DB_FILE", "audio.db")
 GPIO_PIN_ENDSTUFE = 17
 VERZOEGERUNG_SEC = 5
+DEFAULT_BUTTON_DEBOUNCE_MS = 150
 DEFAULT_MAX_SCHEDULE_DELAY_SECONDS = 60
 DAC_SINK_SETTING_KEY = "dac_sink_name"
 DAC_SINK_LABEL_SETTING_KEY = "dac_sink_label"
@@ -254,6 +255,14 @@ SCHEDULE_VOLUME_PERCENT_MIN = 0
 SCHEDULE_VOLUME_PERCENT_MAX = 100
 
 PLAY_NOW_ALLOWED_TYPES = {"file", "playlist"}
+
+HARDWARE_BUTTON_ACTIONS = [
+    ("PLAY", "Wiedergabe (Datei/Playlist)"),
+    ("STOP", "Wiedergabe stoppen"),
+    ("BT_ON", "Bluetooth aktivieren"),
+    ("BT_OFF", "Bluetooth deaktivieren"),
+]
+HARDWARE_BUTTON_ACTION_LABELS = {key: label for key, label in HARDWARE_BUTTON_ACTIONS}
 
 PAGE_SIZE_DEFAULT = 10
 PAGE_SIZE_ALLOWED = {10, 25, 50}
@@ -809,6 +818,17 @@ AUTO_REBOOT_DEFAULTS = {
 }
 
 
+@dataclass
+class HardwareButtonConfigEntry:
+    id: int
+    gpio_pin: int
+    action: str
+    item_type: Optional[str]
+    item_id: Optional[int]
+    debounce_ms: int
+    enabled: bool
+
+
 def initialize_database():
     with get_db_connection() as (conn, cursor):
         cursor.execute(
@@ -917,6 +937,47 @@ def initialize_database():
             """CREATE TABLE IF NOT EXISTS playlist_files (playlist_id INTEGER, file_id INTEGER)"""
         )
         cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS hardware_buttons (
+                id INTEGER PRIMARY KEY,
+                gpio_pin INTEGER UNIQUE,
+                action TEXT,
+                item_type TEXT,
+                item_id INTEGER,
+                debounce_ms INTEGER,
+                enabled INTEGER
+            )
+            """
+        )
+        cursor.execute("PRAGMA table_info(hardware_buttons)")
+        hardware_button_columns = {row[1] for row in cursor.fetchall()}
+        if "gpio_pin" not in hardware_button_columns:
+            cursor.execute("ALTER TABLE hardware_buttons ADD COLUMN gpio_pin INTEGER")
+        if "action" not in hardware_button_columns:
+            cursor.execute("ALTER TABLE hardware_buttons ADD COLUMN action TEXT")
+        if "item_type" not in hardware_button_columns:
+            cursor.execute("ALTER TABLE hardware_buttons ADD COLUMN item_type TEXT")
+        if "item_id" not in hardware_button_columns:
+            cursor.execute("ALTER TABLE hardware_buttons ADD COLUMN item_id INTEGER")
+        if "debounce_ms" not in hardware_button_columns:
+            cursor.execute(
+                "ALTER TABLE hardware_buttons ADD COLUMN debounce_ms INTEGER"
+            )
+        if "enabled" not in hardware_button_columns:
+            cursor.execute(
+                "ALTER TABLE hardware_buttons ADD COLUMN enabled INTEGER DEFAULT 1"
+            )
+        cursor.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_hardware_buttons_gpio_pin ON hardware_buttons (gpio_pin)"
+        )
+        cursor.execute(
+            "UPDATE hardware_buttons SET enabled = 1 WHERE enabled IS NULL"
+        )
+        cursor.execute(
+            "UPDATE hardware_buttons SET debounce_ms = ? WHERE debounce_ms IS NULL",
+            (DEFAULT_BUTTON_DEBOUNCE_MS,),
+        )
+        cursor.execute(
             """CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)"""
         )
         for key, value in AUTO_REBOOT_DEFAULTS.items():
@@ -953,6 +1014,148 @@ def initialize_database():
 
 
 initialize_database()
+
+
+hardware_button_config_lock = threading.Lock()
+hardware_button_config: List[HardwareButtonConfigEntry] = []
+
+
+def load_hardware_button_config() -> List[HardwareButtonConfigEntry]:
+    global hardware_button_config
+
+    with get_db_connection() as (conn, cursor):
+        cursor.execute(
+            """
+            SELECT id, gpio_pin, action, item_type, item_id, debounce_ms, enabled
+            FROM hardware_buttons
+            ORDER BY gpio_pin
+            """
+        )
+        rows = cursor.fetchall()
+
+    entries: List[HardwareButtonConfigEntry] = []
+    seen_pins: Set[int] = set()
+
+    for row in rows:
+        raw_pin = row["gpio_pin"]
+        try:
+            gpio_pin = int(raw_pin)
+        except (TypeError, ValueError):
+            logging.warning(
+                "Hardware-Button #%s übersprungen: Ungültiger GPIO-Pin '%s'",
+                row["id"],
+                raw_pin,
+            )
+            continue
+
+        if gpio_pin < 0:
+            logging.warning(
+                "Hardware-Button #%s übersprungen: GPIO-Pin %s darf nicht negativ sein",
+                row["id"],
+                gpio_pin,
+            )
+            continue
+
+        if gpio_pin in seen_pins:
+            logging.warning(
+                "Hardware-Button-Konfiguration enthält doppelte Pinbelegung für GPIO %s",
+                gpio_pin,
+            )
+            continue
+
+        seen_pins.add(gpio_pin)
+
+        action_raw = row["action"] or ""
+        action = action_raw.strip().upper()
+        if not action:
+            logging.warning(
+                "Hardware-Button #%s übersprungen: Keine Aktion konfiguriert",
+                row["id"],
+            )
+            continue
+
+        item_type_raw = row["item_type"] or None
+        item_type = item_type_raw.strip().lower() if item_type_raw else None
+
+        item_id_raw = row["item_id"]
+        if item_id_raw is None:
+            item_id: Optional[int] = None
+        else:
+            try:
+                item_id = int(item_id_raw)
+            except (TypeError, ValueError):
+                logging.warning(
+                    "Hardware-Button #%s: Ungültige Item-ID '%s' – Eintrag wird ignoriert",
+                    row["id"],
+                    item_id_raw,
+                )
+                continue
+
+        debounce_raw = row["debounce_ms"]
+        try:
+            debounce_ms = (
+                int(debounce_raw)
+                if debounce_raw is not None
+                else DEFAULT_BUTTON_DEBOUNCE_MS
+            )
+        except (TypeError, ValueError):
+            logging.warning(
+                "Hardware-Button #%s: Ungültige Entprellzeit '%s' – verwende %s ms",
+                row["id"],
+                debounce_raw,
+                DEFAULT_BUTTON_DEBOUNCE_MS,
+            )
+            debounce_ms = DEFAULT_BUTTON_DEBOUNCE_MS
+
+        if debounce_ms < 0:
+            logging.warning(
+                "Hardware-Button #%s: Negative Entprellzeit %s ms – verwende %s ms",
+                row["id"],
+                debounce_ms,
+                DEFAULT_BUTTON_DEBOUNCE_MS,
+            )
+            debounce_ms = DEFAULT_BUTTON_DEBOUNCE_MS
+
+        enabled_raw = row["enabled"]
+        if enabled_raw is None:
+            enabled = True
+        else:
+            try:
+                enabled = int(enabled_raw) != 0
+            except (TypeError, ValueError):
+                enabled = bool(enabled_raw)
+
+        entries.append(
+            HardwareButtonConfigEntry(
+                id=row["id"],
+                gpio_pin=gpio_pin,
+                action=action,
+                item_type=item_type,
+                item_id=item_id,
+                debounce_ms=debounce_ms,
+                enabled=enabled,
+            )
+        )
+
+    with hardware_button_config_lock:
+        hardware_button_config = list(entries)
+
+    return list(entries)
+
+
+def get_hardware_button_config() -> List[HardwareButtonConfigEntry]:
+    with hardware_button_config_lock:
+        if hardware_button_config:
+            return list(hardware_button_config)
+
+    return load_hardware_button_config()
+
+
+def reload_hardware_button_config() -> List[HardwareButtonConfigEntry]:
+    return load_hardware_button_config()
+
+
+load_hardware_button_config()
 
 
 if TESTING:
@@ -3242,6 +3445,33 @@ def index():
     schedules_page = {**schedules_meta, "items": schedules}
     files_total = {"count": files_total_count}
     schedules_total = {"count": schedules_total_count}
+    hardware_button_configs = get_hardware_button_config()
+    file_lookup = {item["id"]: item["filename"] for item in files_all}
+    playlist_lookup = {item["id"]: item["name"] for item in playlists_all}
+    hardware_buttons = []
+    for entry in hardware_button_configs:
+        entry_dict = asdict(entry)
+        item_label: Optional[str]
+        item_reference = ""
+        if entry.item_type == "file" and entry.item_id is not None:
+            item_label = file_lookup.get(entry.item_id) or f"Datei #{entry.item_id}"
+            item_reference = f"file:{entry.item_id}"
+        elif entry.item_type == "playlist" and entry.item_id is not None:
+            item_label = playlist_lookup.get(entry.item_id) or f"Playlist #{entry.item_id}"
+            item_reference = f"playlist:{entry.item_id}"
+        else:
+            item_label = None
+
+        entry_dict.update(
+            {
+                "action_label": HARDWARE_BUTTON_ACTION_LABELS.get(
+                    entry.action.upper(), entry.action
+                ),
+                "item_label": item_label,
+                "item_reference": item_reference,
+            }
+        )
+        hardware_buttons.append(entry_dict)
     status = gather_status()
     rtc_state = get_rtc_configuration_state()
     status.update(
@@ -3300,7 +3530,248 @@ def index():
         schedule_default_volume_fallback=SCHEDULE_DEFAULT_VOLUME_PERCENT_FALLBACK,
         max_schedule_delay_seconds=MAX_SCHEDULE_DELAY_SECONDS,
         default_schedule_delay=default_schedule_delay,
+        hardware_buttons=hardware_buttons,
+        hardware_button_actions=HARDWARE_BUTTON_ACTIONS,
+        hardware_button_action_labels=HARDWARE_BUTTON_ACTION_LABELS,
+        default_button_debounce_ms=DEFAULT_BUTTON_DEBOUNCE_MS,
     )
+
+
+def _hardware_button_redirect_url() -> str:
+    return url_for("index") + "#hardware-buttons-admin"
+
+
+def _parse_hardware_button_form(form) -> Tuple[Optional[dict], List[str]]:
+    errors: List[str] = []
+
+    gpio_raw = (form.get("gpio_pin") or "").strip()
+    gpio_pin: Optional[int] = None
+    if not gpio_raw:
+        errors.append("GPIO-Pin ist erforderlich.")
+    else:
+        try:
+            candidate = int(gpio_raw, 0)
+        except ValueError:
+            errors.append("GPIO-Pin muss eine gültige Zahl sein.")
+        else:
+            if candidate < 0:
+                errors.append("GPIO-Pin darf nicht negativ sein.")
+            else:
+                gpio_pin = candidate
+
+    action_raw = (form.get("action") or "").strip().upper()
+    if not action_raw:
+        errors.append("Aktion ist erforderlich.")
+    elif action_raw not in HARDWARE_BUTTON_ACTION_LABELS:
+        errors.append(f"Unbekannte Aktion: {action_raw}.")
+
+    item_reference_raw = (form.get("item_reference") or "").strip()
+    item_type: Optional[str] = None
+    item_id: Optional[int] = None
+    if item_reference_raw:
+        if ":" not in item_reference_raw:
+            errors.append("Ungültige Ziel-Auswahl für den PLAY-Button.")
+        else:
+            type_part, id_part = item_reference_raw.split(":", 1)
+            normalized_type = type_part.strip().lower()
+            if normalized_type not in PLAY_NOW_ALLOWED_TYPES:
+                errors.append("Ungültiger Ziel-Typ für den PLAY-Button.")
+            else:
+                try:
+                    candidate_id = int(id_part.strip(), 0)
+                except ValueError:
+                    errors.append("Ungültige Ziel-ID für den PLAY-Button.")
+                else:
+                    if candidate_id < 0:
+                        errors.append("Die Ziel-ID darf nicht negativ sein.")
+                    else:
+                        item_type = normalized_type
+                        item_id = candidate_id
+
+    debounce_ms = DEFAULT_BUTTON_DEBOUNCE_MS
+    debounce_raw = (form.get("debounce_ms") or "").strip()
+    if debounce_raw:
+        try:
+            candidate = int(debounce_raw, 0)
+        except ValueError:
+            errors.append("Entprellzeit muss eine gültige Zahl sein.")
+        else:
+            if candidate < 0:
+                errors.append("Entprellzeit darf nicht negativ sein.")
+            else:
+                debounce_ms = candidate
+
+    enabled = 1 if form.get("enabled") else 0
+
+    if action_raw == "PLAY":
+        if item_type is None or item_id is None:
+            errors.append("Für PLAY muss eine Datei oder Playlist ausgewählt werden.")
+    else:
+        item_type = None
+        item_id = None
+
+    if gpio_pin is None and not errors:
+        errors.append("GPIO-Pin konnte nicht geparst werden.")
+
+    if errors:
+        return None, errors
+
+    return (
+        {
+            "gpio_pin": gpio_pin,
+            "action": action_raw,
+            "item_type": item_type,
+            "item_id": item_id,
+            "debounce_ms": debounce_ms,
+            "enabled": enabled,
+        },
+        [],
+    )
+
+
+def _hardware_button_target_exists(cursor, item_type: str, item_id: int) -> bool:
+    if item_type == "file":
+        cursor.execute("SELECT 1 FROM audio_files WHERE id=?", (item_id,))
+    elif item_type == "playlist":
+        cursor.execute("SELECT 1 FROM playlists WHERE id=?", (item_id,))
+    else:
+        return False
+    return cursor.fetchone() is not None
+
+
+@app.route("/hardware_buttons", methods=["POST"])
+@login_required
+def create_hardware_button():
+    parsed, errors = _parse_hardware_button_form(request.form)
+    if errors or parsed is None:
+        for message in errors:
+            flash(message)
+        return redirect(_hardware_button_redirect_url())
+
+    changed = False
+    with get_db_connection() as (conn, cursor):
+        if parsed["item_type"] and parsed["item_id"] is not None:
+            if not _hardware_button_target_exists(
+                cursor, parsed["item_type"], parsed["item_id"]
+            ):
+                flash("Ausgewähltes Ziel existiert nicht mehr.")
+                return redirect(_hardware_button_redirect_url())
+        try:
+            cursor.execute(
+                """
+                INSERT INTO hardware_buttons (gpio_pin, action, item_type, item_id, debounce_ms, enabled)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    parsed["gpio_pin"],
+                    parsed["action"],
+                    parsed["item_type"],
+                    parsed["item_id"],
+                    parsed["debounce_ms"],
+                    parsed["enabled"],
+                ),
+            )
+        except sqlite3.IntegrityError as exc:
+            conn.rollback()
+            message = str(exc)
+            if "gpio" in message.lower() and "unique" in message.lower():
+                flash("GPIO-Pin ist bereits einer Aktion zugewiesen.")
+            else:
+                flash(f"Hardware-Button konnte nicht angelegt werden: {message}")
+            return redirect(_hardware_button_redirect_url())
+        conn.commit()
+        changed = True
+
+    if changed:
+        flash("Hardware-Button gespeichert.")
+        _refresh_button_monitor_configuration()
+
+    return redirect(_hardware_button_redirect_url())
+
+
+@app.route("/hardware_buttons/<int:button_id>/update", methods=["POST"])
+@login_required
+def update_hardware_button(button_id: int):
+    parsed, errors = _parse_hardware_button_form(request.form)
+    if errors or parsed is None:
+        for message in errors:
+            flash(message)
+        return redirect(_hardware_button_redirect_url())
+
+    changed = False
+    with get_db_connection() as (conn, cursor):
+        cursor.execute(
+            "SELECT id FROM hardware_buttons WHERE id=?",
+            (button_id,),
+        )
+        if cursor.fetchone() is None:
+            flash("Hardware-Button wurde nicht gefunden.")
+            return redirect(_hardware_button_redirect_url())
+
+        if parsed["item_type"] and parsed["item_id"] is not None:
+            if not _hardware_button_target_exists(
+                cursor, parsed["item_type"], parsed["item_id"]
+            ):
+                flash("Ausgewähltes Ziel existiert nicht mehr.")
+                return redirect(_hardware_button_redirect_url())
+
+        try:
+            cursor.execute(
+                """
+                UPDATE hardware_buttons
+                SET gpio_pin=?, action=?, item_type=?, item_id=?, debounce_ms=?, enabled=?
+                WHERE id=?
+                """,
+                (
+                    parsed["gpio_pin"],
+                    parsed["action"],
+                    parsed["item_type"],
+                    parsed["item_id"],
+                    parsed["debounce_ms"],
+                    parsed["enabled"],
+                    button_id,
+                ),
+            )
+        except sqlite3.IntegrityError as exc:
+            conn.rollback()
+            message = str(exc)
+            if "gpio" in message.lower() and "unique" in message.lower():
+                flash("GPIO-Pin ist bereits einer anderen Aktion zugewiesen.")
+            else:
+                flash(f"Hardware-Button konnte nicht aktualisiert werden: {message}")
+            return redirect(_hardware_button_redirect_url())
+
+        conn.commit()
+        changed = True
+
+    if changed:
+        flash("Hardware-Button aktualisiert.")
+        _refresh_button_monitor_configuration()
+
+    return redirect(_hardware_button_redirect_url())
+
+
+@app.route("/hardware_buttons/<int:button_id>/delete", methods=["POST"])
+@login_required
+def delete_hardware_button(button_id: int):
+    deleted = False
+    with get_db_connection() as (conn, cursor):
+        cursor.execute(
+            "DELETE FROM hardware_buttons WHERE id=?",
+            (button_id,),
+        )
+        if cursor.rowcount:
+            conn.commit()
+            deleted = True
+        else:
+            flash("Hardware-Button wurde nicht gefunden.")
+            return redirect(_hardware_button_redirect_url())
+
+    if deleted:
+        flash("Hardware-Button entfernt.")
+        _refresh_button_monitor_configuration()
+
+    return redirect(_hardware_button_redirect_url())
 
 
 @app.route("/upload", methods=["POST"])
@@ -4657,13 +5128,14 @@ def _resolve_default_edge() -> str:
 def _resolve_default_debounce() -> int:
     value = _parse_int_env("GPIO_BUTTON_DEFAULT_DEBOUNCE_MS")
     if value is None:
-        return 150
+        return DEFAULT_BUTTON_DEBOUNCE_MS
     if value < 0:
         logging.warning(
-            "GPIO-Button-Monitor: Negative Standard-Entprellzeit (%s ms) – verwende 150 ms",
+            "GPIO-Button-Monitor: Negative Standard-Entprellzeit (%s ms) – verwende %s ms",
             value,
+            DEFAULT_BUTTON_DEBOUNCE_MS,
         )
-        return 150
+        return DEFAULT_BUTTON_DEBOUNCE_MS
     return value
 
 
@@ -4777,6 +5249,8 @@ def _build_button_assignments() -> List[ButtonAssignment]:
     default_edge = _resolve_default_edge()
     default_debounce = _resolve_default_debounce()
 
+    used_pins: Set[int] = set()
+
     def _add_assignment(
         action: str,
         pin: int,
@@ -4784,10 +5258,32 @@ def _build_button_assignments() -> List[ButtonAssignment]:
         *,
         args: Tuple[Any, ...] = (),
         kwargs: Optional[dict] = None,
+        debounce_override: Optional[int] = None,
+        source: str = "ENV",
     ) -> None:
+        if pin in used_pins:
+            logging.warning(
+                "GPIO-Button-Monitor: Pin %s ist bereits belegt – Eintrag aus %s wird ignoriert",
+                pin,
+                source,
+            )
+            return
+
         pull = _resolve_pull(action, default_pull)
         edge = _resolve_edge(action, default_edge)
-        debounce = _resolve_debounce(action, default_debounce)
+        if debounce_override is None:
+            debounce = _resolve_debounce(action, default_debounce)
+        else:
+            if debounce_override < 0:
+                logging.warning(
+                    "GPIO-Button-Monitor: Negative Entprellzeit (%s ms) für Quelle %s – verwende %s ms",
+                    debounce_override,
+                    source,
+                    default_debounce,
+                )
+                debounce = default_debounce
+            else:
+                debounce = debounce_override
         try:
             assignment = ButtonAssignment(
                 name=action.lower(),
@@ -4808,13 +5304,121 @@ def _build_button_assignments() -> List[ButtonAssignment]:
             return
 
         assignments.append(assignment)
+        used_pins.add(pin)
         logging.info(
-            "GPIO-Button-Monitor: Aktion '%s' → Pin %s (Pull=%s, Edge=%s, Debounce=%s ms)",
+            "GPIO-Button-Monitor: Aktion '%s' → Pin %s (Pull=%s, Edge=%s, Debounce=%s ms, Quelle=%s)",
             assignment.name,
             pin,
             pull,
             edge,
             debounce,
+            source,
+        )
+
+    for entry in get_hardware_button_config():
+        source_label = f"DB#{entry.id}"
+
+        if not entry.enabled:
+            logging.info(
+                "GPIO-Button-Monitor: Eintrag %s (GPIO %s) ist deaktiviert",
+                source_label,
+                entry.gpio_pin,
+            )
+            continue
+
+        action = entry.action.upper()
+
+        if action == "PLAY":
+            if entry.item_id is None or not entry.item_type:
+                logging.warning(
+                    "GPIO-Button-Monitor: %s ignoriert – PLAY benötigt gültiges Ziel",
+                    source_label,
+                )
+                continue
+            item_type = entry.item_type.lower()
+            if item_type not in PLAY_NOW_ALLOWED_TYPES:
+                logging.warning(
+                    "GPIO-Button-Monitor: %s ignoriert – unbekannter Item-Typ '%s'",
+                    source_label,
+                    entry.item_type,
+                )
+                continue
+
+            delay = _parse_float_env("GPIO_BUTTON_PLAY_DELAY_SEC")
+            if delay is None:
+                delay = float(VERZOEGERUNG_SEC)
+            elif delay < 0:
+                logging.warning(
+                    "GPIO-Button-Monitor: Negativer Verzögerungswert (%s) für %s – verwende 0",
+                    delay,
+                    source_label,
+                )
+                delay = 0.0
+
+            volume_value = _parse_int_env("GPIO_BUTTON_PLAY_VOLUME_PERCENT")
+            if volume_value is None:
+                volume_percent = 100
+            else:
+                volume_percent = max(0, min(100, volume_value))
+                if volume_value != volume_percent:
+                    logging.warning(
+                        "GPIO-Button-Monitor: Lautstärke außerhalb 0-100 (%s) für %s – gekappt auf %s",
+                        volume_value,
+                        source_label,
+                        volume_percent,
+                    )
+
+            callback = functools.partial(
+                play_item,
+                entry.item_id,
+                item_type,
+                delay,
+                False,
+                volume_percent=volume_percent,
+            )
+            _add_assignment(
+                "PLAY",
+                entry.gpio_pin,
+                callback,
+                debounce_override=entry.debounce_ms,
+                source=source_label,
+            )
+            continue
+
+        if action == "STOP":
+            _add_assignment(
+                "STOP",
+                entry.gpio_pin,
+                _stop_playback_from_button,
+                debounce_override=entry.debounce_ms,
+                source=source_label,
+            )
+            continue
+
+        if action == "BT_ON":
+            _add_assignment(
+                "BT_ON",
+                entry.gpio_pin,
+                _enable_bluetooth_via_button,
+                debounce_override=entry.debounce_ms,
+                source=source_label,
+            )
+            continue
+
+        if action == "BT_OFF":
+            _add_assignment(
+                "BT_OFF",
+                entry.gpio_pin,
+                _disable_bluetooth_via_button,
+                debounce_override=entry.debounce_ms,
+                source=source_label,
+            )
+            continue
+
+        logging.warning(
+            "GPIO-Button-Monitor: %s ignoriert – unbekannte Aktion '%s'",
+            source_label,
+            entry.action,
         )
 
     play_pin = _parse_int_env("GPIO_BUTTON_PLAY_PIN")
@@ -4923,6 +5527,14 @@ def _stop_button_monitor() -> None:
         monitor.stop(timeout=2.0)
     finally:
         button_monitor = None
+
+
+def _refresh_button_monitor_configuration() -> None:
+    reload_hardware_button_config()
+    if TESTING:
+        return
+    _stop_button_monitor()
+    _start_button_monitor()
 
 
 atexit.register(_stop_button_monitor)

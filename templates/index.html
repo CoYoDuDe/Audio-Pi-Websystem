@@ -178,6 +178,122 @@
     <p class="hint">Der automatische Neustart nutzt den System-Scheduler. Bei "Wöchentlich" erfolgt der Neustart nur am gewählten Tag.</p>
 </section>
 
+<section id="hardware-buttons-admin">
+    <h3>Hardware-Taster Verwaltung</h3>
+    <p class="hint" style="max-width:60ch;">
+        Konfiguriere hier physische Taster des Raspberry&nbsp;Pi. Die Zuweisungen werden sofort gespeichert
+        und der Button-Monitor automatisch neu gestartet. Für die Aktion <strong>PLAY</strong> muss ein Ziel
+        (Datei oder Playlist) gewählt werden.
+    </p>
+    <div class="hardware-button-admin" style="display:flex;flex-wrap:wrap;gap:2rem;margin-top:1rem;">
+        <div class="hardware-button-create" style="flex:1 1 22rem;max-width:28rem;">
+            <h4>Neue Zuordnung</h4>
+            <form action="{{ url_for('create_hardware_button') }}" method="POST" class="hardware-button-form" style="display:flex;flex-direction:column;gap:0.75rem;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <label style="display:flex;flex-direction:column;gap:0.25rem;">
+                    GPIO-Pin
+                    <input type="number" name="gpio_pin" min="0" required>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:0.25rem;">
+                    Aktion
+                    <select name="action" required>
+                        {% for value, label in hardware_button_actions %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:0.25rem;">
+                    Ziel (nur für PLAY erforderlich)
+                    <select name="item_reference">
+                        <option value="">– Keine Auswahl –</option>
+                        <optgroup label="Audiodateien">
+                            {% for file in files_all %}
+                            <option value="file:{{ file['id'] }}">{{ file['filename'] }}</option>
+                            {% endfor %}
+                        </optgroup>
+                        <optgroup label="Playlists">
+                            {% for playlist in playlists_all %}
+                            <option value="playlist:{{ playlist['id'] }}">{{ playlist['name'] }}</option>
+                            {% endfor %}
+                        </optgroup>
+                    </select>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:0.25rem;">
+                    Entprellzeit (ms)
+                    <input type="number" name="debounce_ms" min="0" value="{{ default_button_debounce_ms }}">
+                </label>
+                <label style="display:flex;align-items:center;gap:0.5rem;">
+                    <input type="checkbox" name="enabled" checked>
+                    Aktiviert
+                </label>
+                <button type="submit" class="btn" style="align-self:flex-start;">Anlegen</button>
+            </form>
+        </div>
+        <div class="hardware-button-existing" style="flex:1 1 28rem;min-width:22rem;">
+            <h4>Bestehende Zuordnungen</h4>
+            {% if hardware_buttons %}
+            <div class="hardware-button-list" style="display:flex;flex-direction:column;gap:1.5rem;">
+                {% for button in hardware_buttons %}
+                <div class="hardware-button-entry" style="border:1px solid #ddd;padding:1rem;border-radius:0.5rem;display:flex;flex-direction:column;gap:0.75rem;">
+                    <form action="{{ url_for('update_hardware_button', button_id=button['id']) }}" method="POST" style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-end;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <label style="display:flex;flex-direction:column;gap:0.25rem;min-width:10rem;">
+                            GPIO-Pin
+                            <input type="number" name="gpio_pin" min="0" value="{{ button['gpio_pin'] }}" required>
+                        </label>
+                        <label style="display:flex;flex-direction:column;gap:0.25rem;min-width:12rem;">
+                            Aktion
+                            <select name="action" required>
+                                {% for value, label in hardware_button_actions %}
+                                <option value="{{ value }}" {% if button['action'] == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                        <label style="display:flex;flex-direction:column;gap:0.25rem;min-width:14rem;">
+                            Ziel (für PLAY)
+                            <select name="item_reference">
+                                <option value="">– Keine Auswahl –</option>
+                                <optgroup label="Audiodateien">
+                                    {% for file in files_all %}
+                                    <option value="file:{{ file['id'] }}" {% if button['item_reference'] == 'file:' ~ file['id'] %}selected{% endif %}>{{ file['filename'] }}</option>
+                                    {% endfor %}
+                                </optgroup>
+                                <optgroup label="Playlists">
+                                    {% for playlist in playlists_all %}
+                                    <option value="playlist:{{ playlist['id'] }}" {% if button['item_reference'] == 'playlist:' ~ playlist['id'] %}selected{% endif %}>{{ playlist['name'] }}</option>
+                                    {% endfor %}
+                                </optgroup>
+                            </select>
+                            {% if button['item_label'] %}
+                            <small>Aktuell: {{ button['item_label'] }}</small>
+                            {% endif %}
+                        </label>
+                        <label style="display:flex;flex-direction:column;gap:0.25rem;min-width:10rem;">
+                            Entprellzeit (ms)
+                            <input type="number" name="debounce_ms" min="0" value="{{ button['debounce_ms'] }}">
+                        </label>
+                        <label style="display:flex;align-items:center;gap:0.5rem;">
+                            <input type="checkbox" name="enabled" {% if button['enabled'] %}checked{% endif %}>
+                            Aktiviert
+                        </label>
+                        <div style="display:flex;gap:0.5rem;align-items:center;">
+                            <button type="submit" class="btn">Speichern</button>
+                        </div>
+                    </form>
+                    <form action="{{ url_for('delete_hardware_button', button_id=button['id']) }}" method="POST" style="align-self:flex-end;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn" style="background-color:#b30000;border-color:#b30000;color:#fff;" onclick="return confirm('Zuordnung wirklich löschen?');">Löschen</button>
+                    </form>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p>Keine Hardware-Taster konfiguriert.</p>
+            {% endif %}
+        </div>
+    </div>
+</section>
+
 <section id="playback">
     <h3>Playback Steuerung</h3>
     <form action="{{ url_for('set_volume') }}" method="POST" style="display:inline-flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
