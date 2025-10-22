@@ -189,7 +189,10 @@ ALLOWED_EXTENSIONS = {"wav", "mp3"}
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 DB_FILE = os.getenv("DB_FILE", "audio.db")
-GPIO_PIN_ENDSTUFE = 17
+DEFAULT_AMPLIFIER_GPIO_PIN = 17
+AMPLIFIER_GPIO_PIN_SETTING_KEY = "amplifier_gpio_pin"
+GPIO_PIN_ENDSTUFE = DEFAULT_AMPLIFIER_GPIO_PIN
+CONFIGURED_AMPLIFIER_GPIO_PIN: Optional[int] = None
 VERZOEGERUNG_SEC = 5
 DEFAULT_BUTTON_DEBOUNCE_MS = 150
 DEFAULT_MAX_SCHEDULE_DELAY_SECONDS = 60
@@ -985,6 +988,10 @@ def initialize_database():
                 "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
                 (key, value),
             )
+        cursor.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            (AMPLIFIER_GPIO_PIN_SETTING_KEY, str(DEFAULT_AMPLIFIER_GPIO_PIN)),
+        )
         if not cursor.execute("SELECT * FROM users").fetchone():
             initial_password = os.environ.get("INITIAL_ADMIN_PASSWORD")
             generated_password = False
@@ -1051,6 +1058,14 @@ def load_hardware_button_config() -> List[HardwareButtonConfigEntry]:
         if gpio_pin < 0:
             logging.warning(
                 "Hardware-Button #%s übersprungen: GPIO-Pin %s darf nicht negativ sein",
+                row["id"],
+                gpio_pin,
+            )
+            continue
+
+        if gpio_pin == GPIO_PIN_ENDSTUFE:
+            logging.warning(
+                "Hardware-Button #%s übersprungen: GPIO %s ist für die Endstufe reserviert",
                 row["id"],
                 gpio_pin,
             )
@@ -1289,6 +1304,63 @@ def set_setting(key, value):
             (key, "" if value is None else str(value)),
         )
         conn.commit()
+
+
+def _parse_amplifier_gpio_pin(raw_value: Optional[str]) -> Optional[int]:
+    if raw_value is None:
+        return None
+    normalized = str(raw_value).strip()
+    if not normalized:
+        return None
+    try:
+        candidate = int(normalized, 0)
+    except (TypeError, ValueError):
+        return None
+    if candidate < 0:
+        return None
+    return candidate
+
+
+def load_amplifier_gpio_pin_from_settings(*, log_source: bool = False) -> int:
+    global GPIO_PIN_ENDSTUFE, CONFIGURED_AMPLIFIER_GPIO_PIN
+
+    raw_value = get_setting(AMPLIFIER_GPIO_PIN_SETTING_KEY, None)
+    parsed = _parse_amplifier_gpio_pin(raw_value)
+    previous_pin = GPIO_PIN_ENDSTUFE
+
+    if parsed is None:
+        if raw_value not in (None, "") and log_source:
+            logging.warning(
+                "Ungültiger Verstärker-Pin '%s' in den Einstellungen – verwende GPIO%s.",
+                raw_value,
+                DEFAULT_AMPLIFIER_GPIO_PIN,
+            )
+        GPIO_PIN_ENDSTUFE = DEFAULT_AMPLIFIER_GPIO_PIN
+        CONFIGURED_AMPLIFIER_GPIO_PIN = None
+        if log_source and previous_pin != GPIO_PIN_ENDSTUFE:
+            logging.info(
+                "Verstärker-Pin auf Standard GPIO%s zurückgesetzt", GPIO_PIN_ENDSTUFE
+            )
+    else:
+        GPIO_PIN_ENDSTUFE = parsed
+        if parsed == DEFAULT_AMPLIFIER_GPIO_PIN and str(parsed) == str(raw_value).strip():
+            CONFIGURED_AMPLIFIER_GPIO_PIN = None
+        else:
+            CONFIGURED_AMPLIFIER_GPIO_PIN = parsed
+        if log_source and previous_pin != parsed:
+            logging.info("Verstärker-Pin aus Einstellungen geladen: GPIO%s", parsed)
+
+    return GPIO_PIN_ENDSTUFE
+
+
+def get_amplifier_gpio_pin_state() -> dict:
+    source = "settings" if CONFIGURED_AMPLIFIER_GPIO_PIN is not None else "default"
+    return {
+        "pin": GPIO_PIN_ENDSTUFE,
+        "configured": CONFIGURED_AMPLIFIER_GPIO_PIN,
+        "default": DEFAULT_AMPLIFIER_GPIO_PIN,
+        "source": source,
+    }
 
 
 def _parse_headroom_value(raw_value: Optional[str], source: str) -> Optional[float]:
@@ -1663,6 +1735,7 @@ def get_rtc_configuration_state() -> dict:
     }
 
 
+load_amplifier_gpio_pin_from_settings(log_source=True)
 load_dac_sink_from_settings()
 load_rtc_configuration_from_settings()
 
@@ -2278,6 +2351,7 @@ def gather_status():
     is_playing = pygame.mixer.music.get_busy() if pygame_available else False
     headroom_details = get_normalization_headroom_details()
     schedule_default_volume = get_schedule_default_volume_details()
+    amplifier_state = get_amplifier_gpio_pin_state()
 
     return {
         "playing": is_playing,
@@ -2303,6 +2377,10 @@ def gather_status():
         "schedule_default_volume_raw_percent": schedule_default_volume["raw_percent"],
         "schedule_default_volume_raw_db": schedule_default_volume["raw_db"],
         "schedule_default_volume_db_value": schedule_default_volume["db_value"],
+        "amplifier_gpio_pin": amplifier_state["pin"],
+        "amplifier_gpio_pin_default": amplifier_state["default"],
+        "amplifier_gpio_pin_source": amplifier_state["source"],
+        "amplifier_gpio_pin_configured": amplifier_state["configured"],
     }
 
 
@@ -3541,6 +3619,10 @@ def _hardware_button_redirect_url() -> str:
     return url_for("index") + "#hardware-buttons-admin"
 
 
+def _amplifier_settings_redirect_url() -> str:
+    return url_for("index") + "#amplifier-settings"
+
+
 def _parse_hardware_button_form(form) -> Tuple[Optional[dict], List[str]]:
     errors: List[str] = []
 
@@ -3556,6 +3638,10 @@ def _parse_hardware_button_form(form) -> Tuple[Optional[dict], List[str]]:
         else:
             if candidate < 0:
                 errors.append("GPIO-Pin darf nicht negativ sein.")
+            elif candidate == GPIO_PIN_ENDSTUFE:
+                errors.append(
+                    f"GPIO {candidate} ist für die Endstufe reserviert und kann nicht als Taster verwendet werden."
+                )
             else:
                 gpio_pin = candidate
 
@@ -4086,6 +4172,55 @@ def save_auto_reboot_settings():
         "Automatischer Neustart aktiviert." if enabled else "Automatischer Neustart deaktiviert."
     )
     return redirect(url_for("index"))
+
+
+@app.route("/settings/amplifier_pin", methods=["POST"])
+@login_required
+def save_amplifier_pin():
+    redirect_url = _amplifier_settings_redirect_url()
+    raw_value = (request.form.get("amplifier_gpio_pin") or "").strip()
+
+    if not raw_value:
+        flash("GPIO-Pin für die Endstufe ist erforderlich.")
+        return redirect(redirect_url)
+
+    try:
+        candidate = int(raw_value, 0)
+    except ValueError:
+        flash("GPIO-Pin für die Endstufe muss eine gültige Ganzzahl sein.")
+        return redirect(redirect_url)
+
+    if candidate < 0:
+        flash("GPIO-Pin für die Endstufe darf nicht negativ sein.")
+        return redirect(redirect_url)
+
+    with get_db_connection() as (conn, cursor):
+        cursor.execute(
+            "SELECT id FROM hardware_buttons WHERE gpio_pin=? LIMIT 1",
+            (candidate,),
+        )
+        conflict = cursor.fetchone()
+
+    if conflict:
+        flash(
+            f"GPIO {candidate} ist bereits einem Hardware-Button zugewiesen. Bitte wähle einen anderen Pin."
+        )
+        return redirect(redirect_url)
+
+    current_pin = GPIO_PIN_ENDSTUFE
+    if candidate == current_pin:
+        flash(f"Der Verstärker-Pin ist bereits auf GPIO {candidate} gesetzt.")
+        return redirect(redirect_url)
+
+    if amplifier_claimed:
+        deactivate_amplifier()
+
+    set_setting(AMPLIFIER_GPIO_PIN_SETTING_KEY, str(candidate))
+    load_amplifier_gpio_pin_from_settings(log_source=True)
+    deactivate_amplifier()
+
+    flash(f"Verstärker-Pin auf GPIO {GPIO_PIN_ENDSTUFE} gespeichert.")
+    return redirect(redirect_url)
 
 
 @app.route("/settings/dac_sink", methods=["POST"])
