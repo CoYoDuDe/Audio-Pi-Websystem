@@ -11,6 +11,7 @@ Verwendung:
 
 Wichtige Optionen:
   --flask-secret-key VALUE        Flask Secret Key setzen (alternativ INSTALL_FLASK_SECRET_KEY).
+  --flask-port VALUE              HTTP-Port für Gunicorn/Flask (Standard: 80; alternativ INSTALL_FLASK_PORT).
   --rtc-mode MODE                 RTC-Modus: auto, pcf8563, ds3231, skip.
   --rtc-addresses LIST            Kommagetrennte I²C-Adressen (z.B. 0x51,0x68).
   --rtc-overlay VALUE             dtoverlay-Wert für die RTC ("-" oder "none" deaktiviert die Änderung).
@@ -35,6 +36,7 @@ Wichtige Optionen:
   --ap-dhcp-lease VALUE           DHCP-Lease-Zeit.
   --ap-wan VALUE                  Interface für den Internet-Uplink.
   --non-interactive               Keine Dialoge – fehlende Pflichtwerte führen zum Abbruch.
+  --dry-run                       Führt keine Änderungen durch und zeigt nur die Abschluss-Hinweise an.
   -h, --help                      Diese Hilfe anzeigen.
 
 Alle Optionen lassen sich alternativ über gleichnamige Umgebungsvariablen mit dem Präfix INSTALL_
@@ -114,6 +116,27 @@ validate_chmod_mode() {
     fi
 }
 
+validate_port() {
+    local value="$1"
+    local source="$2"
+    if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+        if [ -n "$source" ]; then
+            echo "Ungültiger Portwert (${source}): '$value'. Erlaubt sind Ganzzahlen zwischen 1 und 65535." >&2
+        else
+            echo "Ungültiger Portwert: '$value'. Erlaubt sind Ganzzahlen zwischen 1 und 65535." >&2
+        fi
+        exit 1
+    fi
+    if [ "$value" -lt 1 ] || [ "$value" -gt 65535 ]; then
+        if [ -n "$source" ]; then
+            echo "Port außerhalb des gültigen Bereichs (${source}): '$value'. Erlaubt sind 1 bis 65535." >&2
+        else
+            echo "Port außerhalb des gültigen Bereichs: '$value'. Erlaubt sind 1 bis 65535." >&2
+        fi
+        exit 1
+    fi
+}
+
 install_tmpfiles_rule() {
     local tmpfiles_conf="/etc/tmpfiles.d/audio-pi.conf"
     local runtime_user="$1"
@@ -136,12 +159,44 @@ EOF_CONF
     echo "Tmpfiles-Regel in $tmpfiles_conf angelegt und angewendet."
 }
 
+print_post_install_instructions() {
+    local flask_port="$1"
+    local ap_configured="$2"
+
+    echo ""
+    echo "Setup abgeschlossen! Der systemd-Dienst 'audio-pi.service' wurde gestartet."
+    echo "Status prüfen: sudo systemctl status audio-pi.service"
+    echo ""
+    echo "Optionaler Entwicklungsstart:"
+    echo "source venv/bin/activate && export AUDIO_PI_USE_DEV_SERVER=1 && python app.py"
+    echo ""
+    if [ "$flask_port" = "80" ]; then
+        echo "Öffne im Browser: http://<RaspberryPi-IP>/"
+    else
+        echo "Öffne im Browser: http://<RaspberryPi-IP>:${flask_port}/"
+    fi
+    echo ""
+    echo "Beim ersten Start wird der Benutzer 'admin' automatisch angelegt."
+    echo "Setze optional INITIAL_ADMIN_PASSWORD, um das Startpasswort festzulegen."
+    echo "Ohne Vorgabe erzeugt die App ein zufälliges Passwort und schreibt es in $(pwd)/app.log."
+    echo "Bitte direkt nach der ersten Anmeldung über die Weboberfläche das Passwort ändern."
+    echo ""
+    if [ "$ap_configured" -eq 1 ]; then
+        echo "Hinweis: WLAN-Access-Point ist aktiv."
+        echo "Passe SSID/Passwort in /etc/hostapd/hostapd.conf sowie DHCP-Einstellungen in /etc/dnsmasq.d/audio-pi.conf an."
+        echo "Die NAT-Regeln wurden nach /etc/iptables.ipv4.nat geschrieben und können dort angepasst werden."
+        echo ""
+    fi
+    echo ""
+}
+
 UPLOAD_DIR_MODE="${INSTALL_UPLOAD_DIR_MODE:-775}"
 LOG_FILE_MODE="${INSTALL_LOG_FILE_MODE:-660}"
 validate_chmod_mode "$UPLOAD_DIR_MODE" INSTALL_UPLOAD_DIR_MODE
 validate_chmod_mode "$LOG_FILE_MODE" INSTALL_LOG_FILE_MODE
 
 ARG_FLASK_SECRET_KEY=""
+ARG_FLASK_PORT=""
 ARG_RTC_MODE=""
 ARG_RTC_ADDRESSES=""
 ARG_RTC_OVERLAY=""
@@ -165,12 +220,18 @@ ARG_AP_DHCP_END=""
 ARG_AP_DHCP_LEASE=""
 ARG_AP_WAN=""
 FORCE_NONINTERACTIVE=0
+INSTALL_DRY_RUN=${INSTALL_DRY_RUN:-0}
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --flask-secret-key)
             require_value "$1" "$2"
             ARG_FLASK_SECRET_KEY="$2"
+            shift 2
+            ;;
+        --flask-port)
+            require_value "$1" "$2"
+            ARG_FLASK_PORT="$2"
             shift 2
             ;;
         --rtc-mode)
@@ -290,6 +351,10 @@ while [ $# -gt 0 ]; do
             FORCE_NONINTERACTIVE=1
             shift
             ;;
+        --dry-run)
+            INSTALL_DRY_RUN=1
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -322,6 +387,24 @@ fi
 if [ -z "$ARG_FLASK_SECRET_KEY" ] && [ -n "${FLASK_SECRET_KEY:-}" ]; then
     ARG_FLASK_SECRET_KEY="$FLASK_SECRET_KEY"
 fi
+FLASK_PORT_SOURCE="Standard (80)"
+if [ -n "$ARG_FLASK_PORT" ]; then
+    FLASK_PORT_SOURCE="CLI (--flask-port)"
+elif [ -n "${INSTALL_FLASK_PORT:-}" ]; then
+    ARG_FLASK_PORT="$INSTALL_FLASK_PORT"
+    FLASK_PORT_SOURCE="INSTALL_FLASK_PORT"
+elif [ -n "${FLASK_PORT:-}" ]; then
+    ARG_FLASK_PORT="$FLASK_PORT"
+    FLASK_PORT_SOURCE="FLASK_PORT"
+fi
+CONFIGURED_FLASK_PORT="${ARG_FLASK_PORT:-80}"
+validate_port "$CONFIGURED_FLASK_PORT" "$FLASK_PORT_SOURCE"
+if [ "$CONFIGURED_FLASK_PORT" = "80" ]; then
+    echo "HTTP-Port für Gunicorn/Flask: ${CONFIGURED_FLASK_PORT}"
+else
+    echo "HTTP-Port für Gunicorn/Flask: ${CONFIGURED_FLASK_PORT} (Quelle: ${FLASK_PORT_SOURCE})"
+fi
+export FLASK_PORT="$CONFIGURED_FLASK_PORT"
 if [ -z "$ARG_RTC_MODE" ] && [ -n "${INSTALL_RTC_MODE:-}" ]; then
     ARG_RTC_MODE="$INSTALL_RTC_MODE"
 fi
@@ -507,6 +590,13 @@ if [ -n "$ARG_HAT_DISABLE" ]; then
 fi
 if [ "$PROMPT_ALLOWED" -eq 0 ] && [ -z "${HAT_MODEL:-}" ]; then
     export HAT_NONINTERACTIVE=1
+fi
+
+if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
+    echo ""
+    echo "[Dry-Run] Installation wurde nicht ausgeführt. Folgende Abschluss-Hinweise würden angezeigt:"
+    print_post_install_instructions "$CONFIGURED_FLASK_PORT" 0
+    exit 0
 fi
 
 # System-Update
@@ -1244,8 +1334,14 @@ sudo cp audio-pi.service /etc/systemd/system/
 SYSTEMD_SAFE_PWD=$(printf '%s' "$(pwd)" | sed -e 's/[\\&|]/\\&/g')
 sudo sed -i "s|/opt/Audio-Pi-Websystem|$SYSTEMD_SAFE_PWD|g" /etc/systemd/system/audio-pi.service
 sudo sed -i "s|^Environment=.*FLASK_SECRET_KEY=.*|Environment=\"FLASK_SECRET_KEY=$SYSTEMD_SED_SAFE_SECRET\"|" /etc/systemd/system/audio-pi.service
+if sudo grep -q '^Environment=FLASK_PORT=' /etc/systemd/system/audio-pi.service; then
+    sudo sed -i "s|^Environment=FLASK_PORT=.*|Environment=FLASK_PORT=${CONFIGURED_FLASK_PORT}|" /etc/systemd/system/audio-pi.service
+else
+    echo "Environment=FLASK_PORT=${CONFIGURED_FLASK_PORT}" | sudo tee -a /etc/systemd/system/audio-pi.service >/dev/null
+fi
 sudo sed -i "s|^User=.*|User=$TARGET_USER|" /etc/systemd/system/audio-pi.service
 sudo sed -i "s|^Group=.*|Group=$TARGET_GROUP|" /etc/systemd/system/audio-pi.service
+echo "HTTP-Port ${CONFIGURED_FLASK_PORT} wurde in /etc/systemd/system/audio-pi.service hinterlegt."
 echo "Systemd-Dienst wird für Benutzer $TARGET_USER und Gruppe $TARGET_GROUP konfiguriert."
 install_tmpfiles_rule "$TARGET_USER" "$TARGET_GROUP" "$TARGET_UID"
 sudo systemctl daemon-reload
@@ -1264,24 +1360,5 @@ echo "Nach dem Pairing mit dem Handy kann Musik über den Pi abgespielt werden!"
 # Optional: Reboot nach RTC/Overlay nötig
 echo "Wenn RTC/I2C/Overlay neu eingerichtet wurden: Bitte RASPBERRY PI NEU STARTEN!"
 
-echo ""
-echo "Setup abgeschlossen! Der systemd-Dienst 'audio-pi.service' wurde gestartet."
-echo "Status prüfen: sudo systemctl status audio-pi.service"
-echo ""
-echo "Optionaler Entwicklungsstart:"
-echo "source venv/bin/activate && export AUDIO_PI_USE_DEV_SERVER=1 && python app.py"
-echo ""
-echo "Öffne im Browser: http://<RaspberryPi-IP>/"
-echo ""
-echo "Beim ersten Start wird der Benutzer 'admin' automatisch angelegt."
-echo "Setze optional INITIAL_ADMIN_PASSWORD, um das Startpasswort festzulegen."
-echo "Ohne Vorgabe erzeugt die App ein zufälliges Passwort und schreibt es in $(pwd)/app.log."
-echo "Bitte direkt nach der ersten Anmeldung über die Weboberfläche das Passwort ändern."
-echo ""
-if [ "$AP_CONFIGURED" -eq 1 ]; then
-    echo "Hinweis: WLAN-Access-Point ist aktiv."
-    echo "Passe SSID/Passwort in /etc/hostapd/hostapd.conf sowie DHCP-Einstellungen in /etc/dnsmasq.d/audio-pi.conf an."
-    echo "Die NAT-Regeln wurden nach /etc/iptables.ipv4.nat geschrieben und können dort angepasst werden."
-fi
-
+print_post_install_instructions "$CONFIGURED_FLASK_PORT" "$AP_CONFIGURED"
 echo ""

@@ -120,6 +120,7 @@ sudo bash install.sh \
 Dabei gilt:
 
 - `--flask-secret-key` / `INSTALL_FLASK_SECRET_KEY` setzen das notwendige Flask-Secret.
+- `--flask-port` / `INSTALL_FLASK_PORT` legen den HTTP-Port für Gunicorn/Flask fest (Standard: `80`).
 - `--rtc-mode` (`auto`, `pcf8563`, `ds3231`, `skip`) und `--rtc-accept-detection`
   steuern die RTC-Erkennung; Adressen (`--rtc-addresses`) und Overlays
   (`--rtc-overlay`) lassen sich ebenfalls vorbelegen.
@@ -131,6 +132,10 @@ Dabei gilt:
   `--ap-dhcp-lease` und `--ap-wan`. Ohne vollständige Angaben wechselt der
   Installer automatisch in den Dialogmodus oder – bei `--non-interactive` –
   bricht mit einer passenden Fehlermeldung ab.
+
+> 💡 Mit `./install.sh --dry-run` (kombinierbar mit `--flask-port` oder den
+> entsprechenden `INSTALL_…`-Variablen) lässt sich die Abschlussausgabe inklusive
+> des ermittelten Ports prüfen, ohne Änderungen am System vorzunehmen.
 
 > **Neu:** Der Installer übernimmt Secrets inklusive Sonderzeichen (z. B. `/`, `&`, Leerzeichen)
 > sowie führender/abschließender Leerzeichen unverändert sowohl für den interaktiven Start
@@ -179,10 +184,7 @@ starten wie gewohnt.
 
 ### Automatischer Start (systemd)
 
-`install.sh` kopiert und konfiguriert `audio-pi.service` automatisch. Dabei wird der während der Installation abgefragte `FLASK_SECRET_KEY` eingetragen; ohne gültigen Schlüssel startet der Dienst nicht. Die
-Service-Datei setzt außerdem `FLASK_PORT=80` und stattet den Dienst dank
-`AmbientCapabilities=CAP_NET_BIND_SERVICE` mit den nötigen Rechten aus, damit
-der nicht-root-Benutzer `pi` auch Port 80 binden kann. Statt direkt `python
+`install.sh` kopiert und konfiguriert `audio-pi.service` automatisch. Dabei wird der während der Installation abgefragte `FLASK_SECRET_KEY` eingetragen; ohne gültigen Schlüssel startet der Dienst nicht. Der HTTP-Port landet – standardmäßig als `FLASK_PORT=80`, bei Bedarf entsprechend der Installer-Option `--flask-port` bzw. `INSTALL_FLASK_PORT` – ebenfalls direkt in der Unit. Dank `AmbientCapabilities=CAP_NET_BIND_SERVICE` kann der nicht-root-Benutzer `pi` auch Port 80 binden. Statt direkt `python
 app.py` aufzurufen, startet systemd jetzt Gunicorn aus der virtuellen Umgebung
 (`ExecStart=/opt/Audio-Pi-Websystem/venv/bin/gunicorn --config ...`). Das sorgt
 für mehrere Worker-Threads, optionale Hot-ReLoads (`systemctl reload` sendet
