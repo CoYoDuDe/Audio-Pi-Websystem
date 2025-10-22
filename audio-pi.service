@@ -12,8 +12,13 @@ Environment=FLASK_DEBUG=0
 Environment="FLASK_SECRET_KEY=__CHANGE_ME__"
 Environment=FLASK_PORT=80
 Environment=XDG_RUNTIME_DIR=/run/user/__UID__
-ExecStart=/opt/Audio-Pi-Websystem/venv/bin/python /opt/Audio-Pi-Websystem/app.py
+ExecStart=/opt/Audio-Pi-Websystem/venv/bin/gunicorn --config /opt/Audio-Pi-Websystem/gunicorn.conf.py app:app
+ExecReload=/bin/kill -s HUP $MAINPID
+KillSignal=SIGQUIT
+TimeoutStartSec=60
+TimeoutStopSec=45
 Restart=on-failure
+RestartSec=5
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 [Install]

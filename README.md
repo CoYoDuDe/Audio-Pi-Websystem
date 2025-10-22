@@ -155,39 +155,54 @@ bash setup_env.sh
 source venv/bin/activate
 ```
 
-**4. Anwendung starten**
-Die Anwendung bricht sofort ab, wenn `FLASK_SECRET_KEY` nicht gesetzt ist. Nach
-dem Setzen der Variable genügt ein einfacher Aufruf. Seit dem behobenen
-Startproblem laufen Scheduler, Bluetooth-Monitor und Co. automatisch an – es
-ist kein zusätzlicher Funktionsaufruf mehr nötig.
+**4. (Optional) Entwicklungsserver starten**
+Der Produktivbetrieb läuft ausschließlich über Gunicorn (siehe Abschnitt
+„Deployment“). Für lokale Tests lässt sich der integrierte Flask-Server weiter
+verwenden, allerdings nur nach expliziter Freigabe per Umgebungsschalter.
 
 ```bash
 export FLASK_SECRET_KEY="ein_sicherer_schluessel"
 # optional: Port ändern (Standard ist 80)
 export FLASK_PORT=8080
+export AUDIO_PI_USE_DEV_SERVER=1
 python app.py
 ```
 
+Ohne `AUDIO_PI_USE_DEV_SERVER=1` beendet sich `python app.py` sofort mit einem
+Hinweis auf den Gunicorn-Dienst. Der integrierte Server eignet sich weiterhin
+zum Debugging; Scheduler, Bluetooth-Monitor und andere Hintergrundthreads
+starten wie gewohnt.
+
 > **Hinweis:** Für Ports <1024 benötigt der ausführende Benutzer die Capability
-> `CAP_NET_BIND_SERVICE`. Entweder wird die Anwendung über den systemd-Dienst
-> gestartet (siehe unten), oder die Python-Interpreter-Binary erhält diese
-> Capability beispielsweise per `sudo setcap 'cap_net_bind_service=+ep' $(readlink -f $(which python3))`.
+> `CAP_NET_BIND_SERVICE`. Im Produktivbetrieb übernimmt der systemd-Dienst die
+> Capability-Zuweisung automatisch.
 
 ### Automatischer Start (systemd)
 
 `install.sh` kopiert und konfiguriert `audio-pi.service` automatisch. Dabei wird der während der Installation abgefragte `FLASK_SECRET_KEY` eingetragen; ohne gültigen Schlüssel startet der Dienst nicht. Die
 Service-Datei setzt außerdem `FLASK_PORT=80` und stattet den Dienst dank
 `AmbientCapabilities=CAP_NET_BIND_SERVICE` mit den nötigen Rechten aus, damit
-der nicht-root-Benutzer `pi` auch Port 80 binden kann. Der Python-Interpreter
-wird aus der virtuellen Umgebung gestartet und erhält PulseAudio-Zugriff
-(entweder über `User=pi` oder mit `PULSE_RUNTIME_PATH`). Durch
-`ExecStartPre=/bin/sleep 10` wartet der Dienst nach dem Booten zehn Sekunden,
-bevor `app.py` ausgeführt wird. Zusätzlich setzt die Service-Datei
-`XDG_RUNTIME_DIR=/run/user/1000`, damit PulseAudio auch ohne laufende Sitzung
-funktioniert. 
+der nicht-root-Benutzer `pi` auch Port 80 binden kann. Statt direkt `python
+app.py` aufzurufen, startet systemd jetzt Gunicorn aus der virtuellen Umgebung
+(`ExecStart=/opt/Audio-Pi-Websystem/venv/bin/gunicorn --config ...`). Das sorgt
+für mehrere Worker-Threads, optionale Hot-ReLoads (`systemctl reload` sendet
+ein HUP) und sauberere Logs (`capture_output` leitet alles an `journalctl`
+weiter). Durch `ExecStartPre=/bin/sleep 10` wartet der Dienst nach dem Booten
+zehn Sekunden, bevor Gunicorn mit der App initialisiert wird. Zusätzlich setzt
+die Service-Datei `XDG_RUNTIME_DIR=/run/user/1000`, damit PulseAudio auch ohne
+laufende Sitzung funktioniert. `TimeoutStartSec`, `TimeoutStopSec` und
+`RestartSec` sorgen für robuste Neustarts bei fehlerhaften Deployments oder
+unerwarteten Ausstiegen.
+
+Die Gunicorn-Optionen lassen sich zentral in `gunicorn.conf.py` anpassen. Der
+Standard liest den Port weiterhin aus `FLASK_PORT` und verwendet einen
+Thread-basierten Worker (`gthread`), damit mehrere parallele HTTP-Anfragen auf
+kleinen Raspberry-Pi-Boards zuverlässig abgearbeitet werden. Über die
+Umgebungsvariablen `AUDIO_PI_GUNICORN_*` (z. B. `AUDIO_PI_GUNICORN_WORKERS`)
+lässt sich das Verhalten bei Bedarf weiter abstimmen.
 
 > **Wichtig:** In der Vorlage `audio-pi.service` ist `Environment="FLASK_SECRET_KEY=__CHANGE_ME__"`
-> als Platzhalter hinterlegt. Der Installer ersetzt diesen inzwischen automatisch
+> als Platzhalter hinterlegt. Der Installer ersetzt diesen weiterhin automatisch
 > durch `Environment="FLASK_SECRET_KEY=<dein_schlüssel>"` und maskiert dabei
 > mindestens doppelte Anführungszeichen (`"`), Backslashes (`\`) und Dollarzeichen (`$`).
 > Wer die Unit manuell installiert, sollte dieselbe Maskierung verwenden, z. B. via
@@ -198,6 +213,26 @@ Nach der Installation lässt sich das gesetzte Secret – auch mit Leerzeichen �
 ```bash
 systemctl show --property=Environment audio-pi.service
 ```
+
+### Deployment
+
+- **Systemd-Service aktualisieren:** Nach Code- oder Konfigurationsänderungen
+  genügt `sudo systemctl restart audio-pi.service`. Für reine
+  Konfigurationsupdates der Gunicorn-Parameter empfiehlt sich `sudo systemctl
+  reload audio-pi.service`, wodurch Gunicorn einen Hot-Reload per HUP erhält.
+- **Gunicorn-Konfiguration:** `gunicorn.conf.py` nutzt die offiziellen Flask-
+  Empfehlungen für produktive WSGI-Server. Weitere Optionen können gemäß der
+  [Flask-Dokumentation zu WSGI-Servern](https://flask.palletsprojects.com/en/latest/deploying/wsgi-standalone/#gunicorn)
+  ergänzt werden.
+- **Skalierung:** Für Szenarien mit vielen gleichzeitigen Clients lassen sich
+  zusätzliche Worker (`AUDIO_PI_GUNICORN_WORKERS`) oder Threads
+  (`AUDIO_PI_GUNICORN_THREADS`) aktivieren. Die Standardwerte sind bewusst
+  konservativ gewählt, um auch auf kleineren Raspberry-Pi-Modellen stabil zu
+  bleiben.
+- **Integration in bestehende Setups:** Dank systemd eignet sich der Dienst für
+  Supervisor-Lösungen wie SetupHelper (kwindrem) oder Venus-OS-basierte
+  Erweiterungen. Die Aktivierung erfolgt wie gewohnt per `sudo systemctl enable
+  --now audio-pi.service`.
 
 überprüfen.
 
