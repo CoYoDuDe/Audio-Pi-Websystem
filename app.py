@@ -5681,7 +5681,28 @@ if not TESTING:
     _start_button_monitor()
 
 if __name__ == "__main__":
-    debug = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true", "yes")
+    dev_flag = os.environ.get("AUDIO_PI_USE_DEV_SERVER", "").strip().lower()
+    dev_enabled = dev_flag in {"1", "true", "yes"}
+
+    if not dev_enabled:
+        message = (
+            "Direkter Start über 'python app.py' ist deaktiviert. Bitte verwende den "
+            "Gunicorn-Dienst (siehe README) oder setze AUDIO_PI_USE_DEV_SERVER=1 für "
+            "den lokalen Entwicklungsserver."
+        )
+        logging.error(message)
+        if getattr(scheduler, "running", False):
+            scheduler.shutdown()
+        _stop_button_monitor()
+        if not TESTING and GPIO_AVAILABLE and gpio_handle is not None:
+            try:
+                deactivate_amplifier()
+                GPIO.gpiochip_close(gpio_handle)
+            except GPIOError as e:
+                logging.error(f"Fehler beim Schließen des GPIO-Handles: {e}")
+        raise SystemExit(message)
+
+    debug = os.environ.get("FLASK_DEBUG", "").lower() in {"1", "true", "yes"}
     port_raw = os.environ.get("FLASK_PORT", "80")
     try:
         port = int(port_raw)
