@@ -114,6 +114,28 @@ validate_chmod_mode() {
     fi
 }
 
+install_tmpfiles_rule() {
+    local tmpfiles_conf="/etc/tmpfiles.d/audio-pi.conf"
+    local runtime_user="$1"
+    local runtime_group="$2"
+    local runtime_uid="$3"
+
+    if [ -z "$runtime_user" ] || [ -z "$runtime_group" ] || [ -z "$runtime_uid" ]; then
+        echo "install_tmpfiles_rule: Benutzer, Gruppe oder UID fehlen." >&2
+        return 1
+    fi
+
+    sudo install -d -m 0755 /etc/tmpfiles.d
+    sudo tee "$tmpfiles_conf" >/dev/null <<EOF_CONF
+# Audio-Pi Websystem: Laufzeitverzeichnisse für systemd und PulseAudio
+d /run/audio-pi 0700 ${runtime_user} ${runtime_group} -
+d /run/user/${runtime_uid} 0700 ${runtime_user} ${runtime_group} -
+EOF_CONF
+
+    sudo systemd-tmpfiles --create "$tmpfiles_conf"
+    echo "Tmpfiles-Regel in $tmpfiles_conf angelegt und angewendet."
+}
+
 UPLOAD_DIR_MODE="${INSTALL_UPLOAD_DIR_MODE:-775}"
 LOG_FILE_MODE="${INSTALL_LOG_FILE_MODE:-660}"
 validate_chmod_mode "$UPLOAD_DIR_MODE" INSTALL_UPLOAD_DIR_MODE
@@ -1224,10 +1246,8 @@ sudo sed -i "s|/opt/Audio-Pi-Websystem|$SYSTEMD_SAFE_PWD|g" /etc/systemd/system/
 sudo sed -i "s|^Environment=.*FLASK_SECRET_KEY=.*|Environment=\"FLASK_SECRET_KEY=$SYSTEMD_SED_SAFE_SECRET\"|" /etc/systemd/system/audio-pi.service
 sudo sed -i "s|^User=.*|User=$TARGET_USER|" /etc/systemd/system/audio-pi.service
 sudo sed -i "s|^Group=.*|Group=$TARGET_GROUP|" /etc/systemd/system/audio-pi.service
-sudo sed -i "s/__UID__/$TARGET_UID/" /etc/systemd/system/audio-pi.service
 echo "Systemd-Dienst wird für Benutzer $TARGET_USER und Gruppe $TARGET_GROUP konfiguriert."
-sudo install -d -m 0700 -o "$TARGET_USER" -g "$TARGET_GROUP" "/run/user/$TARGET_UID"
-echo "Hinweis: systemd legt /run/user/$TARGET_UID beim Boot automatisch neu an."
+install_tmpfiles_rule "$TARGET_USER" "$TARGET_GROUP" "$TARGET_UID"
 sudo systemctl daemon-reload
 sudo systemctl enable audio-pi.service
 sudo systemctl restart audio-pi.service
