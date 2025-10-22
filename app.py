@@ -1170,9 +1170,6 @@ def reload_hardware_button_config() -> List[HardwareButtonConfigEntry]:
     return load_hardware_button_config()
 
 
-load_hardware_button_config()
-
-
 if TESTING:
 
     class _TestingConnectionProxy:
@@ -1736,6 +1733,7 @@ def get_rtc_configuration_state() -> dict:
 
 
 load_amplifier_gpio_pin_from_settings(log_source=True)
+load_hardware_button_config()
 load_dac_sink_from_settings()
 load_rtc_configuration_from_settings()
 
