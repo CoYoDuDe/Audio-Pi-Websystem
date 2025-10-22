@@ -529,6 +529,9 @@ else
     printf '%s\n' "$PROFILE_EXPORT_LINE" | sudo tee -a "$PROFILE_FILE"
     echo "FLASK_SECRET_KEY wurde in $TARGET_HOME/.profile hinterlegt."
 fi
+if sudo test -e "$PROFILE_FILE"; then
+    sudo chown "$TARGET_USER:$TARGET_GROUP" "$PROFILE_FILE"
+fi
 SYSTEMD_QUOTED_SECRET=$(printf '%s' "$SECRET" | sed -e 's/[\\$"]/\\&/g')
 SYSTEMD_SED_SAFE_SECRET=$(printf '%s' "$SYSTEMD_QUOTED_SECRET" | sed -e 's/[&|]/\\&/g')
 
