@@ -520,8 +520,15 @@ TARGET_USER=${SUDO_USER:-$USER}
 TARGET_UID=$(id -u "$TARGET_USER")
 TARGET_GROUP=$(id -gn "$TARGET_USER")
 TARGET_HOME=$(eval echo "~$TARGET_USER")
-printf 'export FLASK_SECRET_KEY=%q\n' "$SECRET" | sudo tee -a "$TARGET_HOME/.profile"
-echo "FLASK_SECRET_KEY wurde in $TARGET_HOME/.profile hinterlegt."
+PROFILE_FILE="$TARGET_HOME/.profile"
+PROFILE_EXPORT_LINE=$(printf 'export FLASK_SECRET_KEY=%q' "$SECRET")
+if sudo test -f "$PROFILE_FILE" && sudo grep -q '^export FLASK_SECRET_KEY=' "$PROFILE_FILE"; then
+    sudo env PROFILE_REPLACEMENT="$PROFILE_EXPORT_LINE" perl -0pi -e 's/^export FLASK_SECRET_KEY=.*$/\Q$ENV{PROFILE_REPLACEMENT}\E/m' "$PROFILE_FILE"
+    echo "FLASK_SECRET_KEY wurde in $TARGET_HOME/.profile aktualisiert."
+else
+    printf '%s\n' "$PROFILE_EXPORT_LINE" | sudo tee -a "$PROFILE_FILE"
+    echo "FLASK_SECRET_KEY wurde in $TARGET_HOME/.profile hinterlegt."
+fi
 SYSTEMD_QUOTED_SECRET=$(printf '%s' "$SECRET" | sed -e 's/[\\$"]/\\&/g')
 SYSTEMD_SED_SAFE_SECRET=$(printf '%s' "$SYSTEMD_QUOTED_SECRET" | sed -e 's/[&|]/\\&/g')
 
