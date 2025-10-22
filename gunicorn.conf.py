@@ -8,9 +8,7 @@ zusätzliche Anpassungen weiterhin den gleichen Listen-Port nutzen.
 from __future__ import annotations
 
 import logging
-import multiprocessing
 import os
-from typing import Callable
 
 
 def _read_int_from_env(name: str, default: int, *, minimum: int | None = None) -> int:
@@ -39,31 +37,21 @@ def _read_int_from_env(name: str, default: int, *, minimum: int | None = None) -
     return parsed
 
 
-def _configure_workers(cpu_count_func: Callable[[], int]) -> int:
-    configured = _read_int_from_env("AUDIO_PI_GUNICORN_WORKERS", -1)
-    if configured > 0:
-        return configured
-
-    try:
-        cpu_count = cpu_count_func()
-    except NotImplementedError:
-        cpu_count = 1
-
-    if cpu_count < 1:
-        cpu_count = 1
-
-    # Konservative Voreinstellung für Raspberry-Pi-Boards
-    if cpu_count <= 2:
-        return 2
-    if cpu_count <= 4:
-        return 3
-    return min(6, cpu_count + 1)
+def _configure_workers() -> int:
+    configured = _read_int_from_env("AUDIO_PI_GUNICORN_WORKERS", 1, minimum=1)
+    if configured > 1:
+        logging.getLogger(__name__).warning(
+            "Mehrere Gunicorn-Worker werden nicht unterstützt, weil der Dienst auf "
+            "gemeinsame In-Memory-Zustände angewiesen ist. Fallback auf einen Worker.",
+        )
+        return 1
+    return configured
 
 
 bind_port = _read_int_from_env("FLASK_PORT", 80, minimum=1)
 bind = f"0.0.0.0:{bind_port}"
 
-workers = _configure_workers(multiprocessing.cpu_count)
+workers = _configure_workers()
 threads = _read_int_from_env("AUDIO_PI_GUNICORN_THREADS", 2, minimum=1)
 worker_class = "gthread"
 
@@ -73,7 +61,9 @@ graceful_timeout = _read_int_from_env(
 )
 keepalive = _read_int_from_env("AUDIO_PI_GUNICORN_KEEPALIVE", 5, minimum=1)
 
-preload_app = True
+# Preloading deaktivieren, damit Hintergrund-Threads im eigentlichen Worker-Prozess
+# gestartet werden und nicht nur im Master-Prozess existieren.
+preload_app = False
 capture_output = True
 errorlog = "-"
 accesslog = "-"
