@@ -85,9 +85,11 @@ der Dienstbenutzer als auch andere Mitglieder der Zielgruppe den Inhalt lesen
 und fortschreiben können. Über `INSTALL_LOG_FILE_MODE` bzw. `--log-file-mode`
 lässt sich der Wert bei Bedarf anpassen. Befindet sich die optionale Vorlage
 `scripts/logrotate/audio-pi` im Repository, kopiert der Installer beim Setup
-eine angepasste Variante nach `/etc/logrotate.d/audio-pi`. Dadurch wird die
-Rotation des Logfiles inklusive korrekter Besitzer- und Rechtevergabe
-automatisch eingerichtet.
+eine angepasste Variante nach `/etc/logrotate.d/audio-pi`. Die Vorlage liest den
+gesetzten Modus automatisch aus (`create <MODE> …`) und bleibt damit auch bei
+individuellen Werten konsistent, ohne dass sie manuell editiert werden muss.
+Dadurch wird die Rotation des Logfiles inklusive korrekter Besitzer- und
+Rechtevergabe automatisch eingerichtet.
 
 Seit dem aktuellen Update lassen sich alle Dialoge per CLI-Flag oder per
 Umgebungsvariablen mit dem Präfix `INSTALL_…` vorbelegen. Sobald alle
@@ -320,9 +322,11 @@ Sicherheitsvorgaben migrieren.
 `install.sh` legt das Upload-Verzeichnis `uploads/` und die Logdatei `app.log` jetzt automatisch mit den Rechten des Dienstbenutzers an. Sowohl Besitzer als auch Gruppe werden auf den während der Installation gewählten Account (`$TARGET_USER:$TARGET_GROUP`) gesetzt, damit der systemd-Dienst ohne zusätzliche Privilegien schreiben kann. Standardmäßig gelten dabei folgende Modi:
 
 - `uploads/`: `chmod 775` (Schreib-/Leserechte für Benutzer und Gruppe, nur Lesen für andere)
-- `app.log`: `chmod 660` (Schreib-/Leserechte für Benutzer und Gruppe, kein Zugriff für andere)
+- `app.log`: `chmod 666` (Schreib-/Leserechte für alle Beteiligten, damit auch zusätzliche Tools ohne sudo anhängen können)
 
-Wer ein vollständig geschlossenes System betreibt, kann die Werte bereits beim Installationslauf anpassen, z. B. `INSTALL_UPLOAD_DIR_MODE=750` und `INSTALL_LOG_FILE_MODE=640` für ausschließlichen Gruppen-/Benutzerzugriff. Die Angaben müssen als oktale chmod-Werte (drei oder vier Stellen) übergeben werden:
+Die Logrotate-Vorlage `scripts/logrotate/audio-pi` wird während der Installation automatisch nach `/etc/logrotate.d/audio-pi` kopiert. Sie übernimmt den ermittelten Modus (`create <MODE> …`) und sorgt so dafür, dass rotierte Logfiles weiterhin exakt mit dem in `INSTALL_LOG_FILE_MODE`/`--log-file-mode` hinterlegten Wert erzeugt werden. Ohne eigene Vorgabe bleibt der Standard `666` aktiv, auch nach einer Rotation.
+
+Wer ein restriktiveres Profil benötigt, kann die Modi bereits beim Installationslauf setzen, z. B. `INSTALL_UPLOAD_DIR_MODE=750` und `INSTALL_LOG_FILE_MODE=640` für ausschließlichen Gruppen-/Benutzerzugriff. Die Angaben müssen als oktale chmod-Werte (drei oder vier Stellen) übergeben werden. Die Logrotate-Vorlage muss dafür nicht angepasst werden – sie übernimmt den gewählten Wert automatisch.
 
 ```bash
 sudo INSTALL_FLASK_SECRET_KEY="$(openssl rand -hex 32)" \
@@ -343,7 +347,7 @@ SERVICE_GROUP=$(id -gn <dienstbenutzer>)
 sudo usermod -aG "$SERVICE_GROUP" <dein_benutzername>
 ```
 
-Der Zugriff lässt sich anschließend mit `stat uploads app.log` prüfen; Schreiben ist ausschließlich für den Dienstaccount und Mitglieder der vergebenen Gruppe erlaubt.
+Der Zugriff lässt sich anschließend mit `stat uploads app.log` prüfen; die Ausgabe spiegelt den gewählten Modus wider (Standard `775`/`666` oder die individuell gesetzten Werte).
 
 ## Datenbank-Initialisierung
 
