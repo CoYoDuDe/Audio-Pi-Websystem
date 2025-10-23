@@ -88,3 +88,10 @@ def test_generate_secret_dry_run_reports_group(tmp_path: Path) -> None:
     assert (
         f"[Dry-Run] Würde Besitzrechte per 'sudo chown root:{target_group} /etc/audio-pi' sicherstellen." in combined_output
     )
+    target_user = os.environ.get("SUDO_USER") or os.environ.get("USER")
+    if not target_user:
+        target_user = subprocess.check_output(["id", "-un"], text=True).strip()
+    expected_netdev = f"[Dry-Run] Würde 'sudo usermod -aG netdev \"{target_user}\"' ausführen."
+    expected_i2c = f"[Dry-Run] Würde 'sudo usermod -aG i2c \"{target_user}\"' ausführen."
+    assert expected_netdev in combined_output
+    assert expected_i2c in combined_output
