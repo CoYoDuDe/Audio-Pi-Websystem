@@ -230,6 +230,15 @@ Dabei gilt:
   Installer automatisch in den Dialogmodus oder – bei `--non-interactive` –
   bricht mit einer passenden Fehlermeldung ab.
 
+#### Audio-HAT
+
+- Bereits konfigurierte `dtoverlay=`-Zeilen werden vor dem Anhängen bereinigt –
+  auch Varianten mit unmittelbar folgenden Optionen wie
+  `dtoverlay=hifiberry_dacplus,foo=bar`.
+- Der Dry-Run weist explizit darauf hin, dass vorhandene Einträge entfernt und
+  nicht dupliziert würden. So lässt sich verifizieren, dass ein vorhandenes
+  Overlay beim erneuten Ausführen nicht mehrfach in der `config.txt` landet.
+
 > 💡 Mit `./install.sh --dry-run` (kombinierbar mit `--flask-port` oder den
 > entsprechenden `INSTALL_…`-Variablen) lässt sich die Abschlussausgabe inklusive
 > des ermittelten Ports prüfen, ohne Änderungen am System vorzunehmen.
