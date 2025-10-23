@@ -12,7 +12,7 @@ Verwendung:
 Wichtige Optionen:
   --flask-secret-key VALUE        Flask Secret Key setzen (alternativ INSTALL_FLASK_SECRET_KEY).
   --flask-port VALUE              HTTP-Port für Gunicorn/Flask (Standard: 80; alternativ INSTALL_FLASK_PORT).
-  --log-file-mode MODE            chmod-Modus für app.log (Standard: 666; alternativ INSTALL_LOG_FILE_MODE).
+  --log-file-mode MODE            chmod-Modus für app.log (Standard: 660; alternativ INSTALL_LOG_FILE_MODE).
   --rtc-mode MODE                 RTC-Modus: auto, pcf8563, ds3231, skip.
   --rtc-addresses LIST            Kommagetrennte I²C-Adressen (z.B. 0x51,0x68).
   --rtc-overlay VALUE             dtoverlay-Wert für die RTC ("-" oder "none" deaktiviert die Änderung).
@@ -192,7 +192,7 @@ print_post_install_instructions() {
 }
 
 UPLOAD_DIR_MODE="${INSTALL_UPLOAD_DIR_MODE:-775}"
-DEFAULT_LOG_FILE_MODE="${INSTALL_LOG_FILE_MODE:-666}"
+DEFAULT_LOG_FILE_MODE="${INSTALL_LOG_FILE_MODE:-660}"
 validate_chmod_mode "$UPLOAD_DIR_MODE" INSTALL_UPLOAD_DIR_MODE
 validate_chmod_mode "$DEFAULT_LOG_FILE_MODE" INSTALL_LOG_FILE_MODE
 
@@ -414,7 +414,7 @@ fi
 export FLASK_PORT="$CONFIGURED_FLASK_PORT"
 
 LOG_FILE_MODE="$DEFAULT_LOG_FILE_MODE"
-LOG_FILE_MODE_SOURCE="Standard (666)"
+LOG_FILE_MODE_SOURCE="Standard (660)"
 if [ -n "${INSTALL_LOG_FILE_MODE:-}" ]; then
     LOG_FILE_MODE_SOURCE="INSTALL_LOG_FILE_MODE"
 fi
@@ -423,7 +423,7 @@ if [ -n "$ARG_LOG_FILE_MODE" ]; then
     LOG_FILE_MODE_SOURCE="CLI (--log-file-mode)"
 fi
 validate_chmod_mode "$LOG_FILE_MODE" LOG_FILE_MODE
-if [ "$LOG_FILE_MODE_SOURCE" = "Standard (666)" ]; then
+if [ "$LOG_FILE_MODE_SOURCE" = "Standard (660)" ]; then
     echo "Logfile-Modus: ${LOG_FILE_MODE}"
 else
     echo "Logfile-Modus: ${LOG_FILE_MODE} (Quelle: ${LOG_FILE_MODE_SOURCE})"

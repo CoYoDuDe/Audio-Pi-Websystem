@@ -80,10 +80,11 @@ Dienstbenutzer (`$TARGET_USER:$TARGET_GROUP`) gehört und mit `chmod 660`
 beschreibbare Rechte erhält, unabhängig davon, ob die Datei neu angelegt oder
 bereits vorhanden war.
 
-Das Logfile `app.log` wird standardmäßig mit `chmod 666` angelegt, damit sowohl
+Das Logfile `app.log` wird standardmäßig mit `chmod 660` angelegt, damit sowohl
 der Dienstbenutzer als auch andere Mitglieder der Zielgruppe den Inhalt lesen
-und fortschreiben können. Über `INSTALL_LOG_FILE_MODE` bzw. `--log-file-mode`
-lässt sich der Wert bei Bedarf anpassen. Befindet sich die optionale Vorlage
+und fortschreiben können, ohne dass beliebige lokale Nutzer Schreibrechte
+erhalten. Über `INSTALL_LOG_FILE_MODE` bzw. `--log-file-mode` lässt sich der
+Wert bei Bedarf (z. B. für gemeinsam genutzte Systeme) anpassen. Befindet sich die optionale Vorlage
 `scripts/logrotate/audio-pi` im Repository, kopiert der Installer beim Setup
 eine angepasste Variante nach `/etc/logrotate.d/audio-pi`. Dadurch wird die
 Rotation des Logfiles inklusive korrekter Besitzer- und Rechtevergabe
