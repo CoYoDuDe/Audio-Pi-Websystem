@@ -14,6 +14,7 @@ def app_module(tmp_path, monkeypatch):
     monkeypatch.setenv("TESTING", "1")
     monkeypatch.setenv("DB_FILE", str(tmp_path / "test.db"))
     monkeypatch.setenv("INITIAL_ADMIN_PASSWORD", "password")
+    monkeypatch.setenv("AUDIO_PI_DISABLE_SUDO", "1")
 
     repo_root = Path(__file__).resolve().parents[1]
     repo_root_str = str(repo_root)
@@ -73,7 +74,7 @@ def test_volume_missing_pactl_warns(monkeypatch, client):
     assert response.status_code == 200
     assert [
         ["amixer", "sset", "Master", "50%"],
-        app_module.privileged_command("alsactl", "store"),
+        ["systemctl", "start", "audio-pi-alsactl.service"],
     ] == commands
     assert app_module._PACTL_MISSING_MESSAGE.encode("utf-8") in response.data
     assert b"Lautst\xc3\xa4rke persistent gesetzt" in response.data

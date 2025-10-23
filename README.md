@@ -321,6 +321,15 @@ lässt sich das Verhalten bei Bedarf weiter abstimmen.
   Umgebungen ohne Polkit), setzt `INSTALL_DISABLE_SUDO=0` während der
   Installation oder trägt `AUDIO_PI_DISABLE_SUDO=0` in die Unit ein – dann
   werden weiterhin klassische `sudo`-Aufrufe verwendet.
+- **Persistente ALSA-Lautstärke:** `install.sh` liefert zusätzlich die One-Shot-
+  Unit `audio-pi-alsactl.service` nach `/etc/systemd/system`. Sie führt bei
+  Bedarf `alsactl store` als Root aus und bleibt bewusst deaktiviert, damit sie
+  ausschließlich manuell über `systemctl start audio-pi-alsactl.service`
+  ausgelöst wird. In sudo-freien Umgebungen nutzt die Web-UI diesen Helfer über
+  Polkit, während Installationen mit `AUDIO_PI_DISABLE_SUDO=0` weiterhin direkt
+  `alsactl store` aufrufen. Bestandsinstallationen können nach dem Update einmalig
+  `sudo systemctl start audio-pi-alsactl.service` ausführen, um das persistente
+  Mixer-Setup sofort zu übernehmen.
 - **wpa_cli-Berechtigungen:** Für den WLAN-Client-Workflow legt der Installer
   den Dienstbenutzer nun zusätzlich in der Gruppe `netdev` an. Darüber erhält
   der Account Zugriff auf die Unix-Domain-Sockets von `wpa_supplicant`

@@ -19,19 +19,22 @@ polkit.addRule(function(action, subject) {
         return value + ".service";
     }
 
-    var managedUnits = [
-        "audio-pi.service",
-        "dnsmasq.service",
-        "hostapd.service",
-        "systemd-timesyncd.service"
-    ];
+    var managedUnits = {
+        "audio-pi.service": ["start", "stop", "restart"],
+        "dnsmasq.service": ["start", "stop", "restart"],
+        "hostapd.service": ["start", "stop", "restart"],
+        "systemd-timesyncd.service": ["start", "stop", "restart"],
+        "audio-pi-alsactl.service": ["start"]
+    };
 
     if (actionId === "org.freedesktop.systemd1.manage-units") {
         var verb = String(action.lookup("verb") || action.lookup("operation") || "").toLowerCase();
         var unit = normalizeUnit(action.lookup("unit"));
-        var allowedVerbs = ["start", "stop", "restart"];
-        if (allowedVerbs.indexOf(verb) >= 0 && unit && managedUnits.indexOf(unit) >= 0) {
-            return polkit.Result.YES;
+        if (unit && managedUnits[unit]) {
+            var allowedVerbs = managedUnits[unit];
+            if (allowedVerbs.indexOf(verb) >= 0) {
+                return polkit.Result.YES;
+            }
         }
     }
 

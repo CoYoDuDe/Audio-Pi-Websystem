@@ -81,6 +81,8 @@ touch "$APT_LOG_FILE"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 POLKIT_RULE_TEMPLATE="$SCRIPT_DIR/scripts/polkit/49-audio-pi.rules"
 POLKIT_RULE_TARGET="/etc/polkit-1/rules.d/49-audio-pi.rules"
+AUDIO_PI_ALSACTL_UNIT_TEMPLATE="$SCRIPT_DIR/scripts/systemd/audio-pi-alsactl.service"
+AUDIO_PI_ALSACTL_UNIT_TARGET="/etc/systemd/system/audio-pi-alsactl.service"
 
 apt_get() {
     if [ $# -lt 1 ]; then
@@ -1723,6 +1725,15 @@ sudo sed -i "s|^User=.*|User=$TARGET_USER|" /etc/systemd/system/audio-pi.service
 sudo sed -i "s|^Group=.*|Group=$TARGET_GROUP|" /etc/systemd/system/audio-pi.service
 echo "HTTP-Port ${CONFIGURED_FLASK_PORT} wurde in /etc/systemd/system/audio-pi.service hinterlegt."
 echo "Systemd-Dienst wird für Benutzer $TARGET_USER und Gruppe $TARGET_GROUP konfiguriert."
+if [ -f "$AUDIO_PI_ALSACTL_UNIT_TEMPLATE" ]; then
+    sudo install -o root -g root -m 0644 "$AUDIO_PI_ALSACTL_UNIT_TEMPLATE" "$AUDIO_PI_ALSACTL_UNIT_TARGET"
+    if sudo systemctl reset-failed audio-pi-alsactl.service >/dev/null 2>&1; then
+        echo "Status von audio-pi-alsactl.service zurückgesetzt."
+    fi
+    echo "One-Shot-Unit audio-pi-alsactl.service aktualisiert (kein automatischer Start)."
+else
+    echo "Warnung: One-Shot-Unit-Vorlage $AUDIO_PI_ALSACTL_UNIT_TEMPLATE nicht gefunden – persistente Lautstärke benötigt manuelle Pflege."
+fi
 if [ -f "$POLKIT_RULE_TEMPLATE" ]; then
     POLKIT_RULE_DIR="$(dirname "$POLKIT_RULE_TARGET")"
     sudo install -d -o root -g root -m 0755 "$POLKIT_RULE_DIR"

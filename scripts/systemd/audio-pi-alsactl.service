@@ -1,0 +1,13 @@
+[Unit]
+Description=Audio-Pi ALSA Persistenz Snapshot
+Documentation=https://man.archlinux.org/man/alsactl.1
+DefaultDependencies=no
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/alsactl store
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target

@@ -5238,10 +5238,22 @@ def set_volume():
             commands.append(["pactl", "set-sink-volume", sink_for_pactl, f"{int_vol}%"])
         else:
             logging.info("Überspringe pactl-Aufruf, da kein Sink verfügbar ist.")
+        if is_sudo_disabled():
+            persistent_command = privileged_command(
+                "systemctl", "start", "audio-pi-alsactl.service"
+            )
+            logging.debug(
+                "Persistente Lautstärke wird über systemctl start audio-pi-alsactl.service ausgelöst."
+            )
+        else:
+            persistent_command = privileged_command("alsactl", "store")
+            logging.debug(
+                "Persistente Lautstärke wird direkt über alsactl store gesichert (sudo aktiv)."
+            )
         commands.extend(
             [
                 ["amixer", "sset", "Master", f"{int_vol}%"],
-                privileged_command("alsactl", "store"),
+                persistent_command,
             ]
         )
         any_success = False
