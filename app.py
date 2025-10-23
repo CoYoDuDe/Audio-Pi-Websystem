@@ -1,6 +1,7 @@
 import atexit
 import functools
 import os
+import shlex
 import time
 import subprocess
 import threading
@@ -111,6 +112,32 @@ def _ensure_pygame_music_interface() -> None:
 _ensure_pygame_music_interface()
 
 
+def _command_contains_wpa_cli(command) -> bool:
+    def _check_parts(parts):
+        for part in parts:
+            if isinstance(part, os.PathLike):
+                part_str = os.fspath(part)
+            elif isinstance(part, str):
+                part_str = part
+            else:
+                continue
+            if os.path.basename(part_str) == "wpa_cli":
+                return True
+        return False
+
+    if isinstance(command, (list, tuple)):
+        return _check_parts(command)
+
+    if isinstance(command, str):
+        try:
+            parts = shlex.split(command)
+        except ValueError:
+            parts = command.split()
+        return _check_parts(parts)
+
+    return False
+
+
 def _strip_sudo_from_command(command):
     if command is None:
         return command
@@ -119,15 +146,19 @@ def _strip_sudo_from_command(command):
         if not command:
             return []
         if command[0] == "sudo":
+            if _command_contains_wpa_cli(command):
+                return list(command)
             return list(command[1:])
         return list(command)
 
     if isinstance(command, str):
         stripped = command.lstrip()
-        if stripped.startswith("sudo "):
-            return stripped[5:]
         if stripped == "sudo":
             return ""
+        if stripped.startswith("sudo "):
+            if _command_contains_wpa_cli(command):
+                return command
+            return stripped[5:]
         return command
 
     return command
