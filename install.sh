@@ -752,6 +752,111 @@ enable_i2c_support() {
     fi
 }
 
+resolve_config_txt_path() {
+    local purpose="$1"
+    local config_file=""
+    local -a candidates=("/boot/firmware/config.txt" "/boot/config.txt")
+
+    for candidate in "${candidates[@]}"; do
+        if [ -f "$candidate" ]; then
+            config_file="$candidate"
+            break
+        fi
+    done
+
+    if [ -n "$config_file" ]; then
+        printf '%s\n' "$config_file"
+        return 0
+    fi
+
+    if [ -n "$purpose" ]; then
+        echo "Warnung: Keine config.txt unter /boot/firmware oder /boot gefunden – ${purpose} kann nicht durchgeführt werden." >&2
+    else
+        echo "Warnung: Keine config.txt unter /boot/firmware oder /boot gefunden." >&2
+    fi
+
+    return 1
+}
+
+apply_hat_overlay() {
+    local overlay_name="$1"
+    local overlay_opts="$2"
+    if [ -z "$overlay_name" ]; then
+        return 0
+    fi
+
+    local overlay_line="dtoverlay=${overlay_name}"
+    if [ -n "$overlay_opts" ]; then
+        overlay_line+=",$overlay_opts"
+    fi
+
+    local config_file
+    if ! config_file=$(resolve_config_txt_path "Audio-HAT-Overlay (${overlay_name}) setzen"); then
+        return 0
+    fi
+
+    local timestamp
+    timestamp=$(date +%s)
+
+    if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
+        echo "[Dry-Run] Würde ${config_file} nach ${config_file}.hat.bak.${timestamp} sichern."
+        echo "[Dry-Run] Würde vorhandene dtoverlay=${overlay_name} Einträge aus ${config_file} entfernen."
+        echo "[Dry-Run] Würde '${overlay_line}' an ${config_file} anhängen."
+        return 0
+    fi
+
+    local tmp_file
+    tmp_file=$(mktemp)
+    sudo cp "$config_file" "${config_file}.hat.bak.${timestamp}"
+    sudo awk -v overlay="$overlay_name" '
+        BEGIN { pattern = "^dtoverlay=" overlay "([[:space:]],|$)" }
+        $0 ~ pattern { next }
+        { print }
+    ' "$config_file" >"$tmp_file"
+    sudo mv "$tmp_file" "$config_file"
+    sudo chmod 644 "$config_file"
+    printf '%s\n' "$overlay_line" | sudo tee -a "$config_file" >/dev/null
+    echo "dtoverlay in ${config_file} gesetzt: $overlay_line"
+}
+
+ensure_audio_dtparam() {
+    local disable="$1"
+    local config_file
+    if ! config_file=$(resolve_config_txt_path "dtparam=audio anpassen"); then
+        return 0
+    fi
+
+    if [ "$disable" = "1" ]; then
+        if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
+            echo "[Dry-Run] Würde dtparam=audio Einträge aus ${config_file} entfernen."
+            if sudo grep -q '^dtparam=audio=off' "$config_file"; then
+                echo "[Dry-Run] 'dtparam=audio=off' ist bereits vorhanden – kein erneutes Anhängen erforderlich."
+            else
+                echo "[Dry-Run] Würde 'dtparam=audio=off' an ${config_file} anhängen."
+            fi
+        else
+            sudo sed -i '/^dtparam=audio=/d' "$config_file"
+            if ! sudo grep -q '^dtparam=audio=off' "$config_file"; then
+                printf 'dtparam=audio=off\n' | sudo tee -a "$config_file" >/dev/null
+            fi
+            echo "Onboard-Audio (dtparam=audio=off) gesetzt in ${config_file}."
+        fi
+    else
+        if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
+            echo "[Dry-Run] Würde dtparam=audio Einträge aus ${config_file} entfernen."
+            echo "[Dry-Run] Würde 'dtparam=audio=on' an ${config_file} anhängen."
+        else
+            sudo sed -i '/^dtparam=audio=/d' "$config_file"
+            printf 'dtparam=audio=on\n' | sudo tee -a "$config_file" >/dev/null
+            echo "Onboard-Audio aktiviert (dtparam=audio=on) in ${config_file}."
+        fi
+    fi
+}
+
+if [ "${INSTALL_LIBRARY_ONLY:-0}" = "1" ]; then
+    return 0 2>/dev/null || exit 0
+fi
+
 # Flask-Secret vorbereiten und Zielbenutzer ermitteln
 SECRET="$ARG_FLASK_SECRET_KEY"
 SECRET_SOURCE="$ARG_FLASK_SECRET_SOURCE"
@@ -1137,8 +1242,15 @@ if [ "$RTC_OVERLAY_INPUT" = "-" ] || [ "$RTC_OVERLAY_INPUT" = "none" ]; then
 fi
 
 if [ -n "$RTC_OVERLAY_INPUT" ]; then
-    sudo sed -i '/^dtoverlay=i2c-rtc/d' /boot/config.txt
-    echo "dtoverlay=i2c-rtc,$RTC_OVERLAY_INPUT" | sudo tee -a /boot/config.txt
+    if config_file=$(resolve_config_txt_path "RTC-Overlay (dtoverlay=i2c-rtc) setzen"); then
+        if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
+            echo "[Dry-Run] Würde vorhandene 'dtoverlay=i2c-rtc' Einträge aus ${config_file} entfernen."
+            echo "[Dry-Run] Würde 'dtoverlay=i2c-rtc,${RTC_OVERLAY_INPUT}' an ${config_file} anhängen."
+        else
+            sudo sed -i '/^dtoverlay=i2c-rtc/d' "$config_file"
+            printf 'dtoverlay=i2c-rtc,%s\n' "$RTC_OVERLAY_INPUT" | sudo tee -a "$config_file" >/dev/null
+        fi
+    fi
 fi
 
 RTC_MODULE_ESC=$(printf '%s' "$RTC_MODULE" | sed "s/'/''/g")
@@ -1167,47 +1279,6 @@ sudo usermod -aG audio "$TARGET_USER"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HAT_DEFAULT_SINK_HINT="alsa_output.platform-soc_107c000000_sound.stereo-fallback"
-
-apply_hat_overlay() {
-    local overlay_name="$1"
-    local overlay_opts="$2"
-    if [ -z "$overlay_name" ]; then
-        return 0
-    fi
-
-    local overlay_line="dtoverlay=${overlay_name}"
-    if [ -n "$overlay_opts" ]; then
-        overlay_line+=",$overlay_opts"
-    fi
-
-    local tmp_file
-    tmp_file=$(mktemp)
-    sudo cp /boot/config.txt "/boot/config.txt.hat.bak.$(date +%s)"
-    sudo awk -v overlay="$overlay_name" '
-        BEGIN { pattern = "^dtoverlay=" overlay "([[:space:]],|$)" }
-        $0 ~ pattern { next }
-        { print }
-    ' /boot/config.txt > "$tmp_file"
-    sudo mv "$tmp_file" /boot/config.txt
-    sudo chmod 644 /boot/config.txt
-    echo "$overlay_line" | sudo tee -a /boot/config.txt >/dev/null
-    echo "dtoverlay in /boot/config.txt gesetzt: $overlay_line"
-}
-
-ensure_audio_dtparam() {
-    local disable="$1"
-    if [ "$disable" = "1" ]; then
-        sudo sed -i '/^dtparam=audio=/d' /boot/config.txt
-        if ! sudo grep -q '^dtparam=audio=off' /boot/config.txt; then
-            echo "dtparam=audio=off" | sudo tee -a /boot/config.txt >/dev/null
-        fi
-        echo "Onboard-Audio (dtparam=audio=off) gesetzt."
-    else
-        sudo sed -i '/^dtparam=audio=/d' /boot/config.txt
-        echo "dtparam=audio=on" | sudo tee -a /boot/config.txt >/dev/null
-        echo "Onboard-Audio aktiviert (dtparam=audio=on)."
-    fi
-}
 
 HAT_SELECTED_KEY=""
 HAT_SELECTED_LABEL=""
