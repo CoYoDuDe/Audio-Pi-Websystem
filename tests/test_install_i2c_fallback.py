@@ -24,6 +24,7 @@ def _prepare_fake_path(base_dir: Path) -> str:
         "install",
         "mktemp",
         "rm",
+        "chown",
     ):
         source = shutil.which(command)
         if source is None:
