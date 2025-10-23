@@ -221,7 +221,7 @@ starten wie gewohnt.
 
 ### Automatischer Start (systemd)
 
-`install.sh` kopiert und konfiguriert `audio-pi.service` automatisch. Dabei wird der während der Installation abgefragte `FLASK_SECRET_KEY` eingetragen; ohne gültigen Schlüssel startet der Dienst nicht. Der HTTP-Port landet – standardmäßig als `FLASK_PORT=80`, bei Bedarf entsprechend der Installer-Option `--flask-port` bzw. `INSTALL_FLASK_PORT` – ebenfalls direkt in der Unit. Dank `AmbientCapabilities=CAP_NET_BIND_SERVICE` kann der nicht-root-Benutzer `pi` auch Port 80 binden. Statt direkt `python
+`install.sh` kopiert und konfiguriert `audio-pi.service` automatisch. Dabei wird der während der Installation abgefragte `FLASK_SECRET_KEY` eingetragen; ohne gültigen Schlüssel startet der Dienst nicht. Der HTTP-Port landet – standardmäßig als `FLASK_PORT=80`, bei Bedarf entsprechend der Installer-Option `--flask-port` bzw. `INSTALL_FLASK_PORT` – ebenfalls direkt in der Unit. Dank `AmbientCapabilities=CAP_NET_BIND_SERVICE` kann der nicht-root-Benutzer `pi` weiterhin Port 80 binden, ohne zusätzliche weitreichende Privilegien zu erhalten. Statt direkt `python
 app.py` aufzurufen, startet systemd jetzt Gunicorn aus der virtuellen Umgebung
 (`ExecStart=/opt/Audio-Pi-Websystem/venv/bin/gunicorn --config ...`). Das sorgt
 für mehrere Worker-Threads, optionale Hot-ReLoads (`systemctl reload` sendet
@@ -263,26 +263,23 @@ systemctl show --property=Environment audio-pi.service
   genügt `sudo systemctl restart audio-pi.service`. Für reine
   Konfigurationsupdates der Gunicorn-Parameter empfiehlt sich `sudo systemctl
   reload audio-pi.service`, wodurch Gunicorn einen Hot-Reload per HUP erhält.
-- **Gehärtete Defaults:** Die Unit `audio-pi.service` setzt jetzt neben
-  `CapabilityBoundingSet=CAP_NET_BIND_SERVICE` auch auf zusätzliche
-  Fähigkeiten für Netzwerk-, Zeit- und Systemsteuerung (`CAP_NET_ADMIN`,
-  `CAP_NET_RAW`, `CAP_SYS_TIME`, `CAP_SYS_BOOT`, `CAP_SYS_ADMIN`) und kombiniert
-  sie mit `NoNewPrivileges=yes`, `RestrictSUIDSGID=yes`,
+- **Gehärtete Defaults:** Die Unit `audio-pi.service` beschränkt sich jetzt beim
+  Capability-Set konsequent auf `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`
+  (gleichzeitig als `AmbientCapabilities` gesetzt) und kombiniert dies mit
+  `NoNewPrivileges=yes`, `RestrictSUIDSGID=yes`,
   `SystemCallFilter=@system-service`, `RestrictNamespaces=yes`,
   `ProtectSystem=strict`, `ReadWritePaths=/opt/Audio-Pi-Websystem` sowie einem
   eingeschränkten `RestrictAddressFamilies`-Set. Laufzeitdaten bleiben dadurch
-  auf das Projektverzeichnis beschränkt, während der Dienst dennoch alle
-  benötigten Operationen (Reboot, WLAN-Steuerung, Zeitsynchronisierung,
-  Bluetooth) durchführen kann.
+  auf das Projektverzeichnis beschränkt, während die Anwendung dennoch Port 80
+  ohne Root-Rechte binden kann.
 - **Sudo-Handling (Opt-in):** Standardmäßig bleiben `sudo`-Aufrufe aktiv
-  (`AUDIO_PI_DISABLE_SUDO=0`), damit vorhandene Capabilities und Polkit-Regeln
-  unverändert greifen. Wer bewusst ohne `sudo`-Wrapper arbeiten möchte, setzt
-  `AUDIO_PI_DISABLE_SUDO=1` (z. B. per `INSTALL_DISABLE_SUDO=1` während der
-  Installation oder direkt in der Unit). Dann müssen die in der Unit gesetzten
-  Capabilities (`CAP_NET_ADMIN`, `CAP_NET_RAW`, `CAP_SYS_BOOT`, `CAP_SYS_TIME`,
-  `CAP_SYS_ADMIN`, …) bzw. passende Polkit-Regeln (`org.freedesktop.login1.*`,
-  Netzwerk- und Zeitsync-Policies) vorhanden sein, damit Aktionen wie AP-Start
-  und -Stopp, Reboot/Shutdown sowie Zeitabgleich weiterhin funktionieren.
+  (`AUDIO_PI_DISABLE_SUDO=0`), sodass privilegierte Aktionen – etwa
+  WLAN-/AP-Steuerung, System-Neustarts oder Zeitsynchronisierung – weiterhin
+  über `sudo` beziehungsweise Polkit-Regeln (`org.freedesktop.login1.*`,
+  Netzwerk- und Zeitsync-Policies) ausgeführt werden. Wer bewusst ohne
+  `sudo`-Wrapper arbeiten möchte, setzt `AUDIO_PI_DISABLE_SUDO=1` (z. B. per
+  `INSTALL_DISABLE_SUDO=1` während der Installation oder direkt in der Unit) und
+  pflegt die benötigten Polkit-Regeln separat.
 - **Gunicorn-Konfiguration:** `gunicorn.conf.py` nutzt die offiziellen Flask-
   Empfehlungen für produktive WSGI-Server. Weitere Optionen können gemäß der
   [Flask-Dokumentation zu WSGI-Servern](https://flask.palletsprojects.com/en/latest/deploying/wsgi-standalone/#gunicorn)
