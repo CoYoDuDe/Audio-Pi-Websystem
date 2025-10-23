@@ -107,10 +107,16 @@ oder ein alternativer Log-Pfad für die Installationsprotokolle).
 ### I²C vorbereiten
 
 Die Einrichtung der I²C-Schnittstelle folgt der offiziellen Raspberry-Pi-Dokumentation
-(["Enable I2C" Schritt-für-Schritt-Anleitung](https://www.raspberrypi.com/documentation/computers/configuration.html#i2c)).
-`install.sh` übernimmt diesen Vorgang automatisch (`raspi-config nonint do_i2c 0`) und installiert
-jetzt direkt die Pakete `python3-smbus` und `i2c-tools` über APT. Dadurch stehen sowohl die Python-
-Bindings als auch Diagnosewerkzeuge wie `i2cdetect` sofort zur Verfügung.
+(["Enable I2C" Schritt-für-Schritt-Anleitung](https://www.raspberrypi.com/documentation/computers/configuration.html#i2c)
+und den Device-Tree-Kurzbefehlen für `dtparam=i2c_arm=on`). `install.sh` versucht zunächst,
+wie gewohnt `raspi-config nonint do_i2c 0` auszuführen. Fehlt `raspi-config` (z. B. auf Desktop-
+oder Minimal-Installationen), aktiviert das Skript den Bus automatisch über die passende
+`config.txt` und trägt – sofern noch nicht vorhanden – `dtparam=i2c_arm=on` ein. Unterstützt
+werden sowohl `/boot/firmware/config.txt` (Debian Bookworm und neuer) als auch
+`/boot/config.txt`. Anschließend bleibt die Pflege von `/etc/modules` unverändert bestehen,
+damit `i2c-dev` beim nächsten Start geladen wird. Zusätzlich installiert das Skript direkt die
+Pakete `python3-smbus` und `i2c-tools` über APT, damit sowohl die Python-Bindings als auch
+Diagnosewerkzeuge wie `i2cdetect` sofort verfügbar sind.
 
 ### Internet-Zeitsynchronisation mit systemd-timesyncd
 

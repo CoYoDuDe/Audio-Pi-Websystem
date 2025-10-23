@@ -620,7 +620,57 @@ if [ "$PROMPT_ALLOWED" -eq 0 ] && [ -z "${HAT_MODEL:-}" ]; then
     export HAT_NONINTERACTIVE=1
 fi
 
+enable_i2c_support() {
+    local config_file=""
+
+    if command -v raspi-config >/dev/null 2>&1; then
+        if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
+            echo "[Dry-Run] Würde 'raspi-config nonint do_i2c 0' ausführen."
+        else
+            echo "Aktiviere I²C über raspi-config."
+            sudo raspi-config nonint do_i2c 0
+        fi
+    else
+        echo "raspi-config nicht gefunden – aktiviere I²C über config.txt."
+        local candidates=("/boot/firmware/config.txt" "/boot/config.txt")
+        # Siehe device-tree.adoc (Abschnitt \"Shortcuts\"): dtparam=i2c_arm=on aktiviert den I²C-Bus.
+        for candidate in "${candidates[@]}"; do
+            if [ -f "$candidate" ]; then
+                config_file="$candidate"
+                break
+            fi
+        done
+
+        if [ -n "$config_file" ]; then
+            if sudo grep -Eq '^[[:space:]]*dtparam=i2c_arm=on([[:space:]]|$)' "$config_file"; then
+                echo "dtparam=i2c_arm=on ist bereits in ${config_file} aktiv."
+            else
+                if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
+                    echo "[Dry-Run] Würde dtparam=i2c_arm=on in ${config_file} ergänzen."
+                else
+                    echo "Aktiviere I²C über Device-Tree-Parameter in ${config_file}."
+                    printf '\n%s\n' "dtparam=i2c_arm=on" | sudo tee -a "$config_file" >/dev/null
+                fi
+            fi
+        else
+            echo "Warnung: Keine config.txt unter /boot/firmware oder /boot gefunden – bitte I²C manuell aktivieren." >&2
+        fi
+    fi
+
+    if sudo grep -q '^i2c-dev$' /etc/modules; then
+        echo "i2c-dev ist bereits in /etc/modules eingetragen – überspringe."
+    else
+        if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
+            echo "[Dry-Run] Würde i2c-dev zu /etc/modules hinzufügen."
+        else
+            echo "Füge i2c-dev zu /etc/modules hinzu."
+            printf 'i2c-dev\n' | sudo tee -a /etc/modules >/dev/null
+        fi
+    fi
+}
+
 if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
+    enable_i2c_support
     echo ""
     echo "[Dry-Run] Installation wurde nicht ausgeführt. Folgende Abschluss-Hinweise würden angezeigt:"
     print_post_install_instructions "$CONFIGURED_FLASK_PORT" 0
@@ -675,14 +725,8 @@ fi
 SYSTEMD_QUOTED_SECRET=$(printf '%s' "$SECRET" | sed -e 's/[\\$"]/\\&/g')
 SYSTEMD_SED_SAFE_SECRET=$(printf '%s' "$SYSTEMD_QUOTED_SECRET" | sed -e 's/[&|]/\\&/g')
 
-# I²C für RTC aktivieren
-sudo raspi-config nonint do_i2c 0
-if sudo grep -q '^i2c-dev$' /etc/modules; then
-    echo "i2c-dev ist bereits in /etc/modules eingetragen – überspringe."
-else
-    echo "Füge i2c-dev zu /etc/modules hinzu."
-    printf 'i2c-dev\n' | sudo tee -a /etc/modules >/dev/null
-fi
+# I²C für RTC aktivieren (raspi-config oder Fallback)
+enable_i2c_support
 
 # Werkzeuge für die automatische RTC-Erkennung bereitstellen
 if ! command -v i2cdetect >/dev/null 2>&1; then
