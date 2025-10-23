@@ -178,7 +178,7 @@ print_post_install_instructions() {
     echo ""
     echo "Beim ersten Start wird der Benutzer 'admin' automatisch angelegt."
     echo "Setze optional INITIAL_ADMIN_PASSWORD, um das Startpasswort festzulegen."
-    echo "Ohne Vorgabe erzeugt die App ein zufälliges Passwort und schreibt es in $(pwd)/app.log."
+    echo "Ohne Vorgabe erzeugt die App ein zufälliges Passwort und speichert es als initial_admin_password.txt neben der Datenbank (0600-Rechte)."
     echo "Bitte direkt nach der ersten Anmeldung über die Weboberfläche das Passwort ändern."
     echo ""
     if [ "$ap_configured" -eq 1 ]; then

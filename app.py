@@ -151,6 +151,7 @@ else:
 
 app.secret_key = secret_key
 app.config["SECRET_KEY_GENERATED"] = SECRET_KEY_GENERATED
+app.config["INITIAL_ADMIN_PASSWORD_FILE"] = None
 csrf = CSRFProtect()
 csrf.init_app(app)
 TESTING_RAW = os.getenv("TESTING")
@@ -233,6 +234,8 @@ app.config["MAX_CONTENT_LENGTH_MB"] = MAX_UPLOAD_SIZE_MB
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
 DB_FILE = os.getenv("DB_FILE", "audio.db")
+DEFAULT_INITIAL_PASSWORD_FILENAME = "initial_admin_password.txt"
+INITIAL_ADMIN_PASSWORD_FILE_ENV = os.getenv("INITIAL_ADMIN_PASSWORD_FILE")
 DEFAULT_AMPLIFIER_GPIO_PIN = 17
 AMPLIFIER_GPIO_PIN_SETTING_KEY = "amplifier_gpio_pin"
 GPIO_PIN_ENDSTUFE = DEFAULT_AMPLIFIER_GPIO_PIN
@@ -857,6 +860,42 @@ def get_db_connection():
         conn.close()
 
 
+def _determine_initial_password_path() -> Path:
+    base_dir = Path(DB_FILE).resolve().parent
+    candidate = INITIAL_ADMIN_PASSWORD_FILE_ENV
+    if candidate:
+        path = Path(candidate)
+        if not path.is_absolute():
+            path = (base_dir / path).resolve()
+    else:
+        path = (base_dir / DEFAULT_INITIAL_PASSWORD_FILENAME).resolve()
+    return path
+
+
+def _write_initial_admin_password(password: str) -> Optional[Path]:
+    target_path = _determine_initial_password_path()
+    try:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+        mode = 0o600
+        fd = os.open(target_path, flags, mode)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(password)
+            handle.write("\n")
+        os.chmod(target_path, mode)
+    except Exception as exc:  # pragma: no cover - sollte nicht auftreten
+        logging.error(
+            "Generiertes Initialpasswort konnte nicht in %s gespeichert werden: %s",
+            target_path,
+            exc,
+        )
+        app.config["INITIAL_ADMIN_PASSWORD_FILE"] = None
+        return None
+
+    app.config["INITIAL_ADMIN_PASSWORD_FILE"] = str(target_path)
+    return target_path
+
+
 AUTO_REBOOT_DEFAULTS = {
     "auto_reboot_enabled": "0",
     "auto_reboot_mode": "daily",
@@ -1049,10 +1088,19 @@ def initialize_database():
                 ("admin", hashed_password, must_change_value),
             )
             if generated_password:
-                logging.warning(
-                    "Initialpasswort für 'admin' generiert. Bitte sicher verwahren: %s",
-                    initial_password,
-                )
+                password_file = _write_initial_admin_password(initial_password)
+                if password_file is not None:
+                    logging.warning(
+                        "Initialpasswort für 'admin' generiert und unter %s abgelegt. "
+                        "Bitte Datei nach Übernahme löschen oder sicher verwahren.",
+                        password_file,
+                    )
+                else:
+                    logging.error(
+                        "Initialpasswort für 'admin' generiert, konnte aber nicht sicher "
+                        "abgelegt werden. Bitte INITIAL_ADMIN_PASSWORD setzen oder das Passwort "
+                        "manuell aktualisieren."
+                    )
             else:
                 logging.info(
                     "Initialpasswort für 'admin' aus Umgebungsvariable INITIAL_ADMIN_PASSWORD übernommen."
