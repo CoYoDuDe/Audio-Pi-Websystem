@@ -12,7 +12,19 @@ def _prepare_fake_path(base_dir: Path) -> str:
     fake_bin = base_dir / "fake-bin"
     fake_bin.mkdir(parents=True, exist_ok=True)
 
-    for command in ("grep", "mkdir", "touch", "tee", "cat", "dirname", "id"):
+    for command in (
+        "grep",
+        "mkdir",
+        "touch",
+        "tee",
+        "cat",
+        "dirname",
+        "id",
+        "python3",
+        "install",
+        "mktemp",
+        "rm",
+    ):
         source = shutil.which(command)
         if source is None:
             raise AssertionError(f"Benötigtes Kommando '{command}' wurde nicht gefunden.")
@@ -56,7 +68,7 @@ def test_install_dry_run_uses_device_tree_fallback(tmp_path: Path) -> None:
     script = Path(__file__).resolve().parents[1] / "install.sh"
     env = os.environ.copy()
     env["PATH"] = _prepare_fake_path(tmp_path)
-    env["INSTALL_FLASK_SECRET_KEY"] = "fallback-secret"
+    env["INSTALL_FLASK_SECRET_KEY"] = "Fallback-SecretKey_Example-1234567890"
 
     result = subprocess.run(
         ["/bin/bash", str(script), "--dry-run"],

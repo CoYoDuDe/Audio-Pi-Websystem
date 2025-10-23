@@ -73,8 +73,15 @@ Verstärker-Pins automatisch auf Konflikte und fordert bei Überschneidungen zur
 sudo bash install.sh
 ```
 Während der Installation fragt das Skript nach einem Wert für `FLASK_SECRET_KEY`
-und richtet den systemd-Dienst direkt ein. Die Eingabe darf nicht leer sein –
-das Skript wiederholt die Abfrage so lange, bis ein Wert vorliegt.
+und richtet den systemd-Dienst direkt ein. Der Schlüssel muss mindestens 32
+Zeichen umfassen und mindestens drei Zeichengruppen enthalten
+(Großbuchstaben, Kleinbuchstaben, Ziffern, Sonderzeichen). Werte aus CLI oder
+Umgebungsvariablen werden identisch validiert; fehlerhafte Angaben führen zum
+Abbruch. Mit `--generate-secret` bzw. `INSTALL_GENERATE_SECRET=1` erzeugt der
+Installer automatisch einen `secrets.token_urlsafe(48)`-Wert, sobald kein
+gültiger Schlüssel bereitsteht. Die Empfehlung der Flask-Entwickler, einen
+zufälligen Secret Key zu verwenden, wird damit standardkonform umgesetzt
+(siehe [Flask Configuration – SECRET_KEY](https://flask.palletsprojects.com/en/3.0.x/config/#SECRET_KEY)).
 Zusätzlich stellt `install.sh` sicher, dass die Datenbank `audio.db` dem
 Dienstbenutzer (`$TARGET_USER:$TARGET_GROUP`) gehört und mit `chmod 660`
 beschreibbare Rechte erhält, unabhängig davon, ob die Datei neu angelegt oder
@@ -165,16 +172,16 @@ Pakete reicht es daher aus, `pip install -r requirements.txt` auszuführen. Im T
 
 ```bash
 # Vollautomatische Installation ohne Access Point, Werte per Umgebungsvariablen
-sudo INSTALL_FLASK_SECRET_KEY="$(openssl rand -hex 32)" \
+sudo INSTALL_GENERATE_SECRET=1 \
      INSTALL_RTC_MODE=auto \
      INSTALL_RTC_ACCEPT_DETECTION=yes \
      INSTALL_AP_SETUP=no \
      HAT_MODEL=hifiberry_dacplus \
-     bash install.sh --non-interactive
+     bash install.sh --non-interactive --generate-secret
 
 # Gleiche Installation mit expliziten CLI-Flags inkl. Access-Point-Konfiguration
 sudo bash install.sh \
-     --flask-secret-key "$(openssl rand -hex 32)" \
+     --generate-secret \
      --rtc-mode ds3231 --rtc-accept-detection yes \
      --hat-model hifiberry_amp2 \
      --ap --ap-ssid AudioPiAP --ap-passphrase "AudioPiSecure!" \
@@ -188,6 +195,9 @@ sudo bash install.sh \
 Dabei gilt:
 
 - `--flask-secret-key` / `INSTALL_FLASK_SECRET_KEY` setzen das notwendige Flask-Secret.
+  Das Secret muss die genannten Mindestanforderungen erfüllen; alternativ erzeugt
+  `--generate-secret` bzw. `INSTALL_GENERATE_SECRET=1` automatisch einen starken
+  Schlüssel (identisch zu `secrets.token_urlsafe(48)`).
 - `--flask-port` / `INSTALL_FLASK_PORT` legen den HTTP-Port für Gunicorn/Flask fest (Standard: `80`).
 - `--rtc-mode` (`auto`, `pcf8563`, `ds3231`, `skip`) und `--rtc-accept-detection`
   steuern die RTC-Erkennung; Adressen (`--rtc-addresses`) und Overlays
@@ -321,8 +331,13 @@ lässt sich das Verhalten bei Bedarf weiter abstimmen.
 
 - `install.sh` hinterlegt den `FLASK_SECRET_KEY` ausschließlich in `/etc/audio-pi/audio-pi.env`.
   Die Datei gehört `root` und der Dienstgruppe des Services (z. B. `root:pi`) und ist mit Modus `0640` geschützt.
+- Beim Installer gilt eine Mindestlänge von 32 Zeichen sowie der Mix aus mindestens drei
+  Zeichengruppen (Großbuchstaben, Kleinbuchstaben, Ziffern, Sonderzeichen). Ungültige
+  Werte aus CLI oder ENV führen zum Abbruch.
+- `--generate-secret` bzw. `INSTALL_GENERATE_SECRET=1` erzeugen automatisch ein Secret
+  via `secrets.token_urlsafe(48)` und übernehmen den Wert für Dienst und Shell.
 - Das Installer-Skript ergänzt die Datei `.profile` im Home-Verzeichnis des Dienstbenutzers um die Zeile
-  `if [ -f /etc/audio-pi/audio-pi.env ]; then . /etc/audio-pi/audio-pi.env; fi`,
+  `if [ -f "/etc/audio-pi/audio-pi.env" ]; then . "/etc/audio-pi/audio-pi.env"; fi`,
   damit interaktive Shells denselben Speicherort referenzieren, ohne das Secret direkt in der Shell-Konfiguration abzulegen.
 - Rechte lassen sich nach der Installation mit `stat /etc/audio-pi/audio-pi.env` prüfen;
   nur Root und Mitglieder der Dienstgruppe erhalten Leserechte.

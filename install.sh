@@ -11,6 +11,7 @@ Verwendung:
 
 Wichtige Optionen:
   --flask-secret-key VALUE        Flask Secret Key setzen (alternativ INSTALL_FLASK_SECRET_KEY).
+  --generate-secret               Stellt automatisch einen starken Secret Key bereit (alternativ INSTALL_GENERATE_SECRET=1).
   --flask-port VALUE              HTTP-Port für Gunicorn/Flask (Standard: 80; alternativ INSTALL_FLASK_PORT).
   --log-file-mode MODE            chmod-Modus für app.log (Standard: 666; alternativ INSTALL_LOG_FILE_MODE).
   --rtc-mode MODE                 RTC-Modus: auto, pcf8563, ds3231, skip.
@@ -142,6 +143,60 @@ validate_port() {
     fi
 }
 
+validate_secret_strength() {
+    local secret="$1"
+    local source="$2"
+
+    if [ -z "$secret" ]; then
+        if [ -n "$source" ]; then
+            echo "Ungültiger Secret-Key (${source}): Wert darf nicht leer sein." >&2
+        else
+            echo "Ungültiger Secret-Key: Wert darf nicht leer sein." >&2
+        fi
+        return 1
+    fi
+
+    local length=${#secret}
+    if [ "$length" -lt 32 ]; then
+        if [ -n "$source" ]; then
+            echo "Ungültiger Secret-Key (${source}): ${length} Zeichen sind zu wenig – mindestens 32 Zeichen erforderlich." >&2
+        else
+            echo "Ungültiger Secret-Key: ${length} Zeichen sind zu wenig – mindestens 32 Zeichen erforderlich." >&2
+        fi
+        return 1
+    fi
+
+    local classes=0
+    [[ "$secret" =~ [[:lower:]] ]] && classes=$((classes + 1))
+    [[ "$secret" =~ [[:upper:]] ]] && classes=$((classes + 1))
+    [[ "$secret" =~ [[:digit:]] ]] && classes=$((classes + 1))
+    [[ "$secret" =~ [^[:alnum:]] ]] && classes=$((classes + 1))
+
+    if [ "$classes" -lt 3 ]; then
+        local message="Ungültiger Secret-Key"
+        if [ -n "$source" ]; then
+            message+=" (${source})"
+        fi
+        message+=": Mindestens drei Zeichengruppen (Großbuchstaben, Kleinbuchstaben, Ziffern, Sonderzeichen) werden benötigt."
+        echo "$message" >&2
+        return 1
+    fi
+
+    return 0
+}
+
+generate_secret_value() {
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo "Fehler: python3 wird zum Generieren eines Secret-Keys benötigt." >&2
+        return 1
+    fi
+
+    python3 - <<'PY'
+import secrets
+print(secrets.token_urlsafe(48))
+PY
+}
+
 install_tmpfiles_rule() {
     local tmpfiles_conf="/etc/tmpfiles.d/audio-pi.conf"
     local runtime_user="$1"
@@ -201,6 +256,7 @@ validate_chmod_mode "$UPLOAD_DIR_MODE" INSTALL_UPLOAD_DIR_MODE
 validate_chmod_mode "$DEFAULT_LOG_FILE_MODE" INSTALL_LOG_FILE_MODE
 
 ARG_FLASK_SECRET_KEY=""
+ARG_FLASK_SECRET_SOURCE=""
 ARG_FLASK_PORT=""
 ARG_RTC_MODE=""
 ARG_RTC_ADDRESSES=""
@@ -225,6 +281,7 @@ ARG_AP_DHCP_END=""
 ARG_AP_DHCP_LEASE=""
 ARG_AP_WAN=""
 ARG_LOG_FILE_MODE=""
+ARG_GENERATE_SECRET=0
 FORCE_NONINTERACTIVE=0
 INSTALL_DRY_RUN=${INSTALL_DRY_RUN:-0}
 
@@ -233,7 +290,12 @@ while [ $# -gt 0 ]; do
         --flask-secret-key)
             require_value "$1" "$2"
             ARG_FLASK_SECRET_KEY="$2"
+            ARG_FLASK_SECRET_SOURCE="CLI (--flask-secret-key)"
             shift 2
+            ;;
+        --generate-secret)
+            ARG_GENERATE_SECRET=1
+            shift
             ;;
         --flask-port)
             require_value "$1" "$2"
@@ -394,9 +456,30 @@ fi
 # Werte aus Umgebungsvariablen mit INSTALL_-Präfix auflösen, falls gesetzt
 if [ -z "$ARG_FLASK_SECRET_KEY" ] && [ -n "${INSTALL_FLASK_SECRET_KEY:-}" ]; then
     ARG_FLASK_SECRET_KEY="$INSTALL_FLASK_SECRET_KEY"
+    ARG_FLASK_SECRET_SOURCE="INSTALL_FLASK_SECRET_KEY"
 fi
 if [ -z "$ARG_FLASK_SECRET_KEY" ] && [ -n "${FLASK_SECRET_KEY:-}" ]; then
     ARG_FLASK_SECRET_KEY="$FLASK_SECRET_KEY"
+    ARG_FLASK_SECRET_SOURCE="FLASK_SECRET_KEY"
+fi
+
+GENERATE_SECRET=0
+if [ -n "${INSTALL_GENERATE_SECRET:-}" ]; then
+    case "${INSTALL_GENERATE_SECRET,,}" in
+        1|true|yes|on)
+            GENERATE_SECRET=1
+            ;;
+        0|false|no|off|'')
+            GENERATE_SECRET=0
+            ;;
+        *)
+            echo "Ungültiger Wert für INSTALL_GENERATE_SECRET: '${INSTALL_GENERATE_SECRET}'. Erlaubt sind 0/1 bzw. yes/no." >&2
+            exit 1
+            ;;
+    esac
+fi
+if [ "$ARG_GENERATE_SECRET" -eq 1 ]; then
+    GENERATE_SECRET=1
 fi
 FLASK_PORT_SOURCE="Standard (80)"
 if [ -n "$ARG_FLASK_PORT" ]; then
@@ -671,16 +754,57 @@ enable_i2c_support() {
 
 # Flask-Secret vorbereiten und Zielbenutzer ermitteln
 SECRET="$ARG_FLASK_SECRET_KEY"
+SECRET_SOURCE="$ARG_FLASK_SECRET_SOURCE"
 if [ -z "$SECRET" ] && [ -n "${FLASK_SECRET_KEY:-}" ]; then
     SECRET="$FLASK_SECRET_KEY"
+    SECRET_SOURCE="FLASK_SECRET_KEY"
 fi
-while [ -z "$SECRET" ]; do
-    if [ "$PROMPT_ALLOWED" -eq 0 ]; then
-        echo "Fehler: FLASK_SECRET_KEY muss via --flask-secret-key oder INSTALL_FLASK_SECRET_KEY gesetzt werden." >&2
+
+if [ -n "$SECRET" ]; then
+    if ! validate_secret_strength "$SECRET" "$SECRET_SOURCE"; then
+        if [ "$GENERATE_SECRET" -eq 1 ]; then
+            echo "Hinweis: Übergebener Secret-Key (${SECRET_SOURCE:-unbekannt}) erfüllt nicht die Mindestanforderungen und wird ersetzt." >&2
+            SECRET=""
+        else
+            exit 1
+        fi
+    fi
+fi
+
+if [ -z "$SECRET" ] && [ "$GENERATE_SECRET" -eq 1 ]; then
+    echo "Generiere automatischen Secret-Key via secrets.token_urlsafe(48)."
+    if ! SECRET=$(generate_secret_value); then
         exit 1
     fi
-    IFS= read -r -p "FLASK_SECRET_KEY (darf nicht leer sein): " SECRET
+    SECRET_SOURCE="Automatisch generiert (--generate-secret)"
+fi
+
+while [ -z "$SECRET" ]; do
+    if [ "$GENERATE_SECRET" -eq 1 ]; then
+        echo "Generiere automatischen Secret-Key via secrets.token_urlsafe(48)."
+        if ! SECRET=$(generate_secret_value); then
+            exit 1
+        fi
+        SECRET_SOURCE="Automatisch generiert (--generate-secret)"
+        break
+    fi
+
+    if [ "$PROMPT_ALLOWED" -eq 0 ]; then
+        echo "Fehler: Es wurde kein gültiger FLASK_SECRET_KEY übergeben. Bitte --flask-secret-key setzen oder INSTALL_FLASK_SECRET_KEY verwenden (≥32 Zeichen, mindestens drei Zeichengruppen)." >&2
+        exit 1
+    fi
+
+    IFS= read -r -p "FLASK_SECRET_KEY (≥32 Zeichen, Mischung aus Groß-/Kleinbuchstaben, Ziffern, Sonderzeichen): " SECRET
+    SECRET_SOURCE="Interaktive Eingabe"
+    if ! validate_secret_strength "$SECRET" "$SECRET_SOURCE"; then
+        echo "Der eingegebene Secret-Key erfüllt die Mindestanforderungen nicht. Bitte erneut versuchen." >&2
+        SECRET=""
+    fi
 done
+
+if ! validate_secret_strength "$SECRET" "$SECRET_SOURCE"; then
+    exit 1
+fi
 
 TARGET_USER=${SUDO_USER:-$USER}
 if [ -z "$TARGET_USER" ]; then
@@ -690,9 +814,20 @@ TARGET_UID=$(id -u "$TARGET_USER")
 TARGET_GROUP=$(id -gn "$TARGET_USER")
 TARGET_HOME=$(eval echo "~$TARGET_USER")
 PROFILE_FILE="$TARGET_HOME/.profile"
-PROFILE_SOURCE_LINE='if [ -f /etc/audio-pi/audio-pi.env ]; then . /etc/audio-pi/audio-pi.env; fi'
-AUDIO_PI_ENV_DIR="/etc/audio-pi"
-AUDIO_PI_ENV_FILE="$AUDIO_PI_ENV_DIR/audio-pi.env"
+AUDIO_PI_ENV_DIR="${INSTALL_ENV_DIR:-/etc/audio-pi}"
+AUDIO_PI_ENV_FILE="${INSTALL_ENV_FILE:-$AUDIO_PI_ENV_DIR/audio-pi.env}"
+# INSTALL_ENV_DIR/INSTALL_ENV_FILE/INSTALL_TARGET_HOME/INSTALL_PROFILE_FILE sind
+# optionale Hilfen für automatisierte Tests oder Spezial-Deployments.
+PROFILE_SOURCE_LINE="if [ -f \"${AUDIO_PI_ENV_FILE}\" ]; then . \"${AUDIO_PI_ENV_FILE}\"; fi"
+
+if [ -n "${INSTALL_TARGET_HOME:-}" ]; then
+    TARGET_HOME="$INSTALL_TARGET_HOME"
+    PROFILE_FILE="$TARGET_HOME/.profile"
+fi
+if [ -n "${INSTALL_PROFILE_FILE:-}" ]; then
+    PROFILE_FILE="$INSTALL_PROFILE_FILE"
+    TARGET_HOME="$(dirname "$PROFILE_FILE")"
+fi
 
 if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
     echo "[Dry-Run] Würde ${AUDIO_PI_ENV_DIR} mit Modus 0750 anlegen."
@@ -715,11 +850,16 @@ else
     fi
 
     if sudo grep -Fxq "$PROFILE_SOURCE_LINE" "$PROFILE_FILE"; then
-        echo "$TARGET_HOME/.profile lädt bereits /etc/audio-pi/audio-pi.env."
+        echo "$PROFILE_FILE lädt bereits ${AUDIO_PI_ENV_FILE}."
     else
         printf '%s\n' "$PROFILE_SOURCE_LINE" | sudo tee -a "$PROFILE_FILE" >/dev/null
-        echo "$TARGET_HOME/.profile lädt nun /etc/audio-pi/audio-pi.env."
+        echo "$PROFILE_FILE lädt nun ${AUDIO_PI_ENV_FILE}."
     fi
+fi
+
+if [ "${INSTALL_EXIT_AFTER_SECRET:-0}" = "1" ]; then
+    echo "INSTALL_EXIT_AFTER_SECRET=1 gesetzt – breche nach Secret-Provisioning ab."
+    exit 0
 fi
 
 if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
