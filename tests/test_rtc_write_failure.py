@@ -90,9 +90,9 @@ def test_perform_internet_time_sync_handles_i2c_write_error(monkeypatch, app_mod
 
     success, messages = app_module.perform_internet_time_sync()
 
-    assert ["sudo", "systemctl", "stop", "systemd-timesyncd"] in commands
-    assert ["sudo", "ntpdate", "pool.ntp.org"] in commands
-    assert ["sudo", "systemctl", "start", "systemd-timesyncd"] in commands
+    assert ["sudo", "timedatectl", "set-ntp", "false"] in commands
+    assert ["sudo", "timedatectl", "set-ntp", "true"] in commands
+    assert ["sudo", "systemctl", "restart", "systemd-timesyncd"] in commands
     assert success is False
     assert "RTC konnte nicht aktualisiert werden (I²C-Schreibfehler)" in messages
 
