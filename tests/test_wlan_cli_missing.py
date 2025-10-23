@@ -135,10 +135,10 @@ def test_gather_status_iwgetid_failure_exit_code(monkeypatch, app_module, caplog
     assert any("iwgetid" in record.message and "Exit-Code" in record.message for record in caplog.records)
 
 
-def test_wlan_scan_missing_iwlist(monkeypatch, app_module, caplog):
+def test_wlan_scan_missing_wpa_cli(monkeypatch, app_module, caplog):
     def fake_run(args, **kwargs):
-        if args and args[0] == "iwlist":
-            raise FileNotFoundError("iwlist")
+        if args and args[0] == "wpa_cli":
+            raise FileNotFoundError("wpa_cli")
         return app_module.subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
     monkeypatch.setattr(app_module.subprocess, "run", fake_run)
@@ -148,14 +148,14 @@ def test_wlan_scan_missing_iwlist(monkeypatch, app_module, caplog):
             response = app_module.wlan_scan()
             flashes = get_flashed_messages()
 
-    assert "Scan nicht möglich, iwlist fehlt" in response
-    assert flashes == ["Scan nicht möglich, iwlist fehlt"]
-    assert any("iwlist" in record.message for record in caplog.records)
+    assert "Scan nicht möglich, wpa_cli fehlgeschlagen" in response
+    assert flashes == ["Scan nicht möglich, wpa_cli fehlgeschlagen"]
+    assert any("wpa_cli" in record.message for record in caplog.records)
 
 
-def test_wlan_scan_iwlist_failure_exit_code(monkeypatch, app_module, caplog):
+def test_wlan_scan_wpa_cli_failure_exit_code(monkeypatch, app_module, caplog):
     def fake_run(args, **kwargs):
-        if args and args[0] == "iwlist":
+        if args and args[0] == "wpa_cli":
             return app_module.subprocess.CompletedProcess(
                 args,
                 7,
@@ -171,6 +171,6 @@ def test_wlan_scan_iwlist_failure_exit_code(monkeypatch, app_module, caplog):
             response = app_module.wlan_scan()
             flashes = get_flashed_messages()
 
-    assert "Scan nicht möglich, iwlist fehlt" in response
-    assert flashes == ["Scan nicht möglich, iwlist fehlt"]
-    assert any("iwlist" in record.message and "Exit-Code" in record.message for record in caplog.records)
+    assert "Scan nicht möglich, wpa_cli fehlgeschlagen" in response
+    assert flashes == ["Scan nicht möglich, wpa_cli fehlgeschlagen"]
+    assert any("wpa_cli" in record.message and "Exit-Code" in record.message for record in caplog.records)

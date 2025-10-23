@@ -4904,10 +4904,24 @@ def delete_schedule(sch_id):
 @app.route("/wlan_scan")
 @login_required
 def wlan_scan():
+    error_message = "Scan nicht möglich, wpa_cli fehlgeschlagen"
+    base_command = privileged_command("wpa_cli", "-i", "wlan0")
+    scan_success, scan_response = _run_wifi_tool(
+        base_command + ["scan"],
+        error_message,
+        "wpa_cli-Scan",
+        flash_on_error=True,
+    )
+    if not scan_success:
+        return render_template("scan.html", networks=scan_response)
+
+    if not app.testing:
+        time.sleep(1)
+
     _success, output = _run_wifi_tool(
-        privileged_command("iwlist", "wlan0", "scan"),
-        "Scan nicht möglich, iwlist fehlt",
-        "iwlist-Scan",
+        base_command + ["scan_results"],
+        error_message,
+        "wpa_cli-Scanergebnisse",
         flash_on_error=True,
     )
     return render_template("scan.html", networks=output)
