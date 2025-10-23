@@ -275,18 +275,10 @@ kleinen Raspberry-Pi-Boards zuverlässig abgearbeitet werden. Über die
 Umgebungsvariablen `AUDIO_PI_GUNICORN_*` (z. B. `AUDIO_PI_GUNICORN_WORKERS`)
 lässt sich das Verhalten bei Bedarf weiter abstimmen.
 
-> **Wichtig:** In der Vorlage `audio-pi.service` ist `Environment="FLASK_SECRET_KEY=__CHANGE_ME__"`
-> als Platzhalter hinterlegt. Der Installer ersetzt diesen weiterhin automatisch
-> durch `Environment="FLASK_SECRET_KEY=<dein_schlüssel>"` und maskiert dabei
-> mindestens doppelte Anführungszeichen (`"`), Backslashes (`\`) und Dollarzeichen (`$`).
-> Wer die Unit manuell installiert, sollte dieselbe Maskierung verwenden, z. B. via
-> `sudo sed -i "s|^Environment=.*FLASK_SECRET_KEY=.*|Environment=\"FLASK_SECRET_KEY=mein\ \"Secret\"\"|" audio-pi.service`.
-
-Nach der Installation lässt sich das gesetzte Secret – auch mit Leerzeichen – per
-
-```bash
-systemctl show --property=Environment audio-pi.service
-```
+> **Hinweis:** Die Vorlage `audio-pi.service` bindet Secrets über `EnvironmentFile=/etc/audio-pi/audio-pi.env` ein. `install.sh`
+> legt `/etc/audio-pi` mit Modus `0750` an, schreibt `FLASK_SECRET_KEY=<wert>` in `audio-pi.env` (Modus `0640`, Besitzer `root`,
+> Gruppe des Dienstkontos) und aktualisiert die Unit automatisch. Dadurch bleibt der Schlüssel außerhalb der Unit-Datei und kann
+> bei Bedarf über das Environment-File rotiert werden.
 
 ### Deployment
 
@@ -324,6 +316,16 @@ systemctl show --property=Environment audio-pi.service
   Supervisor-Lösungen wie SetupHelper (kwindrem) oder Venus-OS-basierte
   Erweiterungen. Die Aktivierung erfolgt wie gewohnt per `sudo systemctl enable
   --now audio-pi.service`.
+
+#### Geheimnisse & Environment-File
+
+- `install.sh` hinterlegt den `FLASK_SECRET_KEY` ausschließlich in `/etc/audio-pi/audio-pi.env`.
+  Die Datei gehört `root` und der Dienstgruppe des Services (z. B. `root:pi`) und ist mit Modus `0640` geschützt.
+- Das Installer-Skript ergänzt die Datei `.profile` im Home-Verzeichnis des Dienstbenutzers um die Zeile
+  `if [ -f /etc/audio-pi/audio-pi.env ]; then . /etc/audio-pi/audio-pi.env; fi`,
+  damit interaktive Shells denselben Speicherort referenzieren, ohne das Secret direkt in der Shell-Konfiguration abzulegen.
+- Rechte lassen sich nach der Installation mit `stat /etc/audio-pi/audio-pi.env` prüfen;
+  nur Root und Mitglieder der Dienstgruppe erhalten Leserechte.
 
 überprüfen.
 
