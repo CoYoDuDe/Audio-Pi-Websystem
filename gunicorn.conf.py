@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 import multiprocessing
 import os
+import sys
+from pathlib import Path
 from typing import Callable
 
 # Verhindert, dass app.py während des Preloads eigenständig Hintergrunddienste startet.
@@ -87,11 +89,26 @@ _BACKGROUND_SERVICE_OWNER = multiprocessing.Value("i", 0)
 
 
 def _ensure_app_module():
+    repo_root = Path(__file__).resolve().parent
+    repo_path = str(repo_root)
+    if repo_path not in sys.path:
+        sys.path.insert(0, repo_path)
+    app_module = sys.modules.get("app")
+    if app_module is None:
+        for module in list(sys.modules.values()):
+            candidate = getattr(module, "app", None)
+            if getattr(candidate, "__name__", None) == "app":
+                app_module = candidate
+                sys.modules["app"] = candidate
+                break
+    if app_module is not None:
+        return app_module
     try:
-        import app  # type: ignore
+        import app as imported_app  # type: ignore
     except Exception:  # pragma: no cover - Fehler wird im Aufrufer geloggt
         raise
-    return app
+    sys.modules["app"] = imported_app
+    return imported_app
 
 
 def post_fork(server, worker):  # pragma: no cover - Wird in Tests simuliert

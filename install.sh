@@ -630,6 +630,9 @@ apt_get upgrade -y
 # Python-Basics & PIP
 apt_get install -y python3 python3-pip python3-venv sqlite3
 
+# I²C-Bindings für Python und Diagnose-Tools
+apt_get install -y python3-smbus i2c-tools
+
 # Virtuelle Umgebung einrichten
 python3 -m venv venv
 source venv/bin/activate
@@ -678,7 +681,9 @@ else
 fi
 
 # Werkzeuge für die automatische RTC-Erkennung bereitstellen
-apt_get install -y i2c-tools
+if ! command -v i2cdetect >/dev/null 2>&1; then
+    apt_get install -y i2c-tools
+fi
 
 detect_rtc_devices() {
     RTC_DETECTED_BUS=""

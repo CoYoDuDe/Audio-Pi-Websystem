@@ -115,11 +115,39 @@ from pydub.exceptions import CouldntDecodeError
 try:  # pragma: no cover - Import wird separat getestet
     import smbus
 except ImportError:  # pragma: no cover - Verhalten wird in Tests geprüft
-    smbus = None  # type: ignore[assignment]
     SMBUS_AVAILABLE = False
-    logging.getLogger(__name__).warning(
-        "smbus konnte nicht importiert werden, I²C-Funktionen deaktiviert."
-    )
+    fallback_env = os.environ.get("AUDIO_PI_ALLOW_SMBUS2_FALLBACK")
+    testing_active = os.environ.get("TESTING", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    if fallback_env is not None:
+        fallback_allowed = fallback_env.strip().lower() not in {
+            "0",
+            "false",
+            "no",
+        }
+    else:
+        fallback_allowed = not testing_active
+
+    if fallback_allowed:
+        try:
+            from smbus2 import SMBus as _SMBusFallback
+        except ImportError:
+            pass
+        else:
+            smbus = types.SimpleNamespace(SMBus=_SMBusFallback)  # type: ignore[assignment]
+            SMBUS_AVAILABLE = True
+            logging.getLogger(__name__).info(
+                "smbus ist nicht verfügbar, nutze smbus2 als Fallback."
+            )
+
+    if not SMBUS_AVAILABLE:
+        smbus = None  # type: ignore[assignment]
+        logging.getLogger(__name__).warning(
+            "smbus konnte nicht importiert werden, I²C-Funktionen deaktiviert."
+        )
 else:
     SMBUS_AVAILABLE = True
 import sys

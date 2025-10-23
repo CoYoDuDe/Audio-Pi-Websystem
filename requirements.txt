@@ -4,7 +4,7 @@ Flask-WTF==1.2.1
 lgpio==0.2.2.0
 pygame==2.6.1
 pydub==0.25.1
-smbus==1.1.post2
+smbus2==0.5.0
 APScheduler==3.10.4
 werkzeug==3.1.3
 gunicorn==22.0.0
