@@ -981,6 +981,7 @@ if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
     echo "[Dry-Run] Würde 'sudo usermod -aG pulse-access \"$TARGET_USER\"' ausführen."
     echo "[Dry-Run] Würde 'sudo usermod -aG audio \"$TARGET_USER\"' ausführen."
     echo "[Dry-Run] Würde 'sudo usermod -aG netdev \"$TARGET_USER\"' ausführen."
+    echo "[Dry-Run] Würde 'sudo usermod -aG gpio \"$TARGET_USER\"' ausführen."
     echo "[Dry-Run] Würde 'sudo usermod -aG bluetooth \"$TARGET_USER\"' ausführen."
     echo "[Dry-Run] Würde 'sudo usermod -aG i2c \"$TARGET_USER\"' ausführen."
     if [ -f "$POLKIT_RULE_TEMPLATE" ]; then
@@ -1300,6 +1301,7 @@ sudo usermod -aG pulse "$TARGET_USER"
 sudo usermod -aG pulse-access "$TARGET_USER"
 sudo usermod -aG audio "$TARGET_USER"
 sudo usermod -aG netdev "$TARGET_USER"
+sudo usermod -aG gpio "$TARGET_USER"
 sudo usermod -aG bluetooth "$TARGET_USER"
 sudo usermod -aG i2c "$TARGET_USER"
 
