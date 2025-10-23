@@ -11,7 +11,7 @@ RuntimeDirectoryMode=0700
 WorkingDirectory=/opt/Audio-Pi-Websystem
 ExecStartPre=/bin/sleep 10
 Environment=FLASK_DEBUG=0
-Environment="FLASK_SECRET_KEY=__CHANGE_ME__"
+EnvironmentFile=/etc/audio-pi/audio-pi.env
 Environment=FLASK_PORT=80
 Environment=XDG_RUNTIME_DIR=/run/audio-pi
 Environment=AUDIO_PI_DISABLE_SUDO=0

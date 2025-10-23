@@ -669,6 +669,59 @@ enable_i2c_support() {
     fi
 }
 
+# Flask-Secret vorbereiten und Zielbenutzer ermitteln
+SECRET="$ARG_FLASK_SECRET_KEY"
+if [ -z "$SECRET" ] && [ -n "${FLASK_SECRET_KEY:-}" ]; then
+    SECRET="$FLASK_SECRET_KEY"
+fi
+while [ -z "$SECRET" ]; do
+    if [ "$PROMPT_ALLOWED" -eq 0 ]; then
+        echo "Fehler: FLASK_SECRET_KEY muss via --flask-secret-key oder INSTALL_FLASK_SECRET_KEY gesetzt werden." >&2
+        exit 1
+    fi
+    IFS= read -r -p "FLASK_SECRET_KEY (darf nicht leer sein): " SECRET
+done
+
+TARGET_USER=${SUDO_USER:-$USER}
+if [ -z "$TARGET_USER" ]; then
+    TARGET_USER=$(id -un)
+fi
+TARGET_UID=$(id -u "$TARGET_USER")
+TARGET_GROUP=$(id -gn "$TARGET_USER")
+TARGET_HOME=$(eval echo "~$TARGET_USER")
+PROFILE_FILE="$TARGET_HOME/.profile"
+PROFILE_SOURCE_LINE='if [ -f /etc/audio-pi/audio-pi.env ]; then . /etc/audio-pi/audio-pi.env; fi'
+AUDIO_PI_ENV_DIR="/etc/audio-pi"
+AUDIO_PI_ENV_FILE="$AUDIO_PI_ENV_DIR/audio-pi.env"
+
+if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
+    echo "[Dry-Run] Würde ${AUDIO_PI_ENV_DIR} mit Modus 0750 anlegen."
+    echo "[Dry-Run] Würde Secret in ${AUDIO_PI_ENV_FILE} (0640, root:${TARGET_GROUP}) speichern."
+    echo "[Dry-Run] Würde ${PROFILE_FILE} so anpassen, dass ${PROFILE_SOURCE_LINE}."
+else
+    sudo install -d -m 0750 "$AUDIO_PI_ENV_DIR"
+    tmp_env_file=$(mktemp)
+    printf 'FLASK_SECRET_KEY=%s\n' "$SECRET" >"$tmp_env_file"
+    sudo install -o root -g "$TARGET_GROUP" -m 0640 "$tmp_env_file" "$AUDIO_PI_ENV_FILE"
+    rm -f "$tmp_env_file"
+
+    if ! sudo test -f "$PROFILE_FILE"; then
+        sudo install -o "$TARGET_USER" -g "$TARGET_GROUP" -m 0644 /dev/null "$PROFILE_FILE"
+    fi
+
+    if sudo grep -q '^export FLASK_SECRET_KEY=' "$PROFILE_FILE"; then
+        sudo env PROFILE_SOURCE_LINE="$PROFILE_SOURCE_LINE" perl -0pi -e 's/^export FLASK_SECRET_KEY=.*$/\Q$ENV{PROFILE_SOURCE_LINE}\E/m' "$PROFILE_FILE"
+        echo "Alter FLASK_SECRET_KEY Eintrag in $TARGET_HOME/.profile wurde ersetzt."
+    fi
+
+    if sudo grep -Fxq "$PROFILE_SOURCE_LINE" "$PROFILE_FILE"; then
+        echo "$TARGET_HOME/.profile lädt bereits /etc/audio-pi/audio-pi.env."
+    else
+        printf '%s\n' "$PROFILE_SOURCE_LINE" | sudo tee -a "$PROFILE_FILE" >/dev/null
+        echo "$TARGET_HOME/.profile lädt nun /etc/audio-pi/audio-pi.env."
+    fi
+fi
+
 if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
     enable_i2c_support
     echo ""
@@ -696,34 +749,6 @@ apt_get install -y libasound2-dev libpulse-dev libportaudio2 ffmpeg libffi-dev l
 
 # Python-Abhängigkeiten installieren
 pip install -r requirements.txt
-
-# Benutzer nach Secret fragen und in Profil speichern
-SECRET="$ARG_FLASK_SECRET_KEY"
-if [ -z "$SECRET" ] && [ -n "${FLASK_SECRET_KEY:-}" ]; then
-    SECRET="$FLASK_SECRET_KEY"
-fi
-while [ -z "$SECRET" ]; do
-    if [ "$PROMPT_ALLOWED" -eq 0 ]; then
-        echo "Fehler: FLASK_SECRET_KEY muss via --flask-secret-key oder INSTALL_FLASK_SECRET_KEY gesetzt werden." >&2
-        exit 1
-    fi
-    IFS= read -r -p "FLASK_SECRET_KEY (darf nicht leer sein): " SECRET
-done
-TARGET_USER=${SUDO_USER:-$USER}
-TARGET_UID=$(id -u "$TARGET_USER")
-TARGET_GROUP=$(id -gn "$TARGET_USER")
-TARGET_HOME=$(eval echo "~$TARGET_USER")
-PROFILE_FILE="$TARGET_HOME/.profile"
-PROFILE_EXPORT_LINE=$(printf 'export FLASK_SECRET_KEY=%q' "$SECRET")
-if sudo test -f "$PROFILE_FILE" && sudo grep -q '^export FLASK_SECRET_KEY=' "$PROFILE_FILE"; then
-    sudo env PROFILE_REPLACEMENT="$PROFILE_EXPORT_LINE" perl -0pi -e 's/^export FLASK_SECRET_KEY=.*$/\Q$ENV{PROFILE_REPLACEMENT}\E/m' "$PROFILE_FILE"
-    echo "FLASK_SECRET_KEY wurde in $TARGET_HOME/.profile aktualisiert."
-else
-    printf '%s\n' "$PROFILE_EXPORT_LINE" | sudo tee -a "$PROFILE_FILE"
-    echo "FLASK_SECRET_KEY wurde in $TARGET_HOME/.profile hinterlegt."
-fi
-SYSTEMD_QUOTED_SECRET=$(printf '%s' "$SECRET" | sed -e 's/[\\$"]/\\&/g')
-SYSTEMD_SED_SAFE_SECRET=$(printf '%s' "$SYSTEMD_QUOTED_SECRET" | sed -e 's/[&|]/\\&/g')
 
 # I²C für RTC aktivieren (raspi-config oder Fallback)
 enable_i2c_support
@@ -1451,7 +1476,11 @@ fi
 sudo cp audio-pi.service /etc/systemd/system/
 SYSTEMD_SAFE_PWD=$(printf '%s' "$(pwd)" | sed -e 's/[\\&|]/\\&/g')
 sudo sed -i "s|/opt/Audio-Pi-Websystem|$SYSTEMD_SAFE_PWD|g" /etc/systemd/system/audio-pi.service
-sudo sed -i "s|^Environment=.*FLASK_SECRET_KEY=.*|Environment=\"FLASK_SECRET_KEY=$SYSTEMD_SED_SAFE_SECRET\"|" /etc/systemd/system/audio-pi.service
+if sudo grep -q '^EnvironmentFile=' /etc/systemd/system/audio-pi.service; then
+    sudo sed -i "s|^EnvironmentFile=.*|EnvironmentFile=$AUDIO_PI_ENV_FILE|" /etc/systemd/system/audio-pi.service
+else
+    sudo sed -i "/^Environment=FLASK_DEBUG=/a EnvironmentFile=$AUDIO_PI_ENV_FILE" /etc/systemd/system/audio-pi.service
+fi
 if sudo grep -q '^Environment=FLASK_PORT=' /etc/systemd/system/audio-pi.service; then
     sudo sed -i "s|^Environment=FLASK_PORT=.*|Environment=FLASK_PORT=${CONFIGURED_FLASK_PORT}|" /etc/systemd/system/audio-pi.service
 else
