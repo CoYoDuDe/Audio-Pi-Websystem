@@ -283,9 +283,29 @@ Der Zugriff lässt sich anschließend mit `stat uploads app.log` prüfen; Schrei
 Beim ersten Start legt die Anwendung automatisch die SQLite-Datenbank `audio.db` an, erzeugt sämtliche Tabellen und erstellt den Benutzer `admin`. Ein hart codiertes Standard-Passwort existiert nicht mehr:
 
 - **Eigenes Startpasswort hinterlegen:** Wenn beim allerersten Start die Umgebungsvariable `INITIAL_ADMIN_PASSWORD` gesetzt ist (z. B. `export INITIAL_ADMIN_PASSWORD='DeinSicheresPasswort'` oder als zusätzliche `Environment=`-Zeile in `audio-pi.service`), wird genau dieses Passwort verwendet und gehasht gespeichert.
-- **Automatische Generierung:** Ist `INITIAL_ADMIN_PASSWORD` nicht gesetzt, generiert die Anwendung einmalig ein zufälliges 16-Zeichen-Passwort. Der Klartext wird direkt beim Start als Warnung in die Logdatei geschrieben.
+- **Automatische Generierung:** Ist `INITIAL_ADMIN_PASSWORD` nicht gesetzt, generiert die Anwendung einmalig ein zufälliges 16-Zeichen-Passwort. Statt es im Log festzuhalten, wird der Klartext ausschließlich in der Datei `initial_admin_password.txt` mit Rechten `0600` neben der Datenbank (`audio.db`) abgelegt. Über die Variable `INITIAL_ADMIN_PASSWORD_FILE` lässt sich der Dateiname bzw. Zielpfad (relativ oder absolut) anpassen.
+- **Startpasswort abrufen:** Nach dem ersten Start kann das Passwort mit `sudo cat /opt/Audio-Pi-Websystem/initial_admin_password.txt` (bzw. anhand des unter `INITIAL_ADMIN_PASSWORD_FILE` angegebenen Pfads) ausgelesen werden. Anschließend sollte die Datei gelöscht oder in ein sicheres Geheimnis-Backend verschoben werden.
+- **Passwort zurücksetzen:** Geht das Administrator-Passwort verloren, lässt es sich offline über SQLite und `werkzeug.security.generate_password_hash` neu setzen. Beispiel (Pfad anpassen, idealerweise innerhalb der virtuellen Umgebung ausführen):
 
-Die Logdatei befindet sich im Arbeitsverzeichnis der Anwendung (standardmäßig das Projektverzeichnis, z. B. `/opt/Audio-Pi-Websystem/app.log`). Das zufällig erzeugte Passwort lässt sich danach mit `tail -n 50 app.log` bzw. bei systemd-Installationen mit `sudo tail -n 50 /opt/Audio-Pi-Websystem/app.log` nachvollziehen. Sobald der Eintrag gelesen wurde, sollte die Logdatei vor unbefugtem Zugriff geschützt bzw. bereinigt werden.
+```bash
+sudo /opt/Audio-Pi-Websystem/venv/bin/python - <<'PY'
+import sqlite3
+from werkzeug.security import generate_password_hash
+
+db_path = "/opt/Audio-Pi-Websystem/audio.db"
+new_password = "NeuesSicheresPasswort"
+
+conn = sqlite3.connect(db_path)
+conn.execute(
+    "UPDATE users SET password=?, must_change_password=1 WHERE username='admin'",
+    (generate_password_hash(new_password),),
+)
+conn.commit()
+conn.close()
+PY
+```
+
+Beim nächsten Login erzwingt das System erneut eine Passwortänderung über die Weboberfläche.
 
 > **Wichtig:** Nach der ersten Anmeldung muss das Passwort über die Weboberfläche (Bereich **System → Passwort ändern**) unmittelbar durch ein neues, sicheres Passwort ersetzt werden. Die Datenbank markiert den Benutzer bis zur Änderung als `must_change_password`, wodurch ein Passwortwechsel erzwungen wird.
 

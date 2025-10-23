@@ -1,4 +1,5 @@
 import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -43,4 +44,23 @@ with app.get_db_connection() as (conn, cursor):
     assert executed == 0, "Zeitplan in der Zukunft wurde fälschlicherweise übersprungen"
 '''
     subprocess.run([sys.executable, '-c', script], env=env, cwd=tmp_path, check=True)
+
+
+def test_generated_initial_password_is_written_to_secure_file(tmp_path):
+    env = os.environ.copy()
+    env.pop('INITIAL_ADMIN_PASSWORD', None)
+    env['FLASK_SECRET_KEY'] = 'test'
+    env['TESTING'] = '1'
+    env['DB_FILE'] = str(tmp_path / 'test.db')
+    password_file = tmp_path / 'secrets' / 'initial_password.txt'
+    env['INITIAL_ADMIN_PASSWORD_FILE'] = str(password_file)
+    env['PYTHONPATH'] = str(Path(__file__).resolve().parents[1])
+
+    subprocess.run([sys.executable, '-c', 'import app'], env=env, cwd=tmp_path, check=True)
+
+    assert password_file.exists(), 'Initialpasswort-Datei wurde nicht angelegt'
+    file_mode = stat.S_IMODE(password_file.stat().st_mode)
+    assert file_mode == 0o600, f'Erwartete Dateirechte 0600, erhalten: {oct(file_mode)}'
+    content = password_file.read_text(encoding='utf-8').strip()
+    assert content, 'Datei für Initialpasswort ist leer'
 
