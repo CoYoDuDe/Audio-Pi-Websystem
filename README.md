@@ -261,6 +261,22 @@ systemctl show --property=Environment audio-pi.service
   genügt `sudo systemctl restart audio-pi.service`. Für reine
   Konfigurationsupdates der Gunicorn-Parameter empfiehlt sich `sudo systemctl
   reload audio-pi.service`, wodurch Gunicorn einen Hot-Reload per HUP erhält.
+- **Gehärtete Defaults:** Die Unit `audio-pi.service` setzt jetzt neben
+  `CapabilityBoundingSet=CAP_NET_BIND_SERVICE` auch auf zusätzliche
+  Fähigkeiten für Netzwerk-, Zeit- und Systemsteuerung (`CAP_NET_ADMIN`,
+  `CAP_NET_RAW`, `CAP_SYS_TIME`, `CAP_SYS_BOOT`, `CAP_SYS_ADMIN`) und kombiniert
+  sie mit `NoNewPrivileges=yes`, `RestrictSUIDSGID=yes`,
+  `SystemCallFilter=@system-service`, `RestrictNamespaces=yes`,
+  `ProtectSystem=strict`, `ReadWritePaths=/opt/Audio-Pi-Websystem` sowie einem
+  eingeschränkten `RestrictAddressFamilies`-Set. Laufzeitdaten bleiben dadurch
+  auf das Projektverzeichnis beschränkt, während der Dienst dennoch alle
+  benötigten Operationen (Reboot, WLAN-Steuerung, Zeitsynchronisierung,
+  Bluetooth) durchführen kann.
+- **Sudo-freie Kommandos:** Dank `Environment=AUDIO_PI_DISABLE_SUDO=1` entfernt
+  die Anwendung automatisch führende `sudo`-Aufrufe, damit Capabilities auch
+  unter `NoNewPrivileges` greifen. Bestehende Deployments behalten ihr Verhalten
+  bei, solange `INSTALL_DISABLE_SUDO=0` (für den Installer) oder
+  `Environment=AUDIO_PI_DISABLE_SUDO=0` gesetzt wird.
 - **Gunicorn-Konfiguration:** `gunicorn.conf.py` nutzt die offiziellen Flask-
   Empfehlungen für produktive WSGI-Server. Weitere Optionen können gemäß der
   [Flask-Dokumentation zu WSGI-Servern](https://flask.palletsprojects.com/en/latest/deploying/wsgi-standalone/#gunicorn)
@@ -282,6 +298,18 @@ Sollte die Unit manuell neu geladen werden müssen, genügt:
 sudo systemctl daemon-reload
 sudo systemctl enable --now audio-pi.service
 ```
+
+Nach einem Update der Unit empfiehlt sich außerdem ein schneller Konsistenz-
+Check:
+
+```bash
+sudo systemd-analyze verify /etc/systemd/system/audio-pi.service
+sudo systemctl daemon-reload
+sudo systemctl restart audio-pi.service
+```
+
+Damit lassen sich auch Bestandsinstallationen problemlos auf die neuen
+Sicherheitsvorgaben migrieren.
 
 ### Dateipfade & Rechte
 
