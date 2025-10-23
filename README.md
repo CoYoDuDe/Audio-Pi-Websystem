@@ -321,6 +321,15 @@ lässt sich das Verhalten bei Bedarf weiter abstimmen.
   Umgebungen ohne Polkit), setzt `INSTALL_DISABLE_SUDO=0` während der
   Installation oder trägt `AUDIO_PI_DISABLE_SUDO=0` in die Unit ein – dann
   werden weiterhin klassische `sudo`-Aufrufe verwendet.
+- **wpa_cli-Berechtigungen:** Für den WLAN-Client-Workflow legt der Installer
+  den Dienstbenutzer nun zusätzlich in der Gruppe `netdev` an. Darüber erhält
+  der Account Zugriff auf die Unix-Domain-Sockets von `wpa_supplicant`
+  (standardmäßig `/run/wpa_supplicant/<interface>`), sodass `wpa_cli` auch aus
+  dem Dienstkontext zuverlässige Scans und Verbindungswechsel durchführen kann.
+  Bei bestehenden Deployments sollte geprüft werden, ob der Service-Account
+  bereits Mitglied von `netdev` ist; andernfalls lässt sich die Gruppenzuweisung
+  mit `sudo usermod -aG netdev <benutzer>` nachholen. Nach Änderungen ist ein
+  erneutes Einloggen bzw. ein Neustart des Dienstes erforderlich.
 - **Migration bestehender Installationen:** Nach dem Update die Unit-Datei
   neu einlesen und den Dienst neu starten:
   `sudo systemctl daemon-reload && sudo systemctl restart audio-pi.service`.
