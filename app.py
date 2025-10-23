@@ -41,6 +41,7 @@ from flask_login import (
     current_user,
 )
 from flask_wtf import CSRFProtect
+from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
@@ -193,6 +194,44 @@ UPLOAD_FOLDER = "uploads"
 ALLOWED_EXTENSIONS = {"wav", "mp3"}
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+DEFAULT_MAX_UPLOAD_MB = 100
+
+
+def _resolve_max_upload_mb(raw_value: Optional[str]) -> int:
+    if raw_value is None:
+        return DEFAULT_MAX_UPLOAD_MB
+
+    candidate = raw_value.strip()
+    if not candidate:
+        return DEFAULT_MAX_UPLOAD_MB
+
+    try:
+        parsed = int(candidate)
+    except ValueError:
+        _logger.warning(
+            "Ungültiger Wert für AUDIO_PI_MAX_UPLOAD_MB (%s). Verwende Standard %s MB.",
+            raw_value,
+            DEFAULT_MAX_UPLOAD_MB,
+        )
+        return DEFAULT_MAX_UPLOAD_MB
+
+    if parsed <= 0:
+        _logger.warning(
+            "Nichtpositiver Wert für AUDIO_PI_MAX_UPLOAD_MB (%s). Verwende Standard %s MB.",
+            raw_value,
+            DEFAULT_MAX_UPLOAD_MB,
+        )
+        return DEFAULT_MAX_UPLOAD_MB
+
+    return parsed
+
+
+_max_upload_env = os.getenv("AUDIO_PI_MAX_UPLOAD_MB")
+MAX_UPLOAD_SIZE_MB = _resolve_max_upload_mb(_max_upload_env)
+app.config["MAX_CONTENT_LENGTH_MB"] = MAX_UPLOAD_SIZE_MB
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
 DB_FILE = os.getenv("DB_FILE", "audio.db")
 DEFAULT_AMPLIFIER_GPIO_PIN = 17
 AMPLIFIER_GPIO_PIN_SETTING_KEY = "amplifier_gpio_pin"
@@ -3988,6 +4027,43 @@ def delete_hardware_button(button_id: int):
         _refresh_button_monitor_configuration()
 
     return redirect(_hardware_button_redirect_url())
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_request_entity_too_large(error):
+    limit_mb = app.config.get("MAX_CONTENT_LENGTH_MB")
+    limit_is_int = isinstance(limit_mb, int)
+    limit_display = limit_mb if limit_is_int else None
+    if limit_display is None:
+        message = "Die hochgeladene Datei überschreitet das erlaubte Upload-Limit."
+    else:
+        message = (
+            f"Die hochgeladene Datei überschreitet das erlaubte Limit von {limit_display} MB."
+        )
+
+    _logger.warning(
+        "Upload wegen überschrittenem Limit abgewiesen (Limit: %s MB).",
+        limit_display if limit_display is not None else "unbekannt",
+    )
+
+    if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
+        payload = {
+            "error": "request_entity_too_large",
+            "message": message,
+        }
+        if limit_display is not None:
+            payload["limit_mb"] = limit_display
+        return payload, 413
+
+    flash(message)
+    return (
+        render_template(
+            "upload_too_large.html",
+            limit_mb=limit_display,
+            message=message,
+        ),
+        413,
+    )
 
 
 @app.route("/upload", methods=["POST"])

@@ -296,6 +296,7 @@ Wichtige Einstellungen können über Umgebungsvariablen angepasst werden:
 - `FLASK_SECRET_KEY`: Muss gesetzt sein, sonst startet die Anwendung nicht.
 - `FLASK_PORT`: HTTP-Port für Flask (Standard: `80`).
 - `DB_FILE`: Pfad zur SQLite-Datenbank (Standard: `audio.db` im Projektverzeichnis).
+- `AUDIO_PI_MAX_UPLOAD_MB`: Maximale Dateigröße pro Upload in Megabyte (Standard: `100`). Wird das Limit überschritten, bricht die Anwendung den Upload ab und zeigt auf der Weboberfläche einen Hinweis an.
 - `MAX_SCHEDULE_DELAY_SECONDS`: Maximale Verzögerung für Scheduler-Nachläufer.
 
 Weitere Variablen sind im Quelltext dokumentiert. Wird ein Port kleiner 1024
