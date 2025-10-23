@@ -935,11 +935,13 @@ if [ -n "${INSTALL_PROFILE_FILE:-}" ]; then
 fi
 
 if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
-    echo "[Dry-Run] Würde ${AUDIO_PI_ENV_DIR} mit Modus 0750 anlegen."
+    echo "[Dry-Run] Würde ${AUDIO_PI_ENV_DIR} (root:${TARGET_GROUP}, 0750) anlegen."
+    echo "[Dry-Run] Würde Besitzrechte per 'sudo chown root:${TARGET_GROUP} ${AUDIO_PI_ENV_DIR}' sicherstellen."
     echo "[Dry-Run] Würde Secret in ${AUDIO_PI_ENV_FILE} (0640, root:${TARGET_GROUP}) speichern."
     echo "[Dry-Run] Würde ${PROFILE_FILE} so anpassen, dass ${PROFILE_SOURCE_LINE}."
 else
-    sudo install -d -m 0750 "$AUDIO_PI_ENV_DIR"
+    sudo install -d -o root -g "$TARGET_GROUP" -m 0750 "$AUDIO_PI_ENV_DIR"
+    sudo chown root:"$TARGET_GROUP" "$AUDIO_PI_ENV_DIR"
     tmp_env_file=$(mktemp)
     printf 'FLASK_SECRET_KEY=%s\n' "$SECRET" >"$tmp_env_file"
     sudo install -o root -g "$TARGET_GROUP" -m 0640 "$tmp_env_file" "$AUDIO_PI_ENV_FILE"

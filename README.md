@@ -339,6 +339,8 @@ lässt sich das Verhalten bei Bedarf weiter abstimmen.
 
 - `install.sh` hinterlegt den `FLASK_SECRET_KEY` ausschließlich in `/etc/audio-pi/audio-pi.env`.
   Die Datei gehört `root` und der Dienstgruppe des Services (z. B. `root:pi`) und ist mit Modus `0640` geschützt.
+- Das Verzeichnis `/etc/audio-pi` wird dabei explizit als `root:<Dienstgruppe>` mit Modus `0750` erzeugt;
+  bestehende Installationen korrigiert das Skript automatisch per `sudo chown root:<Gruppe> /etc/audio-pi`.
 - Beim Installer gilt eine Mindestlänge von 32 Zeichen sowie der Mix aus mindestens drei
   Zeichengruppen (Großbuchstaben, Kleinbuchstaben, Ziffern, Sonderzeichen). Ungültige
   Werte aus CLI oder ENV führen zum Abbruch.
