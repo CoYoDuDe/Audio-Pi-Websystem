@@ -12,6 +12,7 @@ Verwendung:
 Wichtige Optionen:
   --flask-secret-key VALUE        Flask Secret Key setzen (alternativ INSTALL_FLASK_SECRET_KEY).
   --flask-port VALUE              HTTP-Port für Gunicorn/Flask (Standard: 80; alternativ INSTALL_FLASK_PORT).
+  --log-file-mode MODE            chmod-Modus für app.log (Standard: 666; alternativ INSTALL_LOG_FILE_MODE).
   --rtc-mode MODE                 RTC-Modus: auto, pcf8563, ds3231, skip.
   --rtc-addresses LIST            Kommagetrennte I²C-Adressen (z.B. 0x51,0x68).
   --rtc-overlay VALUE             dtoverlay-Wert für die RTC ("-" oder "none" deaktiviert die Änderung).
@@ -191,9 +192,9 @@ print_post_install_instructions() {
 }
 
 UPLOAD_DIR_MODE="${INSTALL_UPLOAD_DIR_MODE:-775}"
-LOG_FILE_MODE="${INSTALL_LOG_FILE_MODE:-660}"
+DEFAULT_LOG_FILE_MODE="${INSTALL_LOG_FILE_MODE:-666}"
 validate_chmod_mode "$UPLOAD_DIR_MODE" INSTALL_UPLOAD_DIR_MODE
-validate_chmod_mode "$LOG_FILE_MODE" INSTALL_LOG_FILE_MODE
+validate_chmod_mode "$DEFAULT_LOG_FILE_MODE" INSTALL_LOG_FILE_MODE
 
 ARG_FLASK_SECRET_KEY=""
 ARG_FLASK_PORT=""
@@ -219,6 +220,7 @@ ARG_AP_DHCP_START=""
 ARG_AP_DHCP_END=""
 ARG_AP_DHCP_LEASE=""
 ARG_AP_WAN=""
+ARG_LOG_FILE_MODE=""
 FORCE_NONINTERACTIVE=0
 INSTALL_DRY_RUN=${INSTALL_DRY_RUN:-0}
 
@@ -232,6 +234,11 @@ while [ $# -gt 0 ]; do
         --flask-port)
             require_value "$1" "$2"
             ARG_FLASK_PORT="$2"
+            shift 2
+            ;;
+        --log-file-mode)
+            require_value "$1" "$2"
+            ARG_LOG_FILE_MODE="$2"
             shift 2
             ;;
         --rtc-mode)
@@ -405,6 +412,23 @@ else
     echo "HTTP-Port für Gunicorn/Flask: ${CONFIGURED_FLASK_PORT} (Quelle: ${FLASK_PORT_SOURCE})"
 fi
 export FLASK_PORT="$CONFIGURED_FLASK_PORT"
+
+LOG_FILE_MODE="$DEFAULT_LOG_FILE_MODE"
+LOG_FILE_MODE_SOURCE="Standard (666)"
+if [ -n "${INSTALL_LOG_FILE_MODE:-}" ]; then
+    LOG_FILE_MODE_SOURCE="INSTALL_LOG_FILE_MODE"
+fi
+if [ -n "$ARG_LOG_FILE_MODE" ]; then
+    LOG_FILE_MODE="$ARG_LOG_FILE_MODE"
+    LOG_FILE_MODE_SOURCE="CLI (--log-file-mode)"
+fi
+validate_chmod_mode "$LOG_FILE_MODE" LOG_FILE_MODE
+if [ "$LOG_FILE_MODE_SOURCE" = "Standard (666)" ]; then
+    echo "Logfile-Modus: ${LOG_FILE_MODE}"
+else
+    echo "Logfile-Modus: ${LOG_FILE_MODE} (Quelle: ${LOG_FILE_MODE_SOURCE})"
+fi
+
 if [ -z "$ARG_RTC_MODE" ] && [ -n "${INSTALL_RTC_MODE:-}" ]; then
     ARG_RTC_MODE="$INSTALL_RTC_MODE"
 fi
@@ -1319,6 +1343,47 @@ sudo chmod "$UPLOAD_DIR_MODE" uploads
 touch app.log
 sudo chown "$TARGET_USER:$TARGET_GROUP" app.log
 sudo chmod "$LOG_FILE_MODE" app.log
+
+LOGROTATE_TEMPLATE="$SCRIPT_DIR/scripts/logrotate/audio-pi"
+LOGROTATE_TARGET="/etc/logrotate.d/audio-pi"
+if [ -f "$LOGROTATE_TEMPLATE" ]; then
+    LOGROTATE_CREATE_MODE="$LOG_FILE_MODE"
+    if [ ${#LOGROTATE_CREATE_MODE} -eq 3 ]; then
+        LOGROTATE_CREATE_MODE="0${LOGROTATE_CREATE_MODE}"
+    fi
+    tmp_lr=$(mktemp)
+    APP_LOG_PATH="$(pwd)/app.log" \
+    TARGET_USER="$TARGET_USER" \
+    TARGET_GROUP="$TARGET_GROUP" \
+    LOGROTATE_CREATE_MODE="$LOGROTATE_CREATE_MODE" \
+    python3 - "$LOGROTATE_TEMPLATE" "$tmp_lr" <<'PY'
+import os
+import sys
+
+src, dest = sys.argv[1:3]
+with open(src, encoding='utf-8') as fh:
+    data = fh.read()
+
+replacements = {
+    '@APP_LOG_PATH@': os.environ['APP_LOG_PATH'],
+    '@TARGET_USER@': os.environ['TARGET_USER'],
+    '@TARGET_GROUP@': os.environ['TARGET_GROUP'],
+    '@LOG_FILE_MODE@': os.environ['LOGROTATE_CREATE_MODE'],
+}
+
+for key, value in replacements.items():
+    data = data.replace(key, value)
+
+with open(dest, 'w', encoding='utf-8') as fh:
+    fh.write(data)
+PY
+    sudo install -d -m 0755 /etc/logrotate.d
+    sudo install -m 0644 "$tmp_lr" "$LOGROTATE_TARGET"
+    rm -f "$tmp_lr"
+    echo "Logrotate-Konfiguration nach $LOGROTATE_TARGET geschrieben."
+else
+    echo "Keine Logrotate-Vorlage ($LOGROTATE_TEMPLATE) gefunden – Rotation übersprungen."
+fi
 
 # DB anlegen falls nicht da (Initialisierung passiert beim ersten Start)
 if [ ! -f audio.db ]; then
