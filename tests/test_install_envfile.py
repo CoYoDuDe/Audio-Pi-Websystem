@@ -92,8 +92,10 @@ def test_generate_secret_dry_run_reports_group(tmp_path: Path) -> None:
     if not target_user:
         target_user = subprocess.check_output(["id", "-un"], text=True).strip()
     expected_netdev = f"[Dry-Run] Würde 'sudo usermod -aG netdev \"{target_user}\"' ausführen."
+    expected_gpio = f"[Dry-Run] Würde 'sudo usermod -aG gpio \"{target_user}\"' ausführen."
     expected_bluetooth = f"[Dry-Run] Würde 'sudo usermod -aG bluetooth \"{target_user}\"' ausführen."
     expected_i2c = f"[Dry-Run] Würde 'sudo usermod -aG i2c \"{target_user}\"' ausführen."
     assert expected_netdev in combined_output
+    assert expected_gpio in combined_output
     assert expected_bluetooth in combined_output
     assert expected_i2c in combined_output
