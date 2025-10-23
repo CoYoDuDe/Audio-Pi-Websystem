@@ -41,6 +41,13 @@ def test_hat_overlay_prefers_firmware_config_when_standard_missing() -> None:
         apply_hat_overlay "test-overlay" "foo=bar"
         ensure_audio_dtparam 1
         ensure_audio_dtparam 0
+        HAT_SELECTED_LABEL="Testprofil"
+        HAT_SELECTED_OVERLAY=""
+        HAT_SELECTED_OPTIONS=""
+        HAT_SELECTED_SINK_HINT="alsa_output.test"
+        HAT_SELECTED_NOTES=""
+        HAT_SELECTED_KEY="manual"
+        print_audio_hat_summary
         """
     ).format(script=script)
 
@@ -68,3 +75,5 @@ def test_hat_overlay_prefers_firmware_config_when_standard_missing() -> None:
     assert "[Dry-Run] Würde 'dtoverlay=test-overlay,foo=bar' an /boot/firmware/config.txt anhängen." in stdout
     assert "[Dry-Run] Würde 'dtparam=audio=off' an /boot/firmware/config.txt anhängen." in stdout
     assert "[Dry-Run] Würde 'dtparam=audio=on' an /boot/firmware/config.txt anhängen." in stdout
+    assert "--- Zusammenfassung Audio-HAT ---" in stdout
+    assert "Anpassung später: /boot/firmware/config.txt und sqlite3 audio.db 'UPDATE settings SET value=... WHERE key=\\'dac_sink_name\\';'" in stdout
