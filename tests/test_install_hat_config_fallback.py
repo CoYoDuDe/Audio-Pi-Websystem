@@ -77,3 +77,75 @@ def test_hat_overlay_prefers_firmware_config_when_standard_missing() -> None:
     assert "[Dry-Run] Würde 'dtparam=audio=on' an /boot/firmware/config.txt anhängen." in stdout
     assert "--- Zusammenfassung Audio-HAT ---" in stdout
     assert "Anpassung später: /boot/firmware/config.txt und sqlite3 audio.db 'UPDATE settings SET value=... WHERE key=\\'dac_sink_name\\';'" in stdout
+
+
+
+def test_hat_overlay_removes_existing_entry_with_options(tmp_path: Path) -> None:
+    """Einträge mit Optionen dürfen beim erneuten Anwenden nicht dupliziert werden."""
+
+    script = Path(__file__).resolve().parents[1] / "install.sh"
+
+    firmware_dir = Path("/boot/firmware")
+    firmware_dir.mkdir(parents=True, exist_ok=True)
+    firmware_config = firmware_dir / "config.txt"
+
+    original_content = None
+    if firmware_config.exists():
+        original_content = firmware_config.read_text(encoding="utf-8")
+
+    overlay_line = "dtoverlay=test-overlay,foo=bar"
+    firmware_config.write_text(
+        "\n".join(
+            (
+                "# Testkonfiguration für Audio-HAT",
+                "dtparam=audio=on",
+                overlay_line,
+                "# Ende der Testkonfiguration",
+                "",
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    sudo_stub = tmp_path / "sudo"
+    sudo_stub.write_text("#!/bin/sh\nexec \"$@\"\n", encoding="utf-8")
+    sudo_stub.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{sudo_stub.parent}:{env.get('PATH', '')}"
+
+    shell_script = textwrap.dedent(
+        f"""
+        set -e
+        INSTALL_LIBRARY_ONLY=1 source "{script}"
+        INSTALL_DRY_RUN=0
+        apply_hat_overlay "test-overlay" "foo=bar"
+        apply_hat_overlay "test-overlay" "foo=bar"
+        """
+    )
+
+    try:
+        result = subprocess.run(
+            ["/bin/bash", "-lc", shell_script],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+            check=False,
+        )
+
+        assert result.returncode == 0, f"{result.stdout}{result.stderr}"
+
+        content_after = firmware_config.read_text(encoding="utf-8")
+        overlay_lines = [
+            line for line in content_after.splitlines() if line.startswith("dtoverlay=test-overlay")
+        ]
+        assert overlay_lines == [overlay_line]
+    finally:
+        if original_content is None:
+            firmware_config.unlink(missing_ok=True)
+        else:
+            firmware_config.write_text(original_content, encoding="utf-8")
+
+        for backup_file in firmware_dir.glob("config.txt.hat.bak.*"):
+            backup_file.unlink(missing_ok=True)

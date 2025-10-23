@@ -815,7 +815,7 @@ apply_hat_overlay() {
     tmp_file=$(mktemp)
     sudo cp "$config_file" "${config_file}.hat.bak.${timestamp}"
     sudo awk -v overlay="$overlay_name" '
-        BEGIN { pattern = "^dtoverlay=" overlay "([[:space:]],|$)" }
+        BEGIN { pattern = "^dtoverlay=" overlay "([[:space:]]|,|$)" }
         $0 ~ pattern { next }
         { print }
     ' "$config_file" >"$tmp_file"
