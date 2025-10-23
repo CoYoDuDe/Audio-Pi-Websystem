@@ -91,6 +91,15 @@ def test_generate_secret_dry_run_reports_group(tmp_path: Path) -> None:
     target_user = os.environ.get("SUDO_USER") or os.environ.get("USER")
     if not target_user:
         target_user = subprocess.check_output(["id", "-un"], text=True).strip()
+    bluetooth_group_rc = subprocess.run(
+        ["getent", "group", "bluetooth"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    ).returncode
+    if bluetooth_group_rc != 0:
+        expected_bluetooth_group = "[Dry-Run] Würde 'sudo addgroup --system bluetooth' ausführen."
+        assert expected_bluetooth_group in combined_output
     expected_netdev = f"[Dry-Run] Würde 'sudo usermod -aG netdev \"{target_user}\"' ausführen."
     expected_bluetooth = f"[Dry-Run] Würde 'sudo usermod -aG bluetooth \"{target_user}\"' ausführen."
     expected_i2c = f"[Dry-Run] Würde 'sudo usermod -aG i2c \"{target_user}\"' ausführen."

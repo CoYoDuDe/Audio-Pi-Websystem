@@ -115,6 +115,23 @@ apt_get() {
     fi
 }
 
+ensure_system_group() {
+    local group_name="$1"
+
+    if [ -z "$group_name" ]; then
+        echo "Fehlender Gruppenname für ensure_system_group" >&2
+        exit 1
+    fi
+
+    if ! getent group "$group_name" >/dev/null 2>&1; then
+        if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
+            echo "[Dry-Run] Würde 'sudo addgroup --system ${group_name}' ausführen."
+        else
+            sudo addgroup --system "$group_name"
+        fi
+    fi
+}
+
 validate_chmod_mode() {
     local value="$1"
     local var_name="$2"
@@ -977,6 +994,7 @@ fi
 
 if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
     enable_i2c_support
+    ensure_system_group "bluetooth"
     echo "[Dry-Run] Würde 'sudo usermod -aG pulse \"$TARGET_USER\"' ausführen."
     echo "[Dry-Run] Würde 'sudo usermod -aG pulse-access \"$TARGET_USER\"' ausführen."
     echo "[Dry-Run] Würde 'sudo usermod -aG audio \"$TARGET_USER\"' ausführen."
@@ -1300,6 +1318,7 @@ sudo usermod -aG pulse "$TARGET_USER"
 sudo usermod -aG pulse-access "$TARGET_USER"
 sudo usermod -aG audio "$TARGET_USER"
 sudo usermod -aG netdev "$TARGET_USER"
+ensure_system_group "bluetooth"
 sudo usermod -aG bluetooth "$TARGET_USER"
 sudo usermod -aG i2c "$TARGET_USER"
 
