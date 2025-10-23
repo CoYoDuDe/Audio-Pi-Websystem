@@ -981,6 +981,7 @@ if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
     echo "[Dry-Run] Würde 'sudo usermod -aG pulse-access \"$TARGET_USER\"' ausführen."
     echo "[Dry-Run] Würde 'sudo usermod -aG audio \"$TARGET_USER\"' ausführen."
     echo "[Dry-Run] Würde 'sudo usermod -aG netdev \"$TARGET_USER\"' ausführen."
+    echo "[Dry-Run] Würde 'sudo usermod -aG bluetooth \"$TARGET_USER\"' ausführen."
     echo "[Dry-Run] Würde 'sudo usermod -aG i2c \"$TARGET_USER\"' ausführen."
     if [ -f "$POLKIT_RULE_TEMPLATE" ]; then
         POLKIT_RULE_DIR="$(dirname "$POLKIT_RULE_TARGET")"
@@ -1299,6 +1300,7 @@ sudo usermod -aG pulse "$TARGET_USER"
 sudo usermod -aG pulse-access "$TARGET_USER"
 sudo usermod -aG audio "$TARGET_USER"
 sudo usermod -aG netdev "$TARGET_USER"
+sudo usermod -aG bluetooth "$TARGET_USER"
 sudo usermod -aG i2c "$TARGET_USER"
 
 HAT_DEFAULT_SINK_HINT="alsa_output.platform-soc_107c000000_sound.stereo-fallback"
