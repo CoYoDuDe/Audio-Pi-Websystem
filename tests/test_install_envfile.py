@@ -48,6 +48,11 @@ def test_install_dry_run_uses_env_file(tmp_path: Path) -> None:
         f"[Dry-Run] Würde Besitzrechte per 'sudo chown root:{target_group} /etc/audio-pi' sicherstellen." in combined_output
     )
     assert "[Dry-Run] Würde Secret in /etc/audio-pi/audio-pi.env" in combined_output
+    assert "[Dry-Run] Würde /etc/polkit-1/rules.d (root:root, 0755) anlegen." in combined_output
+    assert "[Dry-Run] Würde Rechte per 'sudo chmod 0755 /etc/polkit-1/rules.d' sicherstellen." in combined_output
+    assert (
+        "[Dry-Run] Würde Rechte per 'sudo chmod 0644 /etc/polkit-1/rules.d/49-audio-pi.rules' sicherstellen." in combined_output
+    )
     assert "Environment=\"FLASK_SECRET_KEY" not in combined_output
     assert 'if [ -f "/etc/audio-pi/audio-pi.env" ]; then . "/etc/audio-pi/audio-pi.env"; fi' in combined_output
 
