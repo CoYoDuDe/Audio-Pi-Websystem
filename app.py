@@ -5152,6 +5152,55 @@ def change_password():
 TIME_SYNC_INTERNET_SETTING_KEY = "time_sync_internet_default"
 
 
+def _timesyncd_reports_synchronized(status_output: str) -> bool:
+    normalized_output = status_output.lower()
+    return (
+        "system clock synchronized: yes" in normalized_output
+        or "system clock synchronized: ja" in normalized_output
+    )
+
+
+def wait_for_timesyncd_sync(timeout_seconds: float = 60.0, poll_interval: float = 1.0):
+    status_command = ["timedatectl", "timesync-status"]
+    deadline = time.monotonic() + timeout_seconds
+    last_stdout = ""
+
+    while time.monotonic() < deadline:
+        try:
+            result = subprocess.run(
+                status_command,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            logging.error(
+                "timedatectl konnte nicht gefunden werden, um den Synchronisationsstatus von systemd-timesyncd abzufragen"
+            )
+            return False, (
+                "timedatectl konnte nicht aufgerufen werden, Synchronisation konnte nicht bestätigt werden"
+            )
+        except subprocess.CalledProcessError as exc:
+            stderr_text = exc.stderr.strip() if exc.stderr else ""
+            logging.warning(
+                "timedatectl timesync-status schlug fehl (Exit-Code %s): %s",
+                exc.returncode,
+                stderr_text or exc,
+            )
+        else:
+            last_stdout = result.stdout or ""
+            if _timesyncd_reports_synchronized(last_stdout):
+                return True, None
+        time.sleep(poll_interval)
+
+    logging.error(
+        "systemd-timesyncd meldete innerhalb von %.1f Sekunden keine erfolgreiche Synchronisation. Letzter Status: %s",
+        timeout_seconds,
+        (last_stdout or "<leer>").strip(),
+    )
+    return False, "systemd-timesyncd meldete keine erfolgreiche Synchronisation (Timeout)"
+
+
 def perform_internet_time_sync():
     success = False
     messages = []
@@ -5192,22 +5241,34 @@ def perform_internet_time_sync():
         logging.error("Unerwarteter Fehler bei der Zeit-Synchronisation: %s", exc)
         messages.append("Fehler bei der Synchronisation")
     else:
-        try:
-            set_rtc(datetime.now())
-        except RTCWriteError as exc:
-            logging.error(
-                "RTC konnte nach dem Internet-Sync nicht geschrieben werden: %s",
-                exc,
-            )
-            messages.append("RTC konnte nicht aktualisiert werden (I²C-Schreibfehler)")
-        except (RTCUnavailableError, UnsupportedRTCError) as exc:
-            logging.error(
-                "RTC konnte nach dem Internet-Sync nicht gesetzt werden: %s", exc
-            )
-            messages.append("RTC konnte nicht aktualisiert werden")
+        logging.info("Warte auf Synchronisation durch systemd-timesyncd nach dem Neustart")
+        wait_success, wait_message = wait_for_timesyncd_sync()
+        if not wait_success:
+            if wait_message:
+                messages.append(wait_message)
+            else:
+                messages.append(
+                    "systemd-timesyncd meldete keine erfolgreiche Synchronisation"
+                )
         else:
-            messages.append("Zeit vom Internet synchronisiert")
-            success = True
+            try:
+                set_rtc(datetime.now())
+            except RTCWriteError as exc:
+                logging.error(
+                    "RTC konnte nach dem Internet-Sync nicht geschrieben werden: %s",
+                    exc,
+                )
+                messages.append(
+                    "RTC konnte nicht aktualisiert werden (I²C-Schreibfehler)"
+                )
+            except (RTCUnavailableError, UnsupportedRTCError) as exc:
+                logging.error(
+                    "RTC konnte nach dem Internet-Sync nicht gesetzt werden: %s", exc
+                )
+                messages.append("RTC konnte nicht aktualisiert werden")
+            else:
+                messages.append("Zeit vom Internet synchronisiert")
+                success = True
     finally:
         if disable_completed and not enable_completed:
             try:

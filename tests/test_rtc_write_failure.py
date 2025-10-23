@@ -87,6 +87,7 @@ def test_perform_internet_time_sync_handles_i2c_write_error(monkeypatch, app_mod
         return 0
 
     monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
+    monkeypatch.setattr(app_module, "wait_for_timesyncd_sync", lambda *args, **kwargs: (True, None))
 
     success, messages = app_module.perform_internet_time_sync()
 

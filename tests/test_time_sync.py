@@ -86,6 +86,11 @@ def test_sync_time_handles_timesyncd_failure(monkeypatch, client):
 
     monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
     monkeypatch.setattr(app_module, "set_rtc", fake_set_rtc)
+    monkeypatch.setattr(
+        app_module,
+        "wait_for_timesyncd_sync",
+        lambda *args, **kwargs: pytest.fail("wait_for_timesyncd_sync sollte bei einem Neustartfehler nicht aufgerufen werden"),
+    )
 
     response = csrf_post(
         client,
@@ -158,6 +163,11 @@ def test_perform_internet_time_sync_handles_missing_systemctl(monkeypatch, app_m
 
     monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
     monkeypatch.setattr(app_module, "set_rtc", lambda dt: None)
+    monkeypatch.setattr(
+        app_module,
+        "wait_for_timesyncd_sync",
+        lambda *args, **kwargs: pytest.fail("wait_for_timesyncd_sync sollte nicht aufgerufen werden, wenn systemctl fehlt"),
+    )
 
     success, messages = app_module.perform_internet_time_sync()
 
@@ -190,6 +200,11 @@ def test_perform_internet_time_sync_handles_missing_timedatectl(monkeypatch, app
 
     monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
     monkeypatch.setattr(app_module, "set_rtc", fake_set_rtc)
+    monkeypatch.setattr(
+        app_module,
+        "wait_for_timesyncd_sync",
+        lambda *args, **kwargs: pytest.fail("wait_for_timesyncd_sync sollte nicht aufgerufen werden, wenn timedatectl fehlt"),
+    )
 
     success, messages = app_module.perform_internet_time_sync()
 
@@ -199,4 +214,78 @@ def test_perform_internet_time_sync_handles_missing_timedatectl(monkeypatch, app
     assert any(
         "Kommando 'timedatectl' nicht gefunden, Internet-Sync abgebrochen" in message
         for message in messages
+    )
+
+
+def test_perform_internet_time_sync_waits_for_sync_before_writing_rtc(
+    monkeypatch, app_module
+):
+    commands = []
+    rtc_called = False
+    wait_calls = []
+
+    def fake_check_call(cmd, *args, **kwargs):
+        commands.append(cmd)
+        return 0
+
+    def fake_set_rtc(dt):
+        nonlocal rtc_called
+        rtc_called = True
+
+    def fake_wait(timeout_seconds=60.0, poll_interval=1.0):
+        wait_calls.append((timeout_seconds, poll_interval))
+        return True, None
+
+    monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
+    monkeypatch.setattr(app_module, "set_rtc", fake_set_rtc)
+    monkeypatch.setattr(app_module, "wait_for_timesyncd_sync", fake_wait)
+
+    success, messages = app_module.perform_internet_time_sync()
+
+    disable_command = ["sudo", "timedatectl", "set-ntp", "false"]
+    enable_command = ["sudo", "timedatectl", "set-ntp", "true"]
+    restart_command = ["sudo", "systemctl", "restart", "systemd-timesyncd"]
+
+    assert disable_command in commands
+    assert enable_command in commands
+    assert restart_command in commands
+    assert wait_calls, "wait_for_timesyncd_sync wurde nicht aufgerufen"
+    assert rtc_called is True
+    assert success is True
+    assert "Zeit vom Internet synchronisiert" in messages
+
+
+def test_perform_internet_time_sync_reports_wait_failure(monkeypatch, app_module):
+    commands = []
+    rtc_called = False
+
+    def fake_check_call(cmd, *args, **kwargs):
+        commands.append(cmd)
+        return 0
+
+    def fake_set_rtc(dt):
+        nonlocal rtc_called
+        rtc_called = True
+
+    def fake_wait(timeout_seconds=60.0, poll_interval=1.0):
+        return False, "systemd-timesyncd meldete keine erfolgreiche Synchronisation (Timeout)"
+
+    monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
+    monkeypatch.setattr(app_module, "set_rtc", fake_set_rtc)
+    monkeypatch.setattr(app_module, "wait_for_timesyncd_sync", fake_wait)
+
+    success, messages = app_module.perform_internet_time_sync()
+
+    disable_command = ["sudo", "timedatectl", "set-ntp", "false"]
+    enable_command = ["sudo", "timedatectl", "set-ntp", "true"]
+    restart_command = ["sudo", "systemctl", "restart", "systemd-timesyncd"]
+
+    assert disable_command in commands
+    assert enable_command in commands
+    assert restart_command in commands
+    assert rtc_called is False
+    assert success is False
+    assert (
+        "systemd-timesyncd meldete keine erfolgreiche Synchronisation (Timeout)"
+        in messages
     )
