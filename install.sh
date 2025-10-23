@@ -1409,6 +1409,13 @@ if sudo grep -q '^Environment=FLASK_PORT=' /etc/systemd/system/audio-pi.service;
 else
     echo "Environment=FLASK_PORT=${CONFIGURED_FLASK_PORT}" | sudo tee -a /etc/systemd/system/audio-pi.service >/dev/null
 fi
+SYSTEMD_DISABLE_SUDO_VALUE=${INSTALL_DISABLE_SUDO:-1}
+SYSTEMD_DISABLE_SUDO_ESCAPED=$(printf '%s' "$SYSTEMD_DISABLE_SUDO_VALUE" | sed -e 's/[\\&|]/\\&/g')
+if sudo grep -q '^Environment=AUDIO_PI_DISABLE_SUDO=' /etc/systemd/system/audio-pi.service; then
+    sudo sed -i "s|^Environment=AUDIO_PI_DISABLE_SUDO=.*|Environment=AUDIO_PI_DISABLE_SUDO=${SYSTEMD_DISABLE_SUDO_ESCAPED}|" /etc/systemd/system/audio-pi.service
+else
+    sudo sed -i "/^Environment=XDG_RUNTIME_DIR=/a Environment=AUDIO_PI_DISABLE_SUDO=${SYSTEMD_DISABLE_SUDO_ESCAPED}" /etc/systemd/system/audio-pi.service
+fi
 sudo sed -i "s|^User=.*|User=$TARGET_USER|" /etc/systemd/system/audio-pi.service
 sudo sed -i "s|^Group=.*|Group=$TARGET_GROUP|" /etc/systemd/system/audio-pi.service
 echo "HTTP-Port ${CONFIGURED_FLASK_PORT} wurde in /etc/systemd/system/audio-pi.service hinterlegt."

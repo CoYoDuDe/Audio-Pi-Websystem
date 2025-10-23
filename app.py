@@ -110,6 +110,66 @@ def _ensure_pygame_music_interface() -> None:
 
 _ensure_pygame_music_interface()
 
+
+def _strip_sudo_from_command(command):
+    if command is None:
+        return command
+
+    if isinstance(command, (list, tuple)):
+        if not command:
+            return []
+        if command[0] == "sudo":
+            return list(command[1:])
+        return list(command)
+
+    if isinstance(command, str):
+        stripped = command.lstrip()
+        if stripped.startswith("sudo "):
+            return stripped[5:]
+        if stripped == "sudo":
+            return ""
+        return command
+
+    return command
+
+
+def _wrap_subprocess_function(func):
+    @functools.wraps(func)
+    def wrapper(command, *args, **kwargs):
+        if command is not None:
+            command = _strip_sudo_from_command(command)
+        if "args" in kwargs:
+            kwargs["args"] = _strip_sudo_from_command(kwargs["args"])
+        return func(command, *args, **kwargs)
+
+    return wrapper
+
+
+def _wrap_subprocess_popen(func):
+    @functools.wraps(func)
+    def wrapper(*popenargs, **kwargs):
+        if popenargs:
+            first = _strip_sudo_from_command(popenargs[0])
+            popenargs = (first, *popenargs[1:])
+        if "args" in kwargs:
+            kwargs["args"] = _strip_sudo_from_command(kwargs["args"])
+        return func(*popenargs, **kwargs)
+
+    return wrapper
+
+
+def _should_strip_sudo() -> bool:
+    value = os.environ.get("AUDIO_PI_DISABLE_SUDO", "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+if _should_strip_sudo():
+    subprocess.run = _wrap_subprocess_function(subprocess.run)
+    subprocess.check_call = _wrap_subprocess_function(subprocess.check_call)
+    subprocess.call = _wrap_subprocess_function(subprocess.call)
+    subprocess.check_output = _wrap_subprocess_function(subprocess.check_output)
+    subprocess.Popen = _wrap_subprocess_popen(subprocess.Popen)
+
 from pydub import AudioSegment
 from pydub.exceptions import CouldntDecodeError
 try:  # pragma: no cover - Import wird separat getestet
