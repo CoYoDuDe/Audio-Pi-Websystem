@@ -112,6 +112,31 @@ Die Einrichtung der I²C-Schnittstelle folgt der offiziellen Raspberry-Pi-Dokume
 jetzt direkt die Pakete `python3-smbus` und `i2c-tools` über APT. Dadurch stehen sowohl die Python-
 Bindings als auch Diagnosewerkzeuge wie `i2cdetect` sofort zur Verfügung.
 
+### Internet-Zeitsynchronisation mit systemd-timesyncd
+
+Audio-Pi-Control setzt für die Synchronisierung der Systemzeit ab sofort ausschließlich auf die systemd-
+Komponenten. Die Anwendung deaktiviert die NTP-Steuerung kurzzeitig mit `timedatectl set-ntp false`,
+aktiviert sie unmittelbar wieder (`timedatectl set-ntp true`) und stößt anschließend einen Neustart von
+`systemd-timesyncd` an (`systemctl restart systemd-timesyncd`). Ein separates Paket wie `ntpdate` wird
+dadurch nicht mehr benötigt.
+
+Für manuelle Prüfungen stehen folgende Kommandos bereit:
+
+```bash
+sudo systemctl status systemd-timesyncd
+sudo timedatectl timesync-status
+```
+
+Fehlt der Dienst, kann er auf Debian/Ubuntu-Systemen mit
+
+```bash
+sudo apt-get install -y systemd-timesyncd
+sudo systemctl enable --now systemd-timesyncd
+```
+
+nachinstalliert und aktiviert werden. Auf Nicht-systemd-Distributionen ist diese Funktion nicht verfügbar –
+die Weboberfläche weist in diesem Fall auf fehlende Kommandos hin.
+
 #### Migration bestehender Installationen
 
 Bestehende Umgebungen können ohne Neuinstallation auf die neue Paketbasis umgestellt werden:

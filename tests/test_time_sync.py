@@ -64,16 +64,19 @@ def _login(client):
     return change_response
 
 
-def test_sync_time_handles_ntp_failure(monkeypatch, client):
+def test_sync_time_handles_timesyncd_failure(monkeypatch, client):
     client, app_module = client
     _login(client)
 
     commands = []
     called_set_rtc = False
+    restart_failure_triggered = {"value": False}
 
     def fake_check_call(cmd, *args, **kwargs):
         commands.append(cmd)
-        if cmd == ["sudo", "ntpdate", "pool.ntp.org"]:
+        restart_command = ["sudo", "systemctl", "restart", "systemd-timesyncd"]
+        if cmd == restart_command and not restart_failure_triggered["value"]:
+            restart_failure_triggered["value"] = True
             raise app_module.subprocess.CalledProcessError(1, cmd)
         return 0
 
@@ -90,9 +93,12 @@ def test_sync_time_handles_ntp_failure(monkeypatch, client):
         follow_redirects=True,
     )
 
-    assert ["sudo", "systemctl", "stop", "systemd-timesyncd"] in commands
-    assert ["sudo", "ntpdate", "pool.ntp.org"] in commands
-    assert ["sudo", "systemctl", "start", "systemd-timesyncd"] in commands
+    disable_command = ["sudo", "timedatectl", "set-ntp", "false"]
+    enable_command = ["sudo", "timedatectl", "set-ntp", "true"]
+    restart_command = ["sudo", "systemctl", "restart", "systemd-timesyncd"]
+    assert disable_command in commands
+    assert enable_command in commands
+    assert commands.count(restart_command) >= 1
     assert b"Fehler bei der Synchronisation" in response.data
     assert called_set_rtc is False
 
@@ -145,8 +151,9 @@ def test_perform_internet_time_sync_handles_missing_systemctl(monkeypatch, app_m
 
     def fake_check_call(cmd, *args, **kwargs):
         commands.append(cmd)
-        if cmd == ["sudo", "systemctl", "start", "systemd-timesyncd"]:
-            raise FileNotFoundError("sudo not found")
+        restart_command = ["sudo", "systemctl", "restart", "systemd-timesyncd"]
+        if cmd == restart_command:
+            raise FileNotFoundError(2, "No such file or directory", "systemctl")
         return 0
 
     monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
@@ -154,19 +161,27 @@ def test_perform_internet_time_sync_handles_missing_systemctl(monkeypatch, app_m
 
     success, messages = app_module.perform_internet_time_sync()
 
-    assert ["sudo", "systemctl", "start", "systemd-timesyncd"] in commands
+    disable_command = ["sudo", "timedatectl", "set-ntp", "false"]
+    enable_command = ["sudo", "timedatectl", "set-ntp", "true"]
+    restart_command = ["sudo", "systemctl", "restart", "systemd-timesyncd"]
+    assert disable_command in commands
+    assert enable_command in commands
+    assert commands.count(restart_command) >= 1
     assert success is False
-    assert any("sudo" in message.lower() or "systemctl" in message.lower() for message in messages)
+    assert any(
+        "systemctl" in message.lower() or "systemd-timesyncd" in message.lower()
+        for message in messages
+    )
 
 
-def test_perform_internet_time_sync_handles_missing_ntpdate(monkeypatch, app_module):
+def test_perform_internet_time_sync_handles_missing_timedatectl(monkeypatch, app_module):
     commands = []
     rtc_called = False
 
     def fake_check_call(cmd, *args, **kwargs):
         commands.append(cmd)
-        if cmd == ["sudo", "ntpdate", "pool.ntp.org"]:
-            raise FileNotFoundError(2, "No such file or directory", "ntpdate")
+        if cmd == ["sudo", "timedatectl", "set-ntp", "false"]:
+            raise FileNotFoundError(2, "No such file or directory", "timedatectl")
         return 0
 
     def fake_set_rtc(dt):
@@ -178,11 +193,10 @@ def test_perform_internet_time_sync_handles_missing_ntpdate(monkeypatch, app_mod
 
     success, messages = app_module.perform_internet_time_sync()
 
-    assert ["sudo", "systemctl", "stop", "systemd-timesyncd"] in commands
-    assert ["sudo", "ntpdate", "pool.ntp.org"] in commands
+    assert ["sudo", "timedatectl", "set-ntp", "false"] in commands
     assert rtc_called is False
     assert success is False
     assert any(
-        "Kommando 'ntpdate' nicht gefunden, Internet-Sync abgebrochen" in message
+        "Kommando 'timedatectl' nicht gefunden, Internet-Sync abgebrochen" in message
         for message in messages
     )

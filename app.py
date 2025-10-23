@@ -5155,14 +5155,23 @@ TIME_SYNC_INTERNET_SETTING_KEY = "time_sync_internet_default"
 def perform_internet_time_sync():
     success = False
     messages = []
-    commands_to_run = [
-        ["sudo", "systemctl", "stop", "systemd-timesyncd"],
-        ["sudo", "ntpdate", "pool.ntp.org"],
-    ]
+    disable_command = ["sudo", "timedatectl", "set-ntp", "false"]
+    enable_command = ["sudo", "timedatectl", "set-ntp", "true"]
+    restart_command = ["sudo", "systemctl", "restart", "systemd-timesyncd"]
+    commands_to_run = [disable_command, enable_command, restart_command]
     current_command = None
+    disable_completed = False
+    enable_completed = False
+    restart_completed = False
     try:
         for current_command in commands_to_run:
             subprocess.check_call(current_command)
+            if current_command is disable_command:
+                disable_completed = True
+            elif current_command is enable_command:
+                enable_completed = True
+            elif current_command is restart_command:
+                restart_completed = True
     except FileNotFoundError as exc:
         missing_command = exc.filename
         if not missing_command and current_command:
@@ -5200,35 +5209,68 @@ def perform_internet_time_sync():
             messages.append("Zeit vom Internet synchronisiert")
             success = True
     finally:
-        try:
-            subprocess.check_call(["sudo", "systemctl", "start", "systemd-timesyncd"])
-        except subprocess.CalledProcessError as exc:
-            logging.warning(
-                "systemd-timesyncd konnte nach dem Internet-Sync nicht gestartet werden (Exit-Code): %s",
-                exc,
-            )
-            messages.append(
-                "systemd-timesyncd konnte nicht gestartet werden (siehe Logs für Details)"
-            )
-            success = False
-        except FileNotFoundError as exc:
-            logging.warning(
-                "systemd-timesyncd konnte nicht gestartet werden, da sudo/systemctl fehlen: %s",
-                exc,
-            )
-            messages.append(
-                "systemd-timesyncd konnte nicht gestartet werden, da sudo oder systemctl nicht verfügbar sind"
-            )
-            success = False
-        except Exception as exc:  # pragma: no cover - unerwartete Fehler
-            logging.warning(
-                "Unerwarteter Fehler beim Starten von systemd-timesyncd nach dem Internet-Sync: %s",
-                exc,
-            )
-            messages.append(
-                "systemd-timesyncd konnte nicht gestartet werden (unerwarteter Fehler, bitte Logs prüfen)"
-            )
-            success = False
+        if disable_completed and not enable_completed:
+            try:
+                subprocess.check_call(enable_command)
+                enable_completed = True
+            except subprocess.CalledProcessError as exc:
+                logging.warning(
+                    "timedatectl konnte nach dem Internet-Sync nicht auf 'true' gestellt werden (Exit-Code): %s",
+                    exc,
+                )
+                messages.append(
+                    "timedatectl konnte NTP nach dem Sync nicht wieder aktivieren (siehe Logs für Details)"
+                )
+                success = False
+            except FileNotFoundError as exc:
+                logging.warning(
+                    "timedatectl konnte nach dem Internet-Sync nicht ausgeführt werden: %s",
+                    exc,
+                )
+                messages.append(
+                    "timedatectl ist nicht verfügbar, NTP konnte nach dem Sync nicht reaktiviert werden"
+                )
+                success = False
+            except Exception as exc:  # pragma: no cover - unerwartete Fehler
+                logging.warning(
+                    "Unerwarteter Fehler beim Aktivieren von timedatectl nach dem Internet-Sync: %s",
+                    exc,
+                )
+                messages.append(
+                    "timedatectl konnte NTP nach dem Sync nicht wieder aktivieren (unerwarteter Fehler, bitte Logs prüfen)"
+                )
+                success = False
+        if enable_completed and not restart_completed:
+            try:
+                subprocess.check_call(restart_command)
+                restart_completed = True
+            except subprocess.CalledProcessError as exc:
+                logging.warning(
+                    "systemd-timesyncd konnte nach dem Internet-Sync nicht neu gestartet werden (Exit-Code): %s",
+                    exc,
+                )
+                messages.append(
+                    "systemd-timesyncd konnte nicht neu gestartet werden (siehe Logs für Details)"
+                )
+                success = False
+            except FileNotFoundError as exc:
+                logging.warning(
+                    "systemd-timesyncd konnte nicht neu gestartet werden, da sudo/systemctl fehlen: %s",
+                    exc,
+                )
+                messages.append(
+                    "systemd-timesyncd konnte nicht neu gestartet werden, da sudo oder systemctl nicht verfügbar sind"
+                )
+                success = False
+            except Exception as exc:  # pragma: no cover - unerwartete Fehler
+                logging.warning(
+                    "Unerwarteter Fehler beim Neustart von systemd-timesyncd nach dem Internet-Sync: %s",
+                    exc,
+                )
+                messages.append(
+                    "systemd-timesyncd konnte nicht neu gestartet werden (unerwarteter Fehler, bitte Logs prüfen)"
+                )
+                success = False
     return success, messages
 
 
