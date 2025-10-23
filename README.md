@@ -102,6 +102,32 @@ durchlaufen. Über die Variablen `INSTALL_APT_FRONTEND`,
 an eigene Anforderungen anpassen (z. B. anderes Frontend, angepasste dpkg-Flags
 oder ein alternativer Log-Pfad für die Installationsprotokolle).
 
+### I²C vorbereiten
+
+Die Einrichtung der I²C-Schnittstelle folgt der offiziellen Raspberry-Pi-Dokumentation
+(["Enable I2C" Schritt-für-Schritt-Anleitung](https://www.raspberrypi.com/documentation/computers/configuration.html#i2c)).
+`install.sh` übernimmt diesen Vorgang automatisch (`raspi-config nonint do_i2c 0`) und installiert
+jetzt direkt die Pakete `python3-smbus` und `i2c-tools` über APT. Dadurch stehen sowohl die Python-
+Bindings als auch Diagnosewerkzeuge wie `i2cdetect` sofort zur Verfügung.
+
+#### Migration bestehender Installationen
+
+Bestehende Umgebungen können ohne Neuinstallation auf die neue Paketbasis umgestellt werden:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y python3-smbus i2c-tools
+source /opt/Audio-Pi-Websystem/venv/bin/activate
+pip uninstall -y smbus || true
+pip install --upgrade -r requirements.txt
+```
+
+Das Projekt importiert weiterhin `smbus`; falls das Systemmodul nicht verfügbar ist, greift die
+Anwendung nun automatisch auf `smbus2` zurück. Für reine Entwicklungsumgebungen ohne Raspberry-Pi-
+Pakete reicht es daher aus, `pip install -r requirements.txt` auszuführen. Im Testmodus
+(`TESTING=1`) bleibt der Fallback deaktiviert, kann bei Bedarf aber mit
+`AUDIO_PI_ALLOW_SMBUS2_FALLBACK=1` erzwungen werden.
+
 **Beispiele für automatisierte Aufrufe:**
 
 ```bash
