@@ -78,6 +78,10 @@ APT_LOG_DIR="$(dirname "$APT_LOG_FILE")"
 mkdir -p "$APT_LOG_DIR"
 touch "$APT_LOG_FILE"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+POLKIT_RULE_TEMPLATE="$SCRIPT_DIR/scripts/polkit/49-audio-pi.rules"
+POLKIT_RULE_TARGET="/etc/polkit-1/rules.d/49-audio-pi.rules"
+
 apt_get() {
     if [ $# -lt 1 ]; then
         echo "apt_get: fehlende Aktion" >&2
@@ -971,6 +975,15 @@ fi
 
 if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
     enable_i2c_support
+    if [ -f "$POLKIT_RULE_TEMPLATE" ]; then
+        POLKIT_RULE_DIR="$(dirname "$POLKIT_RULE_TARGET")"
+        echo "[Dry-Run] Würde ${POLKIT_RULE_DIR} (root:root, 0755) anlegen."
+        echo "[Dry-Run] Würde Rechte per 'sudo chmod 0755 ${POLKIT_RULE_DIR}' sicherstellen."
+        echo "[Dry-Run] Würde Polkit-Regel für ${TARGET_USER} nach ${POLKIT_RULE_TARGET} (0644, root:root) kopieren."
+        echo "[Dry-Run] Würde Rechte per 'sudo chmod 0644 ${POLKIT_RULE_TARGET}' sicherstellen."
+    else
+        echo "[Dry-Run] Warnung: Polkit-Vorlage ${POLKIT_RULE_TEMPLATE} nicht gefunden – Berechtigungen manuell prüfen."
+    fi
     echo ""
     echo "[Dry-Run] Installation wurde nicht ausgeführt. Folgende Abschluss-Hinweise würden angezeigt:"
     print_post_install_instructions "$CONFIGURED_FLASK_PORT" 0
@@ -1279,7 +1292,6 @@ sudo usermod -aG pulse "$TARGET_USER"
 sudo usermod -aG pulse-access "$TARGET_USER"
 sudo usermod -aG audio "$TARGET_USER"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HAT_DEFAULT_SINK_HINT="alsa_output.platform-soc_107c000000_sound.stereo-fallback"
 
 HAT_SELECTED_KEY=""
@@ -1637,8 +1649,6 @@ sudo chmod "$LOG_FILE_MODE" app.log
 
 LOGROTATE_TEMPLATE="$SCRIPT_DIR/scripts/logrotate/audio-pi"
 LOGROTATE_TARGET="/etc/logrotate.d/audio-pi"
-POLKIT_RULE_TEMPLATE="$SCRIPT_DIR/scripts/polkit/49-audio-pi.rules"
-POLKIT_RULE_TARGET="/etc/polkit-1/rules.d/49-audio-pi.rules"
 if [ -f "$LOGROTATE_TEMPLATE" ]; then
     LOGROTATE_CREATE_MODE="$LOG_FILE_MODE"
     if [ ${#LOGROTATE_CREATE_MODE} -eq 3 ]; then
@@ -1713,11 +1723,14 @@ sudo sed -i "s|^Group=.*|Group=$TARGET_GROUP|" /etc/systemd/system/audio-pi.serv
 echo "HTTP-Port ${CONFIGURED_FLASK_PORT} wurde in /etc/systemd/system/audio-pi.service hinterlegt."
 echo "Systemd-Dienst wird für Benutzer $TARGET_USER und Gruppe $TARGET_GROUP konfiguriert."
 if [ -f "$POLKIT_RULE_TEMPLATE" ]; then
-    sudo install -d -m 0750 "$(dirname "$POLKIT_RULE_TARGET")"
+    POLKIT_RULE_DIR="$(dirname "$POLKIT_RULE_TARGET")"
+    sudo install -d -o root -g root -m 0755 "$POLKIT_RULE_DIR"
+    sudo chmod 0755 "$POLKIT_RULE_DIR"
     tmp_polkit=$(mktemp)
     POLKIT_USER_ESCAPED=$(printf '%s' "$TARGET_USER" | sed -e 's/[\\/&]/\\&/g')
     sed "s/__AUDIO_PI_USER__/$POLKIT_USER_ESCAPED/g" "$POLKIT_RULE_TEMPLATE" > "$tmp_polkit"
-    sudo install -o root -g root -m 0640 "$tmp_polkit" "$POLKIT_RULE_TARGET"
+    sudo install -o root -g root -m 0644 "$tmp_polkit" "$POLKIT_RULE_TARGET"
+    sudo chmod 0644 "$POLKIT_RULE_TARGET"
     rm -f "$tmp_polkit"
     echo "Polkit-Regel für $TARGET_USER nach $POLKIT_RULE_TARGET installiert."
 else

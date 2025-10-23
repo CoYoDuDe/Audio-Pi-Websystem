@@ -312,6 +312,11 @@ lässt sich das Verhalten bei Bedarf weiter abstimmen.
   für `hostapd`, `dnsmasq`, `systemd-timesyncd`, `audio-pi`,
   `systemctl reboot/poweroff` sowie `timedatectl set-time/set-ntp`). Dadurch
   funktionieren AP-Umschaltung, Zeitsync und Neustart ohne `sudo`-Wrapper.
+  Das Regelverzeichnis `/etc/polkit-1/rules.d` setzt der Installer auf
+  `root:root` mit Modus `0755`, die Regeldatei selbst auf `0644`, damit der
+  `polkitd`-Dienst sie lesen kann. Bestehende Installationen korrigiert das
+  Skript automatisch; die effektiven Rechte lassen sich z. B. mit
+  `stat /etc/polkit-1/rules.d/49-audio-pi.rules` überprüfen.
   Wer explizit beim alten Verhalten bleiben muss (z. B. in restriktiven
   Umgebungen ohne Polkit), setzt `INSTALL_DISABLE_SUDO=0` während der
   Installation oder trägt `AUDIO_PI_DISABLE_SUDO=0` in die Unit ein – dann
