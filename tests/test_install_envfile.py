@@ -15,7 +15,7 @@ def test_install_dry_run_uses_env_file(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     script = repo_root / "install.sh"
     env = os.environ.copy()
-    env["INSTALL_FLASK_SECRET_KEY"] = "dry-run-secret"
+    env["INSTALL_FLASK_SECRET_KEY"] = "DryRun-SecretKey_Example-1234567890"
     env["PATH"] = _prepare_fake_path(tmp_path)
 
     result = subprocess.run(
@@ -35,7 +35,7 @@ def test_install_dry_run_uses_env_file(tmp_path: Path) -> None:
     assert "[Dry-Run] Würde /etc/audio-pi" in combined_output
     assert "[Dry-Run] Würde Secret in /etc/audio-pi/audio-pi.env" in combined_output
     assert "Environment=\"FLASK_SECRET_KEY" not in combined_output
-    assert "if [ -f /etc/audio-pi/audio-pi.env ]; then . /etc/audio-pi/audio-pi.env; fi" in combined_output
+    assert 'if [ -f "/etc/audio-pi/audio-pi.env" ]; then . "/etc/audio-pi/audio-pi.env"; fi' in combined_output
 
     service_content = (repo_root / "audio-pi.service").read_text(encoding="utf-8")
     assert "Environment=\"FLASK_SECRET_KEY" not in service_content
