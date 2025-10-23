@@ -272,11 +272,15 @@ systemctl show --property=Environment audio-pi.service
   auf das Projektverzeichnis beschränkt, während der Dienst dennoch alle
   benötigten Operationen (Reboot, WLAN-Steuerung, Zeitsynchronisierung,
   Bluetooth) durchführen kann.
-- **Sudo-freie Kommandos:** Dank `Environment=AUDIO_PI_DISABLE_SUDO=1` entfernt
-  die Anwendung automatisch führende `sudo`-Aufrufe, damit Capabilities auch
-  unter `NoNewPrivileges` greifen. Bestehende Deployments behalten ihr Verhalten
-  bei, solange `INSTALL_DISABLE_SUDO=0` (für den Installer) oder
-  `Environment=AUDIO_PI_DISABLE_SUDO=0` gesetzt wird.
+- **Sudo-Handling (Opt-in):** Standardmäßig bleiben `sudo`-Aufrufe aktiv
+  (`AUDIO_PI_DISABLE_SUDO=0`), damit vorhandene Capabilities und Polkit-Regeln
+  unverändert greifen. Wer bewusst ohne `sudo`-Wrapper arbeiten möchte, setzt
+  `AUDIO_PI_DISABLE_SUDO=1` (z. B. per `INSTALL_DISABLE_SUDO=1` während der
+  Installation oder direkt in der Unit). Dann müssen die in der Unit gesetzten
+  Capabilities (`CAP_NET_ADMIN`, `CAP_NET_RAW`, `CAP_SYS_BOOT`, `CAP_SYS_TIME`,
+  `CAP_SYS_ADMIN`, …) bzw. passende Polkit-Regeln (`org.freedesktop.login1.*`,
+  Netzwerk- und Zeitsync-Policies) vorhanden sein, damit Aktionen wie AP-Start
+  und -Stopp, Reboot/Shutdown sowie Zeitabgleich weiterhin funktionieren.
 - **Gunicorn-Konfiguration:** `gunicorn.conf.py` nutzt die offiziellen Flask-
   Empfehlungen für produktive WSGI-Server. Weitere Optionen können gemäß der
   [Flask-Dokumentation zu WSGI-Servern](https://flask.palletsprojects.com/en/latest/deploying/wsgi-standalone/#gunicorn)
