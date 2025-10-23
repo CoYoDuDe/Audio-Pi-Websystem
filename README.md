@@ -127,7 +127,7 @@ Diagnosewerkzeuge wie `i2cdetect` sofort verfügbar sind.
 
 Damit RTC- und Sensortreiber ohne Root-Shell funktionieren, ergänzt das Installationsskript
 den ausführenden Benutzer automatisch um die Gruppen `pulse`, `pulse-access`, `audio`,
-`netdev` und `i2c`. Wer die Einrichtung manuell nachvollziehen möchte, kann den Beitritt
+`netdev`, `bluetooth` und `i2c`. Wer die Einrichtung manuell nachvollziehen möchte, kann den Beitritt
 über `sudo adduser <benutzer> i2c` durchführen. Die Gruppenmitgliedschaft wird beim
 nächsten Login aktiv.
 
@@ -348,15 +348,19 @@ lässt sich das Verhalten bei Bedarf weiter abstimmen.
   `alsactl store` aufrufen. Bestandsinstallationen können nach dem Update einmalig
   `sudo systemctl start audio-pi-alsactl.service` ausführen, um das persistente
   Mixer-Setup sofort zu übernehmen.
-- **wpa_cli-Berechtigungen:** Für den WLAN-Client-Workflow legt der Installer
-  den Dienstbenutzer nun zusätzlich in der Gruppe `netdev` an. Darüber erhält
-  der Account Zugriff auf die Unix-Domain-Sockets von `wpa_supplicant`
-  (standardmäßig `/run/wpa_supplicant/<interface>`), sodass `wpa_cli` auch aus
-  dem Dienstkontext zuverlässige Scans und Verbindungswechsel durchführen kann.
-  Bei bestehenden Deployments sollte geprüft werden, ob der Service-Account
-  bereits Mitglied von `netdev` ist; andernfalls lässt sich die Gruppenzuweisung
-  mit `sudo usermod -aG netdev <benutzer>` nachholen. Nach Änderungen ist ein
-  erneutes Einloggen bzw. ein Neustart des Dienstes erforderlich.
+- **wpa_cli- und Bluetooth-Berechtigungen:** Für den WLAN-Client-Workflow legt der
+  Installer den Dienstbenutzer nun zusätzlich in den Gruppen `netdev` und
+  `bluetooth` an. Über `netdev` erhält der Account Zugriff auf die
+  Unix-Domain-Sockets von `wpa_supplicant` (standardmäßig
+  `/run/wpa_supplicant/<interface>`), sodass `wpa_cli` auch aus dem Dienstkontext
+  zuverlässige Scans und Verbindungswechsel durchführen kann. Die Gruppe
+  `bluetooth` ermöglicht dem Dienstkonto wiederum den Zugriff auf die
+  BlueZ-D-Bus-Schnittstellen für `bluetoothctl` und den Audio-Agenten, ohne dass
+  zusätzliche sudo-Regeln erforderlich sind. Bei bestehenden Deployments sollte
+  geprüft werden, ob der Service-Account bereits Mitglied in beiden Gruppen ist;
+  andernfalls lässt sich die Gruppenzuweisung mit `sudo usermod -aG netdev <benutzer>`
+  sowie `sudo usermod -aG bluetooth <benutzer>` nachholen. Nach Änderungen ist
+  ein erneutes Einloggen bzw. ein Neustart des Dienstes erforderlich.
 - **Migration bestehender Installationen:** Nach dem Update die Unit-Datei
   neu einlesen und den Dienst neu starten:
   `sudo systemctl daemon-reload && sudo systemctl restart audio-pi.service`.
