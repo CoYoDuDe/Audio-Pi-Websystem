@@ -305,14 +305,22 @@ lässt sich das Verhalten bei Bedarf weiter abstimmen.
   eingeschränkten `RestrictAddressFamilies`-Set. Laufzeitdaten bleiben dadurch
   auf das Projektverzeichnis beschränkt, während die Anwendung dennoch Port 80
   ohne Root-Rechte binden kann.
-- **Sudo-Handling (Opt-in):** Standardmäßig bleiben `sudo`-Aufrufe aktiv
-  (`AUDIO_PI_DISABLE_SUDO=0`), sodass privilegierte Aktionen – etwa
-  WLAN-/AP-Steuerung, System-Neustarts oder Zeitsynchronisierung – weiterhin
-  über `sudo` beziehungsweise Polkit-Regeln (`org.freedesktop.login1.*`,
-  Netzwerk- und Zeitsync-Policies) ausgeführt werden. Wer bewusst ohne
-  `sudo`-Wrapper arbeiten möchte, setzt `AUDIO_PI_DISABLE_SUDO=1` (z. B. per
-  `INSTALL_DISABLE_SUDO=1` während der Installation oder direkt in der Unit) und
-  pflegt die benötigten Polkit-Regeln separat.
+- **Polkit-Standard (sudo-frei):** Der Installer aktiviert ab sofort
+  `AUDIO_PI_DISABLE_SUDO=1` und legt automatisch
+  `/etc/polkit-1/rules.d/49-audio-pi.rules` an. Die Regel gestattet dem
+  Dienstkonto exakt die benötigten Aktionen (`systemctl start/stop/restart`
+  für `hostapd`, `dnsmasq`, `systemd-timesyncd`, `audio-pi`,
+  `systemctl reboot/poweroff` sowie `timedatectl set-time/set-ntp`). Dadurch
+  funktionieren AP-Umschaltung, Zeitsync und Neustart ohne `sudo`-Wrapper.
+  Wer explizit beim alten Verhalten bleiben muss (z. B. in restriktiven
+  Umgebungen ohne Polkit), setzt `INSTALL_DISABLE_SUDO=0` während der
+  Installation oder trägt `AUDIO_PI_DISABLE_SUDO=0` in die Unit ein – dann
+  werden weiterhin klassische `sudo`-Aufrufe verwendet.
+- **Migration bestehender Installationen:** Nach dem Update die Unit-Datei
+  neu einlesen und den Dienst neu starten:
+  `sudo systemctl daemon-reload && sudo systemctl restart audio-pi.service`.
+  Prüfe anschließend, ob `/etc/polkit-1/rules.d/49-audio-pi.rules` mit deinen
+  bestehenden Polkit-Konfigurationen harmoniert.
 - **Gunicorn-Konfiguration:** `gunicorn.conf.py` nutzt die offiziellen Flask-
   Empfehlungen für produktive WSGI-Server. Weitere Optionen können gemäß der
   [Flask-Dokumentation zu WSGI-Servern](https://flask.palletsprojects.com/en/latest/deploying/wsgi-standalone/#gunicorn)

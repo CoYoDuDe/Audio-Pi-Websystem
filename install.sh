@@ -45,9 +45,9 @@ Alle Optionen lassen sich alternativ über gleichnamige Umgebungsvariablen mit d
 (z.B. INSTALL_RTC_MODE) setzen. Einstellungen für Audio-HATs können außerdem über die bereits
 unterstützten Variablen HAT_MODEL, HAT_DTOOVERLAY usw. vorgegeben werden.
 
-Sudo-Verhalten:
-  INSTALL_DISABLE_SUDO=0          Standard (behalte `sudo` in Service-Kommandos bei).
-  INSTALL_DISABLE_SUDO=1          Opt-in: entferne führende `sudo`-Aufrufe (setzt passende Capabilities/Polkit-Regeln voraus).
+Sudo/Polkit-Verhalten:
+  INSTALL_DISABLE_SUDO=1          Standard (Polkit-Regel aktiv, `sudo`-Aufrufe entfallen).
+  INSTALL_DISABLE_SUDO=0          Opt-out: `sudo`-Aufrufe beibehalten (nur falls Polkit/Caps nicht verfügbar sind).
 
 Hinweis: Die Paketinstallation erfolgt unattended (DEBIAN_FRONTEND=noninteractive) über apt-get.
 Über die Umgebungsvariablen INSTALL_APT_FRONTEND, INSTALL_APT_DPKG_OPTIONS und
@@ -1635,6 +1635,8 @@ sudo chmod "$LOG_FILE_MODE" app.log
 
 LOGROTATE_TEMPLATE="$SCRIPT_DIR/scripts/logrotate/audio-pi"
 LOGROTATE_TARGET="/etc/logrotate.d/audio-pi"
+POLKIT_RULE_TEMPLATE="$SCRIPT_DIR/scripts/polkit/49-audio-pi.rules"
+POLKIT_RULE_TARGET="/etc/polkit-1/rules.d/49-audio-pi.rules"
 if [ -f "$LOGROTATE_TEMPLATE" ]; then
     LOGROTATE_CREATE_MODE="$LOG_FILE_MODE"
     if [ ${#LOGROTATE_CREATE_MODE} -eq 3 ]; then
@@ -1697,7 +1699,7 @@ if sudo grep -q '^Environment=FLASK_PORT=' /etc/systemd/system/audio-pi.service;
 else
     echo "Environment=FLASK_PORT=${CONFIGURED_FLASK_PORT}" | sudo tee -a /etc/systemd/system/audio-pi.service >/dev/null
 fi
-SYSTEMD_DISABLE_SUDO_VALUE=${INSTALL_DISABLE_SUDO:-0}
+SYSTEMD_DISABLE_SUDO_VALUE=${INSTALL_DISABLE_SUDO:-1}
 SYSTEMD_DISABLE_SUDO_ESCAPED=$(printf '%s' "$SYSTEMD_DISABLE_SUDO_VALUE" | sed -e 's/[\\&|]/\\&/g')
 if sudo grep -q '^Environment=AUDIO_PI_DISABLE_SUDO=' /etc/systemd/system/audio-pi.service; then
     sudo sed -i "s|^Environment=AUDIO_PI_DISABLE_SUDO=.*|Environment=AUDIO_PI_DISABLE_SUDO=${SYSTEMD_DISABLE_SUDO_ESCAPED}|" /etc/systemd/system/audio-pi.service
@@ -1708,6 +1710,17 @@ sudo sed -i "s|^User=.*|User=$TARGET_USER|" /etc/systemd/system/audio-pi.service
 sudo sed -i "s|^Group=.*|Group=$TARGET_GROUP|" /etc/systemd/system/audio-pi.service
 echo "HTTP-Port ${CONFIGURED_FLASK_PORT} wurde in /etc/systemd/system/audio-pi.service hinterlegt."
 echo "Systemd-Dienst wird für Benutzer $TARGET_USER und Gruppe $TARGET_GROUP konfiguriert."
+if [ -f "$POLKIT_RULE_TEMPLATE" ]; then
+    sudo install -d -m 0750 "$(dirname "$POLKIT_RULE_TARGET")"
+    tmp_polkit=$(mktemp)
+    POLKIT_USER_ESCAPED=$(printf '%s' "$TARGET_USER" | sed -e 's/[\\/&]/\\&/g')
+    sed "s/__AUDIO_PI_USER__/$POLKIT_USER_ESCAPED/g" "$POLKIT_RULE_TEMPLATE" > "$tmp_polkit"
+    sudo install -o root -g root -m 0640 "$tmp_polkit" "$POLKIT_RULE_TARGET"
+    rm -f "$tmp_polkit"
+    echo "Polkit-Regel für $TARGET_USER nach $POLKIT_RULE_TARGET installiert."
+else
+    echo "Warnung: Polkit-Vorlage $POLKIT_RULE_TEMPLATE nicht gefunden – bitte Berechtigungen manuell prüfen."
+fi
 install_tmpfiles_rule "$TARGET_USER" "$TARGET_GROUP" "$TARGET_UID"
 sudo systemctl daemon-reload
 sudo systemctl enable audio-pi.service

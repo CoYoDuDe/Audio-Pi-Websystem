@@ -73,7 +73,7 @@ def test_volume_missing_pactl_warns(monkeypatch, client):
     assert response.status_code == 200
     assert [
         ["amixer", "sset", "Master", "50%"],
-        ["sudo", "alsactl", "store"],
+        app_module.privileged_command("alsactl", "store"),
     ] == commands
     assert app_module._PACTL_MISSING_MESSAGE.encode("utf-8") in response.data
     assert b"Lautst\xc3\xa4rke persistent gesetzt" in response.data

@@ -33,7 +33,7 @@ def test_bluetooth_auto_accept_failure(monkeypatch, client, caplog):
         return None
 
     def fake_popen(args, *popen_args, **popen_kwargs):
-        if isinstance(args, (list, tuple)) and args[:2] == ["sudo", "bluetoothctl"]:
+        if isinstance(args, (list, tuple)) and args[:1] == ["bluetoothctl"]:
             return _DummyProcess()
         return real_popen(args, *popen_args, **popen_kwargs)
 

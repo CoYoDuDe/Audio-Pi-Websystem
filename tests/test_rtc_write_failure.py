@@ -90,9 +90,15 @@ def test_perform_internet_time_sync_handles_i2c_write_error(monkeypatch, app_mod
 
     success, messages = app_module.perform_internet_time_sync()
 
-    assert ["sudo", "timedatectl", "set-ntp", "false"] in commands
-    assert ["sudo", "timedatectl", "set-ntp", "true"] in commands
-    assert ["sudo", "systemctl", "restart", "systemd-timesyncd"] in commands
+    assert app_module.privileged_command(
+        "timedatectl", "set-ntp", "false"
+    ) in commands
+    assert app_module.privileged_command(
+        "timedatectl", "set-ntp", "true"
+    ) in commands
+    assert app_module.privileged_command(
+        "systemctl", "restart", "systemd-timesyncd"
+    ) in commands
     assert success is False
     assert "RTC konnte nicht aktualisiert werden (I²C-Schreibfehler)" in messages
 
@@ -103,7 +109,10 @@ def test_set_time_handles_i2c_write_error(monkeypatch, client):
     _prepare_rtc_failure(app_module)
 
     def fake_run(cmd, *args, **kwargs):
-        if isinstance(cmd, (list, tuple)) and list(cmd)[:3] == ["sudo", "date", "-s"]:
+        if isinstance(cmd, (list, tuple)) and list(cmd)[:2] == [
+            "timedatectl",
+            "set-time",
+        ]:
             assert kwargs.get("check") is True
             return app_module.subprocess.CompletedProcess(cmd, 0)
         return app_module.subprocess.CompletedProcess(cmd, 0)

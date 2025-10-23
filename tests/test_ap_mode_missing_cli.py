@@ -21,8 +21,11 @@ def test_setup_ap_missing_cli(monkeypatch, caplog):
             assert app.setup_ap() is False
             flashed = get_flashed_messages()
 
-    assert any("sudo oder systemctl nicht gefunden" in record.message for record in caplog.records)
-    assert "sudo oder systemctl nicht gefunden" in flashed
+    assert any(
+        "systemctl-Aufruf fehlgeschlagen" in record.message
+        for record in caplog.records
+    )
+    assert "systemctl nicht verfügbar oder Berechtigung verweigert" in flashed
 
 
 def test_disable_ap_missing_cli(monkeypatch, caplog):
@@ -33,5 +36,8 @@ def test_disable_ap_missing_cli(monkeypatch, caplog):
             assert app.disable_ap() is False
             flashed = get_flashed_messages()
 
-    assert any("sudo oder systemctl nicht gefunden" in record.message for record in caplog.records)
-    assert "sudo oder systemctl nicht gefunden" in flashed
+    assert any(
+        "systemctl-Aufruf fehlgeschlagen" in record.message
+        for record in caplog.records
+    )
+    assert "systemctl nicht verfügbar oder Berechtigung verweigert" in flashed

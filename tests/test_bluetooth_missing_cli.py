@@ -16,12 +16,12 @@ def test_bluetooth_on_missing_cli(monkeypatch, client):
     real_popen = app_module.subprocess.Popen
 
     def fake_check_call(args, **kwargs):
-        if args[:2] == ["sudo", "bluetoothctl"]:
-            raise FileNotFoundError("sudo not found")
+        if args[:2] == ["bluetoothctl", "power"]:
+            raise FileNotFoundError("bluetoothctl not found")
         return 0
 
     def fake_popen(args, *popen_args, **kwargs):
-        if isinstance(args, (list, tuple)) and args[:2] == ["sudo", "bluetoothctl"]:
+        if isinstance(args, (list, tuple)) and args[:1] == ["bluetoothctl"]:
             raise FileNotFoundError("bluetoothctl not found")
         return real_popen(args, *popen_args, **kwargs)
 
@@ -38,7 +38,7 @@ def test_bluetooth_on_missing_cli(monkeypatch, client):
     assert flashes
     assert (
         flashes[-1][1]
-        == "sudo oder bluetoothctl nicht gefunden. Bitte Installation überprüfen."
+        == "bluetoothctl nicht gefunden oder keine Berechtigung. Bitte Installation überprüfen."
     )
 
     # Sicherstellen, dass der Auto-Accept-Aufruf selbst keine Ausnahme wirft

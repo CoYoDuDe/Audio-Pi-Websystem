@@ -74,7 +74,9 @@ def test_sync_time_handles_timesyncd_failure(monkeypatch, client):
 
     def fake_check_call(cmd, *args, **kwargs):
         commands.append(cmd)
-        restart_command = ["sudo", "systemctl", "restart", "systemd-timesyncd"]
+        restart_command = app_module.privileged_command(
+            "systemctl", "restart", "systemd-timesyncd"
+        )
         if cmd == restart_command and not restart_failure_triggered["value"]:
             restart_failure_triggered["value"] = True
             raise app_module.subprocess.CalledProcessError(1, cmd)
@@ -93,9 +95,15 @@ def test_sync_time_handles_timesyncd_failure(monkeypatch, client):
         follow_redirects=True,
     )
 
-    disable_command = ["sudo", "timedatectl", "set-ntp", "false"]
-    enable_command = ["sudo", "timedatectl", "set-ntp", "true"]
-    restart_command = ["sudo", "systemctl", "restart", "systemd-timesyncd"]
+    disable_command = app_module.privileged_command(
+        "timedatectl", "set-ntp", "false"
+    )
+    enable_command = app_module.privileged_command(
+        "timedatectl", "set-ntp", "true"
+    )
+    restart_command = app_module.privileged_command(
+        "systemctl", "restart", "systemd-timesyncd"
+    )
     assert disable_command in commands
     assert enable_command in commands
     assert commands.count(restart_command) >= 1
@@ -119,7 +127,8 @@ def test_set_time_triggers_internet_sync(monkeypatch, client):
     original_run = app_module.subprocess.run
 
     def fake_run(cmd, *args, **kwargs):
-        if isinstance(cmd, list) and cmd[:3] == ["sudo", "date", "-s"]:
+        expected_prefix = app_module.privileged_command("timedatectl", "set-time")
+        if isinstance(cmd, list) and cmd[:2] == expected_prefix[:2]:
             return app_module.subprocess.CompletedProcess(cmd, 0)
         return original_run(cmd, *args, **kwargs)
 
@@ -151,7 +160,9 @@ def test_perform_internet_time_sync_handles_missing_systemctl(monkeypatch, app_m
 
     def fake_check_call(cmd, *args, **kwargs):
         commands.append(cmd)
-        restart_command = ["sudo", "systemctl", "restart", "systemd-timesyncd"]
+        restart_command = app_module.privileged_command(
+            "systemctl", "restart", "systemd-timesyncd"
+        )
         if cmd == restart_command:
             raise FileNotFoundError(2, "No such file or directory", "systemctl")
         return 0
@@ -161,9 +172,15 @@ def test_perform_internet_time_sync_handles_missing_systemctl(monkeypatch, app_m
 
     success, messages = app_module.perform_internet_time_sync()
 
-    disable_command = ["sudo", "timedatectl", "set-ntp", "false"]
-    enable_command = ["sudo", "timedatectl", "set-ntp", "true"]
-    restart_command = ["sudo", "systemctl", "restart", "systemd-timesyncd"]
+    disable_command = app_module.privileged_command(
+        "timedatectl", "set-ntp", "false"
+    )
+    enable_command = app_module.privileged_command(
+        "timedatectl", "set-ntp", "true"
+    )
+    restart_command = app_module.privileged_command(
+        "systemctl", "restart", "systemd-timesyncd"
+    )
     assert disable_command in commands
     assert enable_command in commands
     assert commands.count(restart_command) >= 1
@@ -180,7 +197,10 @@ def test_perform_internet_time_sync_handles_missing_timedatectl(monkeypatch, app
 
     def fake_check_call(cmd, *args, **kwargs):
         commands.append(cmd)
-        if cmd == ["sudo", "timedatectl", "set-ntp", "false"]:
+        disable_cmd = app_module.privileged_command(
+            "timedatectl", "set-ntp", "false"
+        )
+        if cmd == disable_cmd:
             raise FileNotFoundError(2, "No such file or directory", "timedatectl")
         return 0
 
@@ -193,7 +213,9 @@ def test_perform_internet_time_sync_handles_missing_timedatectl(monkeypatch, app
 
     success, messages = app_module.perform_internet_time_sync()
 
-    assert ["sudo", "timedatectl", "set-ntp", "false"] in commands
+    assert app_module.privileged_command(
+        "timedatectl", "set-ntp", "false"
+    ) in commands
     assert rtc_called is False
     assert success is False
     assert any(

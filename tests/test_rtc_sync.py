@@ -46,7 +46,11 @@ def test_sync_rtc_logs_error_on_subprocess_failure(app_module, monkeypatch, capl
     with caplog.at_level(logging.INFO):
         result = app_module.sync_rtc_to_system()
 
-    assert executed_commands == [["sudo", "date", "-s", "2024-01-02 03:04:05"]]
+    assert executed_commands == [
+        app_module.privileged_command(
+            "timedatectl", "set-time", "2024-01-02 03:04:05"
+        )
+    ]
 
     error_messages = [record.getMessage() for record in caplog.records if record.levelno >= logging.ERROR]
     assert any("RTC-Sync fehlgeschlagen" in message for message in error_messages)
