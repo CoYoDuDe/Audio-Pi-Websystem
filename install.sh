@@ -44,6 +44,10 @@ Alle Optionen lassen sich alternativ über gleichnamige Umgebungsvariablen mit d
 (z.B. INSTALL_RTC_MODE) setzen. Einstellungen für Audio-HATs können außerdem über die bereits
 unterstützten Variablen HAT_MODEL, HAT_DTOOVERLAY usw. vorgegeben werden.
 
+Sudo-Verhalten:
+  INSTALL_DISABLE_SUDO=0          Standard (behalte `sudo` in Service-Kommandos bei).
+  INSTALL_DISABLE_SUDO=1          Opt-in: entferne führende `sudo`-Aufrufe (setzt passende Capabilities/Polkit-Regeln voraus).
+
 Hinweis: Die Paketinstallation erfolgt unattended (DEBIAN_FRONTEND=noninteractive) über apt-get.
 Über die Umgebungsvariablen INSTALL_APT_FRONTEND, INSTALL_APT_DPKG_OPTIONS und
 INSTALL_APT_LOG_FILE lässt sich dieses Verhalten anpassen (siehe README).
@@ -1409,7 +1413,7 @@ if sudo grep -q '^Environment=FLASK_PORT=' /etc/systemd/system/audio-pi.service;
 else
     echo "Environment=FLASK_PORT=${CONFIGURED_FLASK_PORT}" | sudo tee -a /etc/systemd/system/audio-pi.service >/dev/null
 fi
-SYSTEMD_DISABLE_SUDO_VALUE=${INSTALL_DISABLE_SUDO:-1}
+SYSTEMD_DISABLE_SUDO_VALUE=${INSTALL_DISABLE_SUDO:-0}
 SYSTEMD_DISABLE_SUDO_ESCAPED=$(printf '%s' "$SYSTEMD_DISABLE_SUDO_VALUE" | sed -e 's/[\\&|]/\\&/g')
 if sudo grep -q '^Environment=AUDIO_PI_DISABLE_SUDO=' /etc/systemd/system/audio-pi.service; then
     sudo sed -i "s|^Environment=AUDIO_PI_DISABLE_SUDO=.*|Environment=AUDIO_PI_DISABLE_SUDO=${SYSTEMD_DISABLE_SUDO_ESCAPED}|" /etc/systemd/system/audio-pi.service
