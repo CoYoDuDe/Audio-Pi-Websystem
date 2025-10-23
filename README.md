@@ -125,6 +125,24 @@ damit `i2c-dev` beim nächsten Start geladen wird. Zusätzlich installiert das S
 Pakete `python3-smbus` und `i2c-tools` über APT, damit sowohl die Python-Bindings als auch
 Diagnosewerkzeuge wie `i2cdetect` sofort verfügbar sind.
 
+Damit RTC- und Sensortreiber ohne Root-Shell funktionieren, ergänzt das Installationsskript
+den ausführenden Benutzer automatisch um die Gruppen `pulse`, `pulse-access`, `audio`,
+`netdev` und `i2c`. Wer die Einrichtung manuell nachvollziehen möchte, kann den Beitritt
+über `sudo adduser <benutzer> i2c` durchführen. Die Gruppenmitgliedschaft wird beim
+nächsten Login aktiv.
+
+#### Migration bestehender Installationen
+
+Sollte eine Installation vor dieser Anpassung erfolgt sein, reicht es aus, den Dienstbenutzer
+einmalig in die I²C-Gruppe aufzunehmen:
+
+```bash
+sudo adduser <benutzer> i2c
+```
+
+Nach einem erneuten Login (oder `newgrp i2c`) stehen die zusätzlichen Berechtigungen sofort
+zur Verfügung; weitere Änderungen am Setup sind nicht erforderlich.
+
 ### Internet-Zeitsynchronisation mit systemd-timesyncd
 
 Audio-Pi-Control setzt für die Synchronisierung der Systemzeit ab sofort ausschließlich auf die systemd-
