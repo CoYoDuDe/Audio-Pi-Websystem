@@ -17,6 +17,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("TESTING", "1")
     monkeypatch.setenv("DB_FILE", str(tmp_path / "test.db"))
     monkeypatch.setenv("INITIAL_ADMIN_PASSWORD", "password")
+    monkeypatch.setenv("AUDIO_PI_MAX_UPLOAD_MB", "1")
 
     repo_root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(repo_root))
@@ -158,3 +159,44 @@ def test_upload_same_second_does_not_overwrite(client, monkeypatch):
 
     db_names = {row[0] for row in rows}
     assert {"song.mp3", expected_second, expected_third} == db_names
+
+
+def test_upload_rejects_too_large_file(client):
+    client, upload_dir, app_module = client
+
+    login_data = {"username": "admin", "password": "password"}
+    response = csrf_post(client, "/login", data=login_data, follow_redirects=True)
+    assert response.status_code == 200
+
+    change_response = csrf_post(
+        client,
+        "/change_password",
+        data={"old_password": "password", "new_password": "password1234"},
+        follow_redirects=True,
+        source_url="/change_password",
+    )
+    assert b"Passwort ge\xc3\xa4ndert" in change_response.data
+
+    limit_mb = app_module.app.config.get("MAX_CONTENT_LENGTH_MB")
+    limit_bytes = app_module.app.config.get("MAX_CONTENT_LENGTH")
+    assert limit_mb == 1
+    assert isinstance(limit_bytes, int)
+
+    oversized_file = io.BytesIO(b"a" * (limit_bytes + 1))
+    data = {"file": (oversized_file, "too_large.mp3")}
+
+    response = csrf_post(client, "/upload", data=data, follow_redirects=False)
+    assert response.status_code == 413
+
+    body = response.get_data(as_text=True)
+    assert "überschreitet das erlaubte Limit" in body
+    assert "1&nbsp;MB" in body
+
+    assert list(upload_dir.iterdir()) == []
+
+    conn = sqlite3.connect(app_module.DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM audio_files")
+    count = cursor.fetchone()[0]
+    conn.close()
+    assert count == 0

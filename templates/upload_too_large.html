@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block title %}Upload zu groß{% endblock %}
+{% block content %}
+<section class="upload-too-large">
+    <h2>Upload überschreitet das Limit</h2>
+    <p>{{ message }}</p>
+    {% if limit_mb is not none %}
+    <p>Das aktuelle Upload-Limit beträgt <strong>{{ limit_mb }}&nbsp;MB</strong>. Größere Dateien werden abgewiesen.</p>
+    {% endif %}
+    <p>Bitte verkleinere die Datei oder erhöhe das Limit über die Umgebungsvariable <code>AUDIO_PI_MAX_UPLOAD_MB</code>, falls du Administrator-Zugriff hast.</p>
+    <p><a class="btn" href="{{ url_for('index') }}">Zurück zur Übersicht</a></p>
+</section>
+{% endblock %}
