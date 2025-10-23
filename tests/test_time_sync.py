@@ -289,3 +289,25 @@ def test_perform_internet_time_sync_reports_wait_failure(monkeypatch, app_module
         "systemd-timesyncd meldete keine erfolgreiche Synchronisation (Timeout)"
         in messages
     )
+
+
+def test_timesyncd_reports_synchronized_accepts_timesync_status_output(app_module):
+    status_output = """
+        Server: 0.de.pool.ntp.org
+        Poll interval: 32 (min: 32s; max 34m 8s)
+        State: synchronized
+    """
+
+    assert app_module._timesyncd_reports_synchronized(status_output) is True
+
+
+def test_timesyncd_reports_synchronized_accepts_localized_state(app_module):
+    status_output = "Zustand: synchronisiert\nLetzter Fehler: n/a"
+
+    assert app_module._timesyncd_reports_synchronized(status_output) is True
+
+
+def test_timesyncd_reports_synchronized_rejects_unsynced_state(app_module):
+    status_output = "State: synchronizing\nServer: n/a"
+
+    assert app_module._timesyncd_reports_synchronized(status_output) is False

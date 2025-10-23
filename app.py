@@ -5154,10 +5154,24 @@ TIME_SYNC_INTERNET_SETTING_KEY = "time_sync_internet_default"
 
 def _timesyncd_reports_synchronized(status_output: str) -> bool:
     normalized_output = status_output.lower()
-    return (
-        "system clock synchronized: yes" in normalized_output
-        or "system clock synchronized: ja" in normalized_output
+
+    legacy_markers = (
+        "system clock synchronized: yes",
+        "system clock synchronized: ja",
     )
+    if any(marker in normalized_output for marker in legacy_markers):
+        return True
+
+    for line in normalized_output.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("state:") or stripped.startswith("zustand:"):
+            state_value = stripped.split(":", 1)[1].strip() if ":" in stripped else ""
+            if state_value.startswith("synchronized") or state_value.startswith(
+                "synchronisiert"
+            ):
+                return True
+
+    return False
 
 
 def wait_for_timesyncd_sync(timeout_seconds: float = 60.0, poll_interval: float = 1.0):
