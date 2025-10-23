@@ -859,6 +859,37 @@ ensure_audio_dtparam() {
     fi
 }
 
+print_audio_hat_summary() {
+    local config_summary_path=""
+    if config_summary_path=$(resolve_config_txt_path "Audio-HAT-Zusammenfassung"); then
+        :
+    else
+        config_summary_path=""
+    fi
+
+    local config_summary_hint
+    config_summary_hint="${config_summary_path:-Keine config.txt gefunden – bitte Pfad (z. B. /boot/config.txt oder /boot/firmware/config.txt) manuell prüfen}"
+
+    echo "--- Zusammenfassung Audio-HAT ---"
+    echo "Auswahl: $HAT_SELECTED_LABEL"
+    if [ -n "$HAT_SELECTED_OVERLAY" ]; then
+        if [ -n "$HAT_SELECTED_OPTIONS" ]; then
+            echo "dtoverlay: ${HAT_SELECTED_OVERLAY}, Optionen: ${HAT_SELECTED_OPTIONS}"
+        else
+            echo "dtoverlay: ${HAT_SELECTED_OVERLAY}"
+        fi
+    else
+        echo "dtoverlay: (keiner)"
+    fi
+    echo "PulseAudio-Sink/Muster: $HAT_SELECTED_SINK_HINT"
+    if [ -n "$HAT_SELECTED_NOTES" ]; then
+        echo "Hinweis: $HAT_SELECTED_NOTES"
+    fi
+    echo "Nicht-interaktiv: nutze z.B. --hat-model=hifiberry_dacplus oder --hat-model=manual mit --hat-dtoverlay/--hat-sink."
+    echo "Anpassung später: ${config_summary_hint} und sqlite3 audio.db 'UPDATE settings SET value=... WHERE key=\\'dac_sink_name\\';'"
+    echo "Alternativ kann DAC_SINK_NAME in ~/.profile überschrieben werden."
+}
+
 if [ "${INSTALL_LIBRARY_ONLY:-0}" = "1" ]; then
     return 0 2>/dev/null || exit 0
 fi
@@ -1335,24 +1366,7 @@ else
     echo "Audio-HAT-Konfiguration unverändert."
 fi
 
-echo "--- Zusammenfassung Audio-HAT ---"
-echo "Auswahl: $HAT_SELECTED_LABEL"
-if [ -n "$HAT_SELECTED_OVERLAY" ]; then
-    if [ -n "$HAT_SELECTED_OPTIONS" ]; then
-        echo "dtoverlay: ${HAT_SELECTED_OVERLAY}, Optionen: ${HAT_SELECTED_OPTIONS}"
-    else
-        echo "dtoverlay: ${HAT_SELECTED_OVERLAY}"
-    fi
-else
-    echo "dtoverlay: (keiner)"
-fi
-echo "PulseAudio-Sink/Muster: $HAT_SELECTED_SINK_HINT"
-if [ -n "$HAT_SELECTED_NOTES" ]; then
-    echo "Hinweis: $HAT_SELECTED_NOTES"
-fi
-echo "Nicht-interaktiv: nutze z.B. --hat-model=hifiberry_dacplus oder --hat-model=manual mit --hat-dtoverlay/--hat-sink."
-echo "Anpassung später: /boot/config.txt und sqlite3 audio.db 'UPDATE settings SET value=... WHERE key=\'dac_sink_name\';'"
-echo "Alternativ kann DAC_SINK_NAME in ~/.profile überschrieben werden."
+print_audio_hat_summary
 
 if [ "$HAT_SELECTED_KEY" != "skip" ]; then
     if command -v sqlite3 >/dev/null 2>&1; then
