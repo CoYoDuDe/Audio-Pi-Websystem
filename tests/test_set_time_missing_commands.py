@@ -31,7 +31,7 @@ def test_set_time_handles_missing_command(monkeypatch, client):
     )
 
     expected_message = (
-        "Kommando &#39;sudo&#39; wurde nicht gefunden. Systemzeit konnte nicht gesetzt werden."
+        "Kommando &#39;timedatectl&#39; wurde nicht gefunden. Systemzeit konnte nicht gesetzt werden."
     )
     assert expected_message.encode("utf-8") in response.data
     assert set_rtc_called is False

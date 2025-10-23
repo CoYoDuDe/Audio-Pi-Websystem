@@ -102,7 +102,7 @@ def test_reboot_triggers_popen(monkeypatch, client):
             return False
 
     def fake_popen(cmd, *args, **kwargs):
-        if cmd == ["sudo", "reboot"]:
+        if cmd == ["systemctl", "reboot"]:
             commands.append(cmd)
             return DummyProcess()
         return original_popen(cmd, *args, **kwargs)
@@ -111,7 +111,7 @@ def test_reboot_triggers_popen(monkeypatch, client):
 
     response = csrf_post(client, "/system/reboot", follow_redirects=True)
 
-    assert commands == [["sudo", "reboot"]]
+    assert commands == [["systemctl", "reboot"]]
     assert b"Systemneustart eingeleitet." in response.data
 
 
@@ -141,7 +141,7 @@ def test_shutdown_triggers_popen(monkeypatch, client):
             return False
 
     def fake_popen(cmd, *args, **kwargs):
-        if cmd == ["sudo", "poweroff"]:
+        if cmd == ["systemctl", "poweroff"]:
             commands.append(cmd)
             return DummyProcess()
         return original_popen(cmd, *args, **kwargs)
@@ -150,5 +150,5 @@ def test_shutdown_triggers_popen(monkeypatch, client):
 
     response = csrf_post(client, "/system/shutdown", follow_redirects=True)
 
-    assert commands == [["sudo", "poweroff"]]
+    assert commands == [["systemctl", "poweroff"]]
     assert b"Herunterfahren eingeleitet." in response.data

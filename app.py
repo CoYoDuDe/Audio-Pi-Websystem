@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import atexit
 import functools
 import os
@@ -111,6 +113,18 @@ def _ensure_pygame_music_interface() -> None:
 _ensure_pygame_music_interface()
 
 
+def _read_disable_sudo_flag() -> bool:
+    value = os.environ.get("AUDIO_PI_DISABLE_SUDO", "1").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+_SUDO_DISABLED = _read_disable_sudo_flag()
+
+
+def is_sudo_disabled() -> bool:
+    return _SUDO_DISABLED
+
+
 def _strip_sudo_from_command(command):
     if command is None:
         return command
@@ -131,6 +145,19 @@ def _strip_sudo_from_command(command):
         return command
 
     return command
+
+
+def _build_privileged_command(parts: Iterable[str]) -> List[str]:
+    command = list(parts)
+    if not command:
+        return command
+    if _SUDO_DISABLED:
+        return command
+    return ["sudo", *command]
+
+
+def privileged_command(*parts: str) -> List[str]:
+    return _build_privileged_command(parts)
 
 
 def _wrap_subprocess_function(func):
@@ -159,8 +186,7 @@ def _wrap_subprocess_popen(func):
 
 
 def _should_strip_sudo() -> bool:
-    value = os.environ.get("AUDIO_PI_DISABLE_SUDO", "").strip().lower()
-    return value in {"1", "true", "yes", "on"}
+    return _SUDO_DISABLED
 
 
 if _should_strip_sudo():
@@ -903,12 +929,16 @@ def sync_rtc_to_system() -> bool:
         _update_rtc_sync_status(False, str(e))
         return False
 
-    date_command = ["sudo", "date", "-s", rtc_time.strftime("%Y-%m-%d %H:%M:%S")]
+    set_time_value = rtc_time.strftime("%Y-%m-%d %H:%M:%S")
+    date_command = privileged_command("timedatectl", "set-time", set_time_value)
 
     try:
         subprocess.check_call(date_command)
     except FileNotFoundError as exc:
-        logging.error("RTC-Sync fehlgeschlagen: 'date'-Kommando nicht gefunden (%s)", exc)
+        logging.error(
+            "RTC-Sync fehlgeschlagen: 'timedatectl'-Kommando nicht gefunden (%s)",
+            exc,
+        )
         _update_rtc_sync_status(False, str(exc))
         return False
     except subprocess.CalledProcessError as exc:
@@ -2589,7 +2619,7 @@ def _normalize_time_for_input(time_str):
 def run_auto_reboot_job():
     try:
         logging.info("Automatischer Neustart wird initiiert.")
-        result = subprocess.call(["sudo", "reboot"])
+        result = subprocess.call(privileged_command("systemctl", "reboot"))
         if result != 0:
             logging.error(
                 "Automatischer Neustart fehlgeschlagen – Rückgabewert %s", result
@@ -3664,7 +3694,9 @@ def _handle_systemctl_failure(action: str, service: str, exit_code: int) -> None
 
 
 def _call_systemctl(action: str, service: str) -> bool:
-    exit_code = subprocess.call(["sudo", "systemctl", action, service])
+    exit_code = subprocess.call(
+        privileged_command("systemctl", action, service)
+    )
     if exit_code != 0:
         _handle_systemctl_failure(action, service, exit_code)
         return False
@@ -3682,9 +3714,9 @@ def setup_ap():
             return True
         return disable_ap()
     except (FileNotFoundError, OSError) as exc:
-        logging.error("sudo oder systemctl nicht gefunden: %s", exc)
+        logging.error("systemctl-Aufruf fehlgeschlagen: %s", exc)
         if has_request_context():
-            flash("sudo oder systemctl nicht gefunden")
+            flash("systemctl nicht verfügbar oder Berechtigung verweigert")
         return False
 
 
@@ -3693,9 +3725,9 @@ def disable_ap():
         hostapd_stopped = _call_systemctl("stop", "hostapd")
         dnsmasq_stopped = _call_systemctl("stop", "dnsmasq")
     except (FileNotFoundError, OSError) as exc:
-        logging.error("sudo oder systemctl nicht gefunden: %s", exc)
+        logging.error("systemctl-Aufruf fehlgeschlagen: %s", exc)
         if has_request_context():
-            flash("sudo oder systemctl nicht gefunden")
+            flash("systemctl nicht verfügbar oder Berechtigung verweigert")
         return False
     if hostapd_stopped and dnsmasq_stopped:
         logging.info("AP-Modus deaktiviert")
@@ -4432,7 +4464,7 @@ def _execute_system_command(command, success_message, error_message):
 @login_required
 def system_reboot():
     return _execute_system_command(
-        ["sudo", "reboot"],
+        privileged_command("systemctl", "reboot"),
         "Systemneustart eingeleitet.",
         "Neustart konnte nicht gestartet werden",
     )
@@ -4442,7 +4474,7 @@ def system_reboot():
 @login_required
 def system_shutdown():
     return _execute_system_command(
-        ["sudo", "poweroff"],
+        privileged_command("systemctl", "poweroff"),
         "Herunterfahren eingeleitet.",
         "Herunterfahren konnte nicht gestartet werden",
     )
@@ -4873,7 +4905,7 @@ def delete_schedule(sch_id):
 @login_required
 def wlan_scan():
     _success, output = _run_wifi_tool(
-        ["sudo", "iwlist", "wlan0", "scan"],
+        privileged_command("iwlist", "wlan0", "scan"),
         "Scan nicht möglich, iwlist fehlt",
         "iwlist-Scan",
         flash_on_error=True,
@@ -4965,7 +4997,7 @@ def wlan_connect():
                 len(raw_password),
             )
             return redirect(url_for("index"))
-    base_cmd = ["sudo", "wpa_cli", "-i", "wlan0"]
+    base_cmd = privileged_command("wpa_cli", "-i", "wlan0")
     net_id: Optional[str] = None
 
     try:
@@ -4985,8 +5017,8 @@ def wlan_connect():
         _run_wpa_cli(base_cmd + ["reconfigure"])
         flash("Versuche, mit WLAN zu verbinden")
     except FileNotFoundError as e:
-        logging.error("wpa_cli oder sudo nicht gefunden: %s", e)
-        flash("wpa_cli oder sudo nicht gefunden. Bitte Installation überprüfen.")
+        logging.error("wpa_cli nicht gefunden oder nicht ausführbar: %s", e)
+        flash("wpa_cli nicht gefunden oder keine Berechtigung. Bitte Installation prüfen.")
     except subprocess.CalledProcessError as e:
         logging.error(
             "Fehler beim WLAN-Verbindungsaufbau: %s (stdout: %s, stderr: %s)",
@@ -5056,7 +5088,7 @@ def set_volume():
         commands.extend(
             [
                 ["amixer", "sset", "Master", f"{int_vol}%"],
-                ["sudo", "alsactl", "store"],
+                privileged_command("alsactl", "store"),
             ]
         )
         any_success = False
@@ -5155,9 +5187,11 @@ TIME_SYNC_INTERNET_SETTING_KEY = "time_sync_internet_default"
 def perform_internet_time_sync():
     success = False
     messages = []
-    disable_command = ["sudo", "timedatectl", "set-ntp", "false"]
-    enable_command = ["sudo", "timedatectl", "set-ntp", "true"]
-    restart_command = ["sudo", "systemctl", "restart", "systemd-timesyncd"]
+    disable_command = privileged_command("timedatectl", "set-ntp", "false")
+    enable_command = privileged_command("timedatectl", "set-ntp", "true")
+    restart_command = privileged_command(
+        "systemctl", "restart", "systemd-timesyncd"
+    )
     commands_to_run = [disable_command, enable_command, restart_command]
     current_command = None
     disable_completed = False
@@ -5255,11 +5289,11 @@ def perform_internet_time_sync():
                 success = False
             except FileNotFoundError as exc:
                 logging.warning(
-                    "systemd-timesyncd konnte nicht neu gestartet werden, da sudo/systemctl fehlen: %s",
+                    "systemd-timesyncd konnte nicht neu gestartet werden, da systemctl nicht verfügbar ist oder Berechtigungen fehlen: %s",
                     exc,
                 )
                 messages.append(
-                    "systemd-timesyncd konnte nicht neu gestartet werden, da sudo oder systemctl nicht verfügbar sind"
+                    "systemd-timesyncd konnte nicht neu gestartet werden, da systemctl nicht verfügbar ist oder Berechtigungen fehlen"
                 )
                 success = False
             except Exception as exc:  # pragma: no cover - unerwartete Fehler
@@ -5296,13 +5330,14 @@ def set_time():
         except ValueError:
             flash("Ungültiges Datums-/Zeitformat")
         else:
-            command = ["sudo", "date", "-s", dt.strftime("%Y-%m-%d %H:%M:%S")]
+            time_value = dt.strftime("%Y-%m-%d %H:%M:%S")
+            command = privileged_command("timedatectl", "set-time", time_value)
             try:
                 subprocess.run(command, check=True)
             except FileNotFoundError as exc:
                 missing_command = exc.filename or command[0]
                 logging.error(
-                    "Kommando zum Setzen der Systemzeit nicht gefunden (%s): %s",
+                    "timedatectl zum Setzen der Systemzeit nicht gefunden (%s): %s",
                     missing_command,
                     exc,
                 )
@@ -5414,7 +5449,7 @@ def update():
 
 BLUETOOTH_MISSING_CLI_FLASH_KEY = "_bluetooth_missing_cli_flashed"
 BLUETOOTH_MISSING_CLI_MESSAGE = (
-    "sudo oder bluetoothctl nicht gefunden. Bitte Installation überprüfen."
+    "bluetoothctl nicht gefunden oder keine Berechtigung. Bitte Installation überprüfen."
 )
 
 
@@ -5441,7 +5476,7 @@ BluetoothActionResult = Literal["success", "missing_cli", "error"]
 
 def enable_bluetooth() -> BluetoothActionResult:
     try:
-        subprocess.check_call(["sudo", "bluetoothctl", "power", "on"])
+        subprocess.check_call(privileged_command("bluetoothctl", "power", "on"))
     except FileNotFoundError as exc:
         _handle_missing_bluetooth_command(exc)
         return "missing_cli"
@@ -5455,7 +5490,7 @@ def enable_bluetooth() -> BluetoothActionResult:
 
 def disable_bluetooth() -> BluetoothActionResult:
     try:
-        subprocess.check_call(["sudo", "bluetoothctl", "power", "off"])
+        subprocess.check_call(privileged_command("bluetoothctl", "power", "off"))
     except FileNotFoundError as exc:
         _handle_missing_bluetooth_command(exc)
         return "missing_cli"
@@ -5504,7 +5539,7 @@ def bluetooth_off():
 def bluetooth_auto_accept() -> BluetoothActionResult:
     try:
         p = subprocess.Popen(
-            ["sudo", "bluetoothctl"],
+            privileged_command("bluetoothctl"),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

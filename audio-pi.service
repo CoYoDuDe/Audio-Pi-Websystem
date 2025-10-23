@@ -14,7 +14,7 @@ Environment=FLASK_DEBUG=0
 EnvironmentFile=/etc/audio-pi/audio-pi.env
 Environment=FLASK_PORT=80
 Environment=XDG_RUNTIME_DIR=/run/audio-pi
-Environment=AUDIO_PI_DISABLE_SUDO=0
+Environment=AUDIO_PI_DISABLE_SUDO=1
 ExecStart=/opt/Audio-Pi-Websystem/venv/bin/gunicorn --config /opt/Audio-Pi-Websystem/gunicorn.conf.py app:app
 ExecReload=/bin/kill -s HUP $MAINPID
 KillSignal=SIGQUIT
@@ -22,8 +22,8 @@ TimeoutStartSec=60
 TimeoutStopSec=45
 Restart=on-failure
 RestartSec=5
-NoNewPrivileges=no
-RestrictSUIDSGID=no
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
 ProtectSystem=strict
 ReadWritePaths=/opt/Audio-Pi-Websystem
 PrivateTmp=yes

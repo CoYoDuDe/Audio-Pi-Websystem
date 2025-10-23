@@ -1,0 +1,49 @@
+// Audio-Pi Websystem – Polkit-Regel
+// Diese Datei wird vom Installationsskript mit dem tatsächlichen Dienstbenutzer ersetzt.
+polkit.addRule(function(action, subject) {
+    var allowedUser = "__AUDIO_PI_USER__";
+    if (subject.user !== allowedUser) {
+        return polkit.Result.NOT_HANDLED;
+    }
+
+    var actionId = String(action.id || "");
+
+    function normalizeUnit(unit) {
+        if (!unit) {
+            return null;
+        }
+        var value = String(unit);
+        if (value.endsWith(".service")) {
+            return value;
+        }
+        return value + ".service";
+    }
+
+    var managedUnits = [
+        "audio-pi.service",
+        "dnsmasq.service",
+        "hostapd.service",
+        "systemd-timesyncd.service"
+    ];
+
+    if (actionId === "org.freedesktop.systemd1.manage-units") {
+        var verb = String(action.lookup("verb") || action.lookup("operation") || "").toLowerCase();
+        var unit = normalizeUnit(action.lookup("unit"));
+        var allowedVerbs = ["start", "stop", "restart"];
+        if (allowedVerbs.indexOf(verb) >= 0 && unit && managedUnits.indexOf(unit) >= 0) {
+            return polkit.Result.YES;
+        }
+    }
+
+    if (actionId === "org.freedesktop.timedate1.set-time" ||
+        actionId === "org.freedesktop.timedate1.set-ntp") {
+        return polkit.Result.YES;
+    }
+
+    if (actionId === "org.freedesktop.login1.reboot" ||
+        actionId === "org.freedesktop.login1.power-off") {
+        return polkit.Result.YES;
+    }
+
+    return polkit.Result.NOT_HANDLED;
+});

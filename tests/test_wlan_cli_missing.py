@@ -137,7 +137,7 @@ def test_gather_status_iwgetid_failure_exit_code(monkeypatch, app_module, caplog
 
 def test_wlan_scan_missing_iwlist(monkeypatch, app_module, caplog):
     def fake_run(args, **kwargs):
-        if args and args[0] == "sudo":
+        if args and args[0] == "iwlist":
             raise FileNotFoundError("iwlist")
         return app_module.subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
@@ -155,11 +155,11 @@ def test_wlan_scan_missing_iwlist(monkeypatch, app_module, caplog):
 
 def test_wlan_scan_iwlist_failure_exit_code(monkeypatch, app_module, caplog):
     def fake_run(args, **kwargs):
-        if args and args[0] == "sudo":
+        if args and args[0] == "iwlist":
             return app_module.subprocess.CompletedProcess(
                 args,
                 7,
-                stdout="", 
+                stdout="",
                 stderr="permission denied",
             )
         return app_module.subprocess.CompletedProcess(args, 0, stdout="", stderr="")

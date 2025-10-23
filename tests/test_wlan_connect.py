@@ -59,7 +59,7 @@ def test_wlan_connect_quotes_ascii_ssid(client, monkeypatch):
     calls = []
 
     def fake_run(args, **kwargs):
-        assert args[0:4] == ["sudo", "wpa_cli", "-i", "wlan0"]
+        assert args[0:3] == ["wpa_cli", "-i", "wlan0"]
         calls.append(args)
         if args[-1] == "add_network":
             return CompletedProcess(args, 0, stdout="1\n", stderr="")
@@ -77,11 +77,19 @@ def test_wlan_connect_quotes_ascii_ssid(client, monkeypatch):
 
     assert response.status_code == 302
 
-    ssid_call = next(call for call in calls if len(call) > 6 and call[6] == "ssid")
-    password_call = next(call for call in calls if len(call) > 6 and call[6] == "psk")
+    ssid_call = next(
+        call
+        for call in calls
+        if len(call) > 6 and call[3] == "set_network" and call[5] == "ssid"
+    )
+    password_call = next(
+        call
+        for call in calls
+        if len(call) > 6 and call[3] == "set_network" and call[5] == "psk"
+    )
 
-    assert ssid_call[7] == '"My Wifi"'
-    assert password_call[7] == '"secretpass"'
+    assert ssid_call[6] == '"My Wifi"'
+    assert password_call[6] == '"secretpass"'
 
 
 def test_wlan_connect_preserves_leading_space(client, monkeypatch):
@@ -89,7 +97,7 @@ def test_wlan_connect_preserves_leading_space(client, monkeypatch):
     calls = []
 
     def fake_run(args, **kwargs):
-        assert args[0:4] == ["sudo", "wpa_cli", "-i", "wlan0"]
+        assert args[0:3] == ["wpa_cli", "-i", "wlan0"]
         calls.append(args)
         if args[-1] == "add_network":
             return CompletedProcess(args, 0, stdout="7\n", stderr="")
@@ -108,8 +116,12 @@ def test_wlan_connect_preserves_leading_space(client, monkeypatch):
 
     assert response.status_code == 302
 
-    password_call = next(call for call in calls if len(call) > 6 and call[6] == "psk")
-    assert password_call[7] == '" secretpass"'
+    password_call = next(
+        call
+        for call in calls
+        if len(call) > 6 and call[3] == "set_network" and call[5] == "psk"
+    )
+    assert password_call[6] == '" secretpass"'
 
 
 def test_wlan_connect_hex_unicode_ssid(client, monkeypatch):
@@ -117,7 +129,7 @@ def test_wlan_connect_hex_unicode_ssid(client, monkeypatch):
     calls = []
 
     def fake_run(args, **kwargs):
-        assert args[0:4] == ["sudo", "wpa_cli", "-i", "wlan0"]
+        assert args[0:3] == ["wpa_cli", "-i", "wlan0"]
         calls.append(args)
         if args[-1] == "add_network":
             return CompletedProcess(args, 0, stdout="2\n", stderr="")
@@ -135,11 +147,19 @@ def test_wlan_connect_hex_unicode_ssid(client, monkeypatch):
 
     assert response.status_code == 302
 
-    ssid_call = next(call for call in calls if len(call) > 6 and call[6] == "ssid")
-    password_call = next(call for call in calls if len(call) > 6 and call[6] == "psk")
+    ssid_call = next(
+        call
+        for call in calls
+        if len(call) > 6 and call[3] == "set_network" and call[5] == "ssid"
+    )
+    password_call = next(
+        call
+        for call in calls
+        if len(call) > 6 and call[3] == "set_network" and call[5] == "psk"
+    )
 
-    assert ssid_call[7] == "0x436166c3a9204e65747a7765726b"
-    assert password_call[7] == '"secretpass"'
+    assert ssid_call[6] == "0x436166c3a9204e65747a7765726b"
+    assert password_call[6] == '"secretpass"'
 
 
 def test_wlan_connect_open_network(client, monkeypatch):
@@ -147,7 +167,7 @@ def test_wlan_connect_open_network(client, monkeypatch):
     calls = []
 
     def fake_run(args, **kwargs):
-        assert args[0:4] == ["sudo", "wpa_cli", "-i", "wlan0"]
+        assert args[0:3] == ["wpa_cli", "-i", "wlan0"]
         calls.append(args)
         if args[-1] == "add_network":
             return CompletedProcess(args, 0, stdout="3\n", stderr="")
@@ -166,15 +186,17 @@ def test_wlan_connect_open_network(client, monkeypatch):
 
     assert response.status_code == 302
 
-    set_network_calls = [call for call in calls if len(call) > 6 and call[4] == "set_network"]
+    set_network_calls = [
+        call for call in calls if len(call) > 6 and call[3] == "set_network"
+    ]
 
-    key_mgmt_call = next(call for call in set_network_calls if call[6] == "key_mgmt")
-    assert key_mgmt_call[7] == "NONE"
+    key_mgmt_call = next(call for call in set_network_calls if call[5] == "key_mgmt")
+    assert key_mgmt_call[6] == "NONE"
 
-    auth_alg_call = next(call for call in set_network_calls if call[6] == "auth_alg")
-    assert auth_alg_call[7] == "OPEN"
+    auth_alg_call = next(call for call in set_network_calls if call[5] == "auth_alg")
+    assert auth_alg_call[6] == "OPEN"
 
-    assert all(call[6] != "psk" for call in set_network_calls)
+    assert all(call[5] != "psk" for call in set_network_calls)
 
 
 def test_wlan_connect_all_space_passphrase(client, monkeypatch):
@@ -182,7 +204,7 @@ def test_wlan_connect_all_space_passphrase(client, monkeypatch):
     calls = []
 
     def fake_run(args, **kwargs):
-        assert args[0:4] == ["sudo", "wpa_cli", "-i", "wlan0"]
+        assert args[0:3] == ["wpa_cli", "-i", "wlan0"]
         calls.append(args)
         if args[-1] == "add_network":
             return CompletedProcess(args, 0, stdout="4\n", stderr="")
@@ -201,10 +223,12 @@ def test_wlan_connect_all_space_passphrase(client, monkeypatch):
 
     assert response.status_code == 302
 
-    set_network_calls = [call for call in calls if len(call) > 6 and call[4] == "set_network"]
+    set_network_calls = [
+        call for call in calls if len(call) > 6 and call[3] == "set_network"
+    ]
 
-    password_call = next(call for call in set_network_calls if call[6] == "psk")
-    assert password_call[7] == '"        "'
+    password_call = next(call for call in set_network_calls if call[5] == "psk")
+    assert password_call[6] == '"        "'
 
 
 
@@ -237,7 +261,7 @@ def test_wlan_connect_hex_psk_unquoted(client, monkeypatch):
     hex_psk = "0123456789abcdef" * 4
 
     def fake_run(args, **kwargs):
-        assert args[0:4] == ["sudo", "wpa_cli", "-i", "wlan0"]
+        assert args[0:3] == ["wpa_cli", "-i", "wlan0"]
         calls.append(args)
         if args[-1] == "add_network":
             return CompletedProcess(args, 0, stdout="5\n", stderr="")
@@ -256,8 +280,12 @@ def test_wlan_connect_hex_psk_unquoted(client, monkeypatch):
 
     assert response.status_code == 302
 
-    password_call = next(call for call in calls if len(call) > 6 and call[6] == "psk")
-    assert password_call[7] == hex_psk
+    password_call = next(
+        call
+        for call in calls
+        if len(call) > 6 and call[3] == "set_network" and call[5] == "psk"
+    )
+    assert password_call[6] == hex_psk
 
 
 def test_wlan_connect_fail_stops_sequence(client, monkeypatch):
@@ -265,13 +293,13 @@ def test_wlan_connect_fail_stops_sequence(client, monkeypatch):
     calls = []
 
     def fake_run(args, **kwargs):
-        assert args[0:4] == ["sudo", "wpa_cli", "-i", "wlan0"]
+        assert args[0:3] == ["wpa_cli", "-i", "wlan0"]
         calls.append(args)
         if args[-1] == "add_network":
             return CompletedProcess(args, 0, stdout="6\n", stderr="")
-        if args[4:7] == ["set_network", "6", "ssid"]:
+        if args[3:6] == ["set_network", "6", "ssid"]:
             return CompletedProcess(args, 0, stdout="OK\n", stderr="")
-        if args[4:7] == ["set_network", "6", "psk"]:
+        if args[3:6] == ["set_network", "6", "psk"]:
             return CompletedProcess(args, 0, stdout="FAIL invalid", stderr="")
         return CompletedProcess(args, 0, stdout="OK\n", stderr="")
 
@@ -288,7 +316,7 @@ def test_wlan_connect_fail_stops_sequence(client, monkeypatch):
 
     assert response.status_code == 302
     enable_calls = [
-        call for call in calls if len(call) > 4 and call[4] == "enable_network"
+        call for call in calls if len(call) > 3 and call[3] == "enable_network"
     ]
     assert enable_calls == []
 
@@ -301,9 +329,9 @@ def test_wlan_connect_removes_network_on_failure(client, monkeypatch):
         calls.append((args, expect_ok))
         if args[-1] == "add_network":
             return "9"
-        if args[4:7] == ["set_network", "9", "ssid"]:
+        if args[3:6] == ["set_network", "9", "ssid"]:
             return "OK"
-        if args[4:7] == ["set_network", "9", "psk"]:
+        if args[3:6] == ["set_network", "9", "psk"]:
             raise subprocess.CalledProcessError(
                 1, args, output="FAIL invalid", stderr=""
             )
@@ -333,7 +361,7 @@ def test_wlan_connect_removes_network_on_failure(client, monkeypatch):
     psk_call_index = next(
         index
         for index, (args, _expect_ok) in enumerate(calls)
-        if args[4:7] == ["set_network", "9", "psk"]
+        if args[3:6] == ["set_network", "9", "psk"]
     )
     remove_call_index = calls.index(remove_calls[0])
     assert remove_call_index > psk_call_index

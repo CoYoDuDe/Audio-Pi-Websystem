@@ -75,7 +75,10 @@ def test_set_time_handles_called_process_error(monkeypatch, client):
         set_rtc_called = True
 
     def fake_run(cmd, *args, **kwargs):
-        if isinstance(cmd, (list, tuple)) and list(cmd)[:3] == ["sudo", "date", "-s"]:
+        if isinstance(cmd, (list, tuple)) and list(cmd)[:2] == [
+            "timedatectl",
+            "set-time",
+        ]:
             assert kwargs.get("check") is True
             raise app_module.subprocess.CalledProcessError(1, cmd)
         return app_module.subprocess.CompletedProcess(cmd, 0)
@@ -93,7 +96,7 @@ def test_set_time_handles_called_process_error(monkeypatch, client):
     )
 
     expected_message = (
-        "Ausführung von &#39;sudo date -s 2024-01-01 12:00:00&#39; ist fehlgeschlagen. "
+        "Ausführung von &#39;timedatectl set-time 2024-01-01 12:00:00&#39; ist fehlgeschlagen. "
         "Systemzeit konnte nicht gesetzt werden."
     )
     assert expected_message.encode("utf-8") in response.data

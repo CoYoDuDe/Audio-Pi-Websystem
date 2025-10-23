@@ -101,7 +101,7 @@ def test_volume_command_failure(monkeypatch, client):
     assert (
         ("pactl", "set-sink-volume", "test-sink", "50%") in command_tuples
         and ("amixer", "sset", "Master", "50%") in command_tuples
-        and ("sudo", "alsactl", "store") in command_tuples
+        and ("alsactl", "store") in command_tuples
     )
 
 
@@ -137,7 +137,7 @@ def test_volume_uses_default_sink(monkeypatch, client):
     if pactl_set_volume:
         assert all(cmd[2] == "@DEFAULT_SINK@" for cmd in pactl_set_volume)
     assert ("amixer", "sset", "Master", "30%") in command_tuples
-    assert ("sudo", "alsactl", "store") in command_tuples
+    assert ("alsactl", "store") in command_tuples
 
 
 def test_volume_runs_without_pygame(monkeypatch, client):
@@ -178,4 +178,4 @@ def test_volume_runs_without_pygame(monkeypatch, client):
     command_tuples = [tuple(cmd) for cmd in commands]
     assert ("pactl", "set-sink-volume", "test-sink", "70%") in command_tuples
     assert ("amixer", "sset", "Master", "70%") in command_tuples
-    assert ("sudo", "alsactl", "store") in command_tuples
+    assert ("alsactl", "store") in command_tuples

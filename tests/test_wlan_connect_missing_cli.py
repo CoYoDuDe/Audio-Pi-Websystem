@@ -31,4 +31,7 @@ def test_wlan_connect_missing_cli(client, monkeypatch):
         flashes = session.get("_flashes", [])
 
     assert flashes
-    assert flashes[-1][1] == "wpa_cli oder sudo nicht gefunden. Bitte Installation überprüfen."
+    assert (
+        flashes[-1][1]
+        == "wpa_cli nicht gefunden oder keine Berechtigung. Bitte Installation prüfen."
+    )
