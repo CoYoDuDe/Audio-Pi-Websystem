@@ -1291,6 +1291,7 @@ apt_get install -y pulseaudio pulseaudio-utils
 sudo usermod -aG pulse "$TARGET_USER"
 sudo usermod -aG pulse-access "$TARGET_USER"
 sudo usermod -aG audio "$TARGET_USER"
+sudo usermod -aG netdev "$TARGET_USER"
 
 HAT_DEFAULT_SINK_HINT="alsa_output.platform-soc_107c000000_sound.stereo-fallback"
 

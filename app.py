@@ -239,7 +239,7 @@ else:
 import sys
 import secrets
 import re
-from typing import Any, Callable, Iterable, List, Optional, Tuple, Literal, Set
+from typing import Any, Callable, Iterable, List, Optional, Sequence, Tuple, Literal, Set
 from hardware.buttons import ButtonAssignment, ButtonMonitor
 
 if GPIO_AVAILABLE:
@@ -2491,6 +2491,22 @@ def _sink_is_configured(sink_name: str) -> bool:
     return _sink_matches_hint(sink_name, DAC_SINK_HINT)
 
 
+def _describe_command(args: Sequence[str]) -> str:
+    if not args:
+        return "<unbekannt>"
+    if args[0] == "sudo" and len(args) > 1:
+        return " ".join(args[1:])
+    return " ".join(args)
+
+
+def _extract_primary_command(args: Sequence[str]) -> str:
+    if not args:
+        return "<unbekannt>"
+    if args[0] == "sudo" and len(args) > 1:
+        return args[1]
+    return args[0]
+
+
 def _run_wifi_tool(
     args,
     fallback_message,
@@ -2498,6 +2514,8 @@ def _run_wifi_tool(
     *,
     flash_on_error=False,
 ):
+    command_display = _describe_command(args)
+    primary_command = _extract_primary_command(args)
     try:
         result = subprocess.run(
             args,
@@ -2505,11 +2523,12 @@ def _run_wifi_tool(
             capture_output=True,
             text=True,
         )
-    except FileNotFoundError:
+    except FileNotFoundError as exc:
         logging.error(
-            "%s nicht gefunden: %s",
+            "%s nicht gefunden: %s (%s)",
             log_context,
-            args[0] if args else "<unbekannt>",
+            primary_command,
+            exc,
         )
         if flash_on_error:
             flash(fallback_message, "error")
@@ -2518,13 +2537,20 @@ def _run_wifi_tool(
     stdout = (result.stdout or "").strip()
     stderr = (result.stderr or "").strip()
 
-    if result.returncode != 0:
+    fail_indicator = False
+    if primary_command == "wpa_cli":
+        fail_indicator = any(
+            line.strip().upper().startswith("FAIL") for line in stdout.splitlines()
+        )
+
+    if result.returncode != 0 or fail_indicator:
         combined_output = "\n".join(filter(None, [stdout, stderr])) or "Keine Ausgabe"
         logging.error(
-            "%s fehlgeschlagen (Exit-Code %s): %s",
+            "%s fehlgeschlagen (Exit-Code %s): %s (Kommando: %s)",
             log_context,
             result.returncode,
             combined_output,
+            command_display,
         )
         if flash_on_error:
             flash(fallback_message, "error")
@@ -4904,13 +4930,31 @@ def delete_schedule(sch_id):
 @app.route("/wlan_scan")
 @login_required
 def wlan_scan():
-    _success, output = _run_wifi_tool(
-        privileged_command("iwlist", "wlan0", "scan"),
-        "Scan nicht möglich, iwlist fehlt",
-        "iwlist-Scan",
+    base_cmd = privileged_command("wpa_cli", "-i", "wlan0")
+    fallback_message = "Scan nicht möglich, wpa_cli fehlt oder meldet einen Fehler"
+
+    try:
+        _run_wpa_cli(
+            base_cmd + ["scan"],
+            log_context="wpa_cli Scan",
+            flash_on_error=True,
+            fallback_message=fallback_message,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return render_template("scan.html", networks=fallback_message)
+
+    success, scan_output = _run_wifi_tool(
+        base_cmd + ["scan_results"],
+        fallback_message,
+        "wpa_cli Scan-Ergebnisse",
         flash_on_error=True,
     )
-    return render_template("scan.html", networks=output)
+
+    if not success:
+        return render_template("scan.html", networks=scan_output)
+
+    formatted = _format_wpa_cli_scan_results(scan_output)
+    return render_template("scan.html", networks=formatted)
 
 
 def _quote_wpa_cli(value: str) -> str:
@@ -4936,23 +4980,129 @@ def _is_hex_psk(candidate: str) -> bool:
     )
 
 
-def _run_wpa_cli(args, expect_ok=True):
-    result = subprocess.run(
-        args,
-        capture_output=True,
-        text=True,
-    )
+def _format_wpa_cli_scan_results(raw_output: str) -> str:
+    lines = [line for line in raw_output.splitlines() if line.strip()]
+    if not lines:
+        return "Keine Netzwerke gefunden."
+
+    if lines and lines[0].lower().startswith("bssid"):
+        data_lines = lines[1:]
+    else:
+        data_lines = lines
+
+    networks = []
+    fallback_lines = []
+
+    def _format_frequency(value: str) -> str:
+        value = value.strip()
+        if not value:
+            return "unbekannt"
+        try:
+            return f"{int(value)} MHz"
+        except ValueError:
+            return value
+
+    def _format_signal(value: str) -> str:
+        value = value.strip()
+        if not value:
+            return "unbekannt"
+        try:
+            return f"{int(value)} dBm"
+        except ValueError:
+            return value
+
+    for line in data_lines:
+        parts = line.split("\t")
+        if len(parts) < 4:
+            fallback_lines.append(line.strip())
+            continue
+
+        bssid = parts[0].strip()
+        frequency = parts[1].strip() if len(parts) > 1 else ""
+        signal_level = parts[2].strip() if len(parts) > 2 else ""
+        flags = parts[3].strip() if len(parts) > 3 else ""
+        extras = parts[4:]
+        ssid = extras[-1].strip() if extras else ""
+        metadata = [value.strip() for value in extras[:-1] if value.strip()]
+
+        networks.append(
+            {
+                "ssid": ssid,
+                "bssid": bssid,
+                "frequency": _format_frequency(frequency),
+                "signal": _format_signal(signal_level),
+                "flags": flags or "-",
+                "metadata": metadata,
+            }
+        )
+
+    if not networks:
+        if fallback_lines:
+            return "\n".join(fallback_lines)
+        return "Keine Netzwerke gefunden."
+
+    formatted_lines = [f"Gefundene Netzwerke: {len(networks)}"]
+
+    for entry in networks:
+        ssid_display = entry["ssid"] or "<verborgen>"
+        block_lines = [
+            f"SSID: {ssid_display}",
+            f"  Signal: {entry['signal']} @ {entry['frequency']}",
+            f"  Flags: {entry['flags']}",
+            f"  BSSID: {entry['bssid']}",
+        ]
+        if entry["metadata"]:
+            block_lines.append("  Zusatzfelder: " + ", ".join(entry["metadata"]))
+        formatted_lines.append("\n".join(block_lines))
+
+    return "\n\n".join(formatted_lines)
+
+
+def _run_wpa_cli(
+    args,
+    expect_ok=True,
+    *,
+    log_context: Optional[str] = None,
+    flash_on_error: bool = False,
+    fallback_message: Optional[str] = None,
+):
+    context = log_context or "wpa_cli-Aufruf"
+    primary_command = _extract_primary_command(args)
+    command_display = _describe_command(args)
+
+    try:
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        logging.error(
+            "%s nicht gefunden: %s (%s)",
+            context,
+            primary_command,
+            exc,
+        )
+        if flash_on_error and fallback_message:
+            flash(fallback_message, "error")
+        raise
 
     stdout = (result.stdout or "").strip()
     stderr = (result.stderr or "").strip()
     combined = "\n".join(filter(None, [stdout, stderr]))
 
-    if result.returncode != 0 or "FAIL" in stdout or "FAIL" in stderr:
+    fail_indicator = "FAIL" in stdout or "FAIL" in stderr
+
+    if result.returncode != 0 or fail_indicator:
         logging.error(
-            "wpa_cli-Aufruf fehlgeschlagen (%s): %s",
-            " ".join(args),
-            combined,
+            "%s fehlgeschlagen (Exit-Code %s): %s (Kommando: %s)",
+            context,
+            result.returncode,
+            combined or "Keine Ausgabe",
+            command_display,
         )
+        if flash_on_error and fallback_message:
+            flash(fallback_message, "error")
         raise subprocess.CalledProcessError(
             result.returncode or 1,
             args,
@@ -4962,10 +5112,13 @@ def _run_wpa_cli(args, expect_ok=True):
 
     if expect_ok and "OK" not in stdout:
         logging.error(
-            "wpa_cli-Antwort ohne OK (%s): %s",
-            " ".join(args),
-            combined,
+            "%s ohne OK-Antwort: %s (Kommando: %s)",
+            context,
+            combined or "Keine Ausgabe",
+            command_display,
         )
+        if flash_on_error and fallback_message:
+            flash(fallback_message, "error")
         raise subprocess.CalledProcessError(
             result.returncode or 1,
             args,
