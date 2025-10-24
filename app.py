@@ -3790,11 +3790,26 @@ def _handle_systemctl_failure(action: str, service: str, exit_code: int) -> None
 
 
 def _call_systemctl(action: str, service: str) -> bool:
-    exit_code = subprocess.call(
-        privileged_command("systemctl", action, service)
+    command = privileged_command("systemctl", action, service)
+    result = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
     )
-    if exit_code != 0:
-        _handle_systemctl_failure(action, service, exit_code)
+
+    if _command_not_found(result.stderr, result.stdout, result.returncode):
+        primary_command = _extract_primary_command(command)
+        message = (
+            f"{primary_command} ist nicht verfügbar. Bitte stellen Sie sicher, dass systemctl installiert ist."
+        )
+        logging.error(message)
+        if has_request_context():
+            flash(message)
+        return False
+
+    if result.returncode != 0:
+        _handle_systemctl_failure(action, service, result.returncode)
         return False
     return True
 
