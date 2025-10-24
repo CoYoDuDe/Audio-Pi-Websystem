@@ -2,6 +2,7 @@ import logging
 import threading
 
 import pytest
+from subprocess import CompletedProcess
 
 from tests.csrf_utils import csrf_post
 from tests.test_wlan_connect import _login_admin, client as wlan_client_fixture
@@ -29,15 +30,17 @@ def test_bluetooth_auto_accept_failure(monkeypatch, client, caplog):
 
     real_popen = app_module.subprocess.Popen
 
-    def fake_check_call(*_args, **_kwargs):
-        return None
+    def fake_run(args, **kwargs):
+        if args[:2] == ["bluetoothctl", "power"]:
+            return CompletedProcess(args, 0, stdout="", stderr="")
+        return CompletedProcess(args, 0, stdout="", stderr="")
 
     def fake_popen(args, *popen_args, **popen_kwargs):
         if isinstance(args, (list, tuple)) and args[:1] == ["bluetoothctl"]:
             return _DummyProcess()
         return real_popen(args, *popen_args, **popen_kwargs)
 
-    monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
     monkeypatch.setattr(app_module.subprocess, "Popen", fake_popen)
 
     with app_module.app.test_request_context("/"):

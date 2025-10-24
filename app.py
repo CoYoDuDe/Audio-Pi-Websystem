@@ -5635,6 +5635,11 @@ BLUETOOTH_MISSING_CLI_MESSAGE = (
     "bluetoothctl nicht gefunden oder keine Berechtigung. Bitte Installation überprüfen."
 )
 
+_MISSING_BLUETOOTH_COMMAND_PATTERNS = (
+    "command not found",
+    "befehl nicht gefunden",
+)
+
 
 def _flash_missing_bluetooth_cli_message():
     if not has_request_context():
@@ -5657,12 +5662,54 @@ def _handle_missing_bluetooth_command(
 BluetoothActionResult = Literal["success", "missing_cli", "error"]
 
 
+def _missing_command_from_outputs(*outputs: Optional[str]) -> bool:
+    combined = " ".join(
+        output.strip().lower() for output in outputs if isinstance(output, str) and output.strip()
+    )
+    if not combined:
+        return False
+    return any(pattern in combined for pattern in _MISSING_BLUETOOTH_COMMAND_PATTERNS)
+
+
+def _create_missing_command_error(
+    primary_command: str, *outputs: Optional[str]
+) -> FileNotFoundError:
+    message = next(
+        (output.strip() for output in outputs if isinstance(output, str) and output.strip()),
+        "",
+    )
+    if not message:
+        message = f"{primary_command}: command not found"
+    return FileNotFoundError(message)
+
+
 def enable_bluetooth() -> BluetoothActionResult:
+    command = privileged_command("bluetoothctl", "power", "on")
     try:
-        subprocess.check_call(privileged_command("bluetoothctl", "power", "on"))
+        subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
     except FileNotFoundError as exc:
         _handle_missing_bluetooth_command(exc)
         return "missing_cli"
+    except subprocess.CalledProcessError as exc:
+        if isinstance(exc.cmd, (list, tuple)):
+            failing_command: Sequence[str] = list(exc.cmd)
+        elif isinstance(exc.cmd, str):
+            failing_command = exc.cmd.split()
+        else:
+            failing_command = []
+        if not failing_command:
+            failing_command = command
+        primary_command = _extract_primary_command(failing_command)
+        if _missing_command_from_outputs(exc.stderr, exc.stdout):
+            error = _create_missing_command_error(primary_command, exc.stderr, exc.stdout)
+            _handle_missing_bluetooth_command(error)
+            return "missing_cli"
+        raise
     auto_accept_result = bluetooth_auto_accept()
     if auto_accept_result == "error":
         logging.error(
@@ -5672,11 +5719,32 @@ def enable_bluetooth() -> BluetoothActionResult:
 
 
 def disable_bluetooth() -> BluetoothActionResult:
+    command = privileged_command("bluetoothctl", "power", "off")
     try:
-        subprocess.check_call(privileged_command("bluetoothctl", "power", "off"))
+        subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
     except FileNotFoundError as exc:
         _handle_missing_bluetooth_command(exc)
         return "missing_cli"
+    except subprocess.CalledProcessError as exc:
+        if isinstance(exc.cmd, (list, tuple)):
+            failing_command: Sequence[str] = list(exc.cmd)
+        elif isinstance(exc.cmd, str):
+            failing_command = exc.cmd.split()
+        else:
+            failing_command = []
+        if not failing_command:
+            failing_command = command
+        primary_command = _extract_primary_command(failing_command)
+        if _missing_command_from_outputs(exc.stderr, exc.stdout):
+            error = _create_missing_command_error(primary_command, exc.stderr, exc.stdout)
+            _handle_missing_bluetooth_command(error)
+            return "missing_cli"
+        raise
     return "success"
 
 
@@ -5721,8 +5789,9 @@ def bluetooth_off():
 
 def bluetooth_auto_accept() -> BluetoothActionResult:
     try:
+        command = privileged_command("bluetoothctl")
         p = subprocess.Popen(
-            privileged_command("bluetoothctl"),
+            command,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -5754,6 +5823,16 @@ def bluetooth_auto_accept() -> BluetoothActionResult:
 
     if p.returncode not in (None, 0):
         stderr_message = (stderr or "").strip()
+        stdout_message = (stdout or "").strip()
+        if _missing_command_from_outputs(stderr_message, stdout_message):
+            primary_command = _extract_primary_command(command)
+            error = _create_missing_command_error(
+                primary_command,
+                stderr_message,
+                stdout_message,
+            )
+            _handle_missing_bluetooth_command(error)
+            return "missing_cli"
         logging.error(
             "Bluetooth auto-accept beendete sich mit Code %s: %s",
             p.returncode,
