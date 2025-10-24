@@ -1,5 +1,6 @@
 import importlib
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -7,8 +8,9 @@ import pytest
 from tests.csrf_utils import csrf_post
 
 
-@pytest.fixture
-def app_module(tmp_path, monkeypatch):
+@contextmanager
+def _app_module_context(tmp_path, monkeypatch, sudo_flag: str):
+    monkeypatch.setenv("AUDIO_PI_DISABLE_SUDO", sudo_flag)
     monkeypatch.setenv("FLASK_SECRET_KEY", "testkey")
     monkeypatch.setenv("TESTING", "1")
     monkeypatch.setenv("DB_FILE", str(tmp_path / "test.db"))
@@ -29,20 +31,39 @@ def app_module(tmp_path, monkeypatch):
     upload_dir.mkdir()
     app_module.app.config["UPLOAD_FOLDER"] = str(upload_dir)
 
-    yield app_module
+    try:
+        yield app_module
+    finally:
+        if hasattr(app_module, "conn") and app_module.conn is not None:
+            app_module.conn.close()
+        if "app" in sys.modules:
+            del sys.modules["app"]
+        if repo_root_str in sys.path:
+            sys.path.remove(repo_root_str)
 
-    if hasattr(app_module, "conn") and app_module.conn is not None:
-        app_module.conn.close()
-    if "app" in sys.modules:
-        del sys.modules["app"]
-    if repo_root_str in sys.path:
-        sys.path.remove(repo_root_str)
+
+@pytest.fixture
+def app_module(tmp_path, monkeypatch):
+    with _app_module_context(tmp_path, monkeypatch, "1") as module:
+        yield module
+
+
+@pytest.fixture
+def sudo_app_module(tmp_path, monkeypatch):
+    with _app_module_context(tmp_path, monkeypatch, "0") as module:
+        yield module
 
 
 @pytest.fixture
 def client(app_module):
     with app_module.app.test_client() as client:
         yield client, app_module
+
+
+@pytest.fixture
+def sudo_client(sudo_app_module):
+    with sudo_app_module.app.test_client() as client:
+        yield client, sudo_app_module
 
 
 def _login(client):
@@ -72,21 +93,29 @@ def test_sync_time_handles_timesyncd_failure(monkeypatch, client):
     called_set_rtc = False
     restart_failure_triggered = {"value": False}
 
-    def fake_check_call(cmd, *args, **kwargs):
+    def fake_run(cmd, *args, **kwargs):
+        assert kwargs.get("check") is True
+        assert kwargs.get("capture_output") is True
+        assert kwargs.get("text") is True
         commands.append(cmd)
         restart_command = app_module.privileged_command(
             "systemctl", "restart", "systemd-timesyncd"
         )
         if cmd == restart_command and not restart_failure_triggered["value"]:
             restart_failure_triggered["value"] = True
-            raise app_module.subprocess.CalledProcessError(1, cmd)
-        return 0
+            raise app_module.subprocess.CalledProcessError(
+                1,
+                cmd,
+                stderr="systemctl: service failed",
+                output="",
+            )
+        return app_module.subprocess.CompletedProcess(cmd, 0, "", "")
 
     def fake_set_rtc(dt):
         nonlocal called_set_rtc
         called_set_rtc = True
 
-    monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
     monkeypatch.setattr(app_module, "set_rtc", fake_set_rtc)
 
     response = csrf_post(
@@ -158,16 +187,19 @@ def test_set_time_triggers_internet_sync(monkeypatch, client):
 def test_perform_internet_time_sync_handles_missing_systemctl(monkeypatch, app_module):
     commands = []
 
-    def fake_check_call(cmd, *args, **kwargs):
+    def fake_run(cmd, *args, **kwargs):
+        assert kwargs.get("check") is True
+        assert kwargs.get("capture_output") is True
+        assert kwargs.get("text") is True
         commands.append(cmd)
         restart_command = app_module.privileged_command(
             "systemctl", "restart", "systemd-timesyncd"
         )
         if cmd == restart_command:
-            raise FileNotFoundError(2, "No such file or directory", "systemctl")
-        return 0
+            raise FileNotFoundError(2, "No such file or directory", cmd[0])
+        return app_module.subprocess.CompletedProcess(cmd, 0, "", "")
 
-    monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
     monkeypatch.setattr(app_module, "set_rtc", lambda dt: None)
 
     success, messages = app_module.perform_internet_time_sync()
@@ -186,7 +218,7 @@ def test_perform_internet_time_sync_handles_missing_systemctl(monkeypatch, app_m
     assert commands.count(restart_command) >= 1
     assert success is False
     assert any(
-        "systemctl" in message.lower() or "systemd-timesyncd" in message.lower()
+        "kommando 'systemctl' nicht gefunden" in message.lower()
         for message in messages
     )
 
@@ -195,20 +227,23 @@ def test_perform_internet_time_sync_handles_missing_timedatectl(monkeypatch, app
     commands = []
     rtc_called = False
 
-    def fake_check_call(cmd, *args, **kwargs):
+    def fake_run(cmd, *args, **kwargs):
+        assert kwargs.get("check") is True
+        assert kwargs.get("capture_output") is True
+        assert kwargs.get("text") is True
         commands.append(cmd)
         disable_cmd = app_module.privileged_command(
             "timedatectl", "set-ntp", "false"
         )
         if cmd == disable_cmd:
-            raise FileNotFoundError(2, "No such file or directory", "timedatectl")
-        return 0
+            raise FileNotFoundError(2, "No such file or directory", cmd[0])
+        return app_module.subprocess.CompletedProcess(cmd, 0, "", "")
 
     def fake_set_rtc(dt):
         nonlocal rtc_called
         rtc_called = True
 
-    monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
     monkeypatch.setattr(app_module, "set_rtc", fake_set_rtc)
 
     success, messages = app_module.perform_internet_time_sync()
@@ -220,5 +255,49 @@ def test_perform_internet_time_sync_handles_missing_timedatectl(monkeypatch, app
     assert success is False
     assert any(
         "Kommando 'timedatectl' nicht gefunden, Internet-Sync abgebrochen" in message
+        for message in messages
+    )
+
+
+def test_perform_internet_time_sync_handles_sudo_missing_timedatectl(
+    monkeypatch, sudo_app_module
+):
+    commands = []
+    rtc_called = False
+
+    def fake_run(cmd, *args, **kwargs):
+        assert kwargs.get("check") is True
+        assert kwargs.get("capture_output") is True
+        assert kwargs.get("text") is True
+        commands.append(cmd)
+        disable_cmd = sudo_app_module.privileged_command(
+            "timedatectl", "set-ntp", "false"
+        )
+        if cmd == disable_cmd:
+            raise sudo_app_module.subprocess.CalledProcessError(
+                127,
+                cmd,
+                stderr="sudo: timedatectl: command not found",
+                output="",
+            )
+        return sudo_app_module.subprocess.CompletedProcess(cmd, 0, "", "")
+
+    def fake_set_rtc(dt):
+        nonlocal rtc_called
+        rtc_called = True
+
+    monkeypatch.setattr(sudo_app_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(sudo_app_module, "set_rtc", fake_set_rtc)
+
+    success, messages = sudo_app_module.perform_internet_time_sync()
+
+    disable_command = sudo_app_module.privileged_command(
+        "timedatectl", "set-ntp", "false"
+    )
+    assert disable_command in commands
+    assert success is False
+    assert rtc_called is False
+    assert any(
+        "kommando 'timedatectl' nicht gefunden" in message.lower()
         for message in messages
     )
