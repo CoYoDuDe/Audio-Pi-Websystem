@@ -25,8 +25,7 @@ class DummyMusic:
         return False
 
 
-@pytest.fixture
-def app_module(monkeypatch, tmp_path):
+def _load_app_module(monkeypatch, tmp_path):
     sys.modules.pop("app", None)
 
     monkeypatch.setenv("FLASK_SECRET_KEY", "test-secret")
@@ -61,6 +60,13 @@ def app_module(monkeypatch, tmp_path):
     app_module = importlib.import_module("app")
     app_module.app.config["LOGIN_DISABLED"] = True
     app_module.app.config["UPLOAD_FOLDER"] = str(tmp_path / "uploads")
+
+    return app_module
+
+
+@pytest.fixture
+def app_module(monkeypatch, tmp_path):
+    app_module = _load_app_module(monkeypatch, tmp_path)
 
     yield app_module
 
@@ -205,3 +211,41 @@ def test_wlan_scan_wpa_cli_fail_output(monkeypatch, app_module, caplog):
     assert expected_message in response
     assert flashes == [expected_message]
     assert any("FAIL" in record.message for record in caplog.records)
+
+
+def test_run_wifi_tool_logs_command_not_found(monkeypatch, tmp_path, caplog):
+    monkeypatch.setenv("AUDIO_PI_DISABLE_SUDO", "0")
+    app_module = _load_app_module(monkeypatch, tmp_path)
+
+    try:
+        def fake_run(args, **kwargs):
+            return app_module.subprocess.CompletedProcess(
+                args,
+                1,
+                stdout="",
+                stderr="sudo: wpa_cli: command not found",
+            )
+
+        monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+
+        fallback_message = "Scan nicht möglich, wpa_cli fehlt oder meldet einen Fehler"
+
+        with app_module.app.test_request_context("/wlan_scan"):
+            with caplog.at_level(logging.ERROR):
+                success, output = app_module._run_wifi_tool(
+                    ["sudo", "wpa_cli", "scan"],
+                    fallback_message,
+                    "wpa_cli Test",
+                    flash_on_error=True,
+                )
+                flashes = get_flashed_messages()
+
+        assert not success
+        assert output == fallback_message
+        assert flashes == [fallback_message]
+        assert any(
+            "Kommando 'wpa_cli' nicht gefunden" in record.message
+            for record in caplog.records
+        )
+    finally:
+        sys.modules.pop("app", None)

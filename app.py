@@ -2592,6 +2592,16 @@ def _run_wifi_tool(
     stdout = (result.stdout or "").strip()
     stderr = (result.stderr or "").strip()
 
+    if _command_not_found(stderr, stdout, result.returncode):
+        logging.error(
+            "%s: Kommando '%s' nicht gefunden",
+            log_context,
+            primary_command,
+        )
+        if flash_on_error:
+            flash(fallback_message, "error")
+        return False, fallback_message
+
     fail_indicator = False
     if primary_command == "wpa_cli":
         fail_indicator = any(
