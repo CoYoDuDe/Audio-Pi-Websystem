@@ -5229,6 +5229,11 @@ def wlan_connect():
     base_cmd = privileged_command("wpa_cli", "-i", "wlan0")
     net_id: Optional[str] = None
 
+    base_cli_name = _extract_primary_command(base_cmd)
+    not_found_message = (
+        f"{base_cli_name} nicht gefunden oder keine Berechtigung. Bitte Installation prüfen."
+    )
+
     try:
         net_id = _run_wpa_cli(base_cmd + ["add_network"], expect_ok=False).strip()
         _run_wpa_cli(base_cmd + ["set_network", net_id, "ssid", formatted_ssid])
@@ -5247,7 +5252,7 @@ def wlan_connect():
         flash("Versuche, mit WLAN zu verbinden")
     except FileNotFoundError as e:
         logging.error("wpa_cli nicht gefunden oder nicht ausführbar: %s", e)
-        flash("wpa_cli nicht gefunden oder keine Berechtigung. Bitte Installation prüfen.")
+        flash(not_found_message)
     except subprocess.CalledProcessError as e:
         logging.error(
             "Fehler beim WLAN-Verbindungsaufbau: %s (stdout: %s, stderr: %s)",
@@ -5255,6 +5260,19 @@ def wlan_connect():
             getattr(e, "output", ""),
             getattr(e, "stderr", ""),
         )
+        failing_command = e.cmd or base_cmd
+        if isinstance(failing_command, (list, tuple)):
+            command_parts = list(failing_command)
+        elif isinstance(failing_command, str):
+            command_parts = shlex.split(failing_command)
+        else:
+            command_parts = base_cmd
+
+        primary_command = _extract_primary_command(command_parts)
+        if primary_command and primary_command != "<unbekannt>":
+            not_found_message = (
+                f"{primary_command} nicht gefunden oder keine Berechtigung. Bitte Installation prüfen."
+            )
         if net_id:
             try:
                 _run_wpa_cli(base_cmd + ["remove_network", net_id], expect_ok=False)
@@ -5267,6 +5285,10 @@ def wlan_connect():
                     net_id,
                     cleanup_error,
                 )
+        if _command_not_found(
+            getattr(e, "stderr", ""), getattr(e, "output", ""), e.returncode
+        ):
+            flash(not_found_message)
         flash("Fehler beim WLAN-Verbindungsaufbau. Details im Log einsehbar.")
     return redirect(url_for("index"))
 
