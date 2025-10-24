@@ -8,13 +8,12 @@ from tests.csrf_utils import csrf_post
 from tests.test_volume_route import _login
 
 
-@pytest.fixture
-def app_module(tmp_path, monkeypatch):
+def _load_app_module(tmp_path, monkeypatch, disable_sudo: str):
     monkeypatch.setenv("FLASK_SECRET_KEY", "testkey")
     monkeypatch.setenv("TESTING", "1")
     monkeypatch.setenv("DB_FILE", str(tmp_path / "test.db"))
     monkeypatch.setenv("INITIAL_ADMIN_PASSWORD", "password")
-    monkeypatch.setenv("AUDIO_PI_DISABLE_SUDO", "1")
+    monkeypatch.setenv("AUDIO_PI_DISABLE_SUDO", disable_sudo)
 
     repo_root = Path(__file__).resolve().parents[1]
     repo_root_str = str(repo_root)
@@ -40,9 +39,25 @@ def app_module(tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def app_module(tmp_path, monkeypatch):
+    yield from _load_app_module(tmp_path, monkeypatch, "1")
+
+
+@pytest.fixture
 def client(app_module):
     with app_module.app.test_client() as client:
         yield client, app_module
+
+
+@pytest.fixture
+def app_module_with_sudo(tmp_path, monkeypatch):
+    yield from _load_app_module(tmp_path, monkeypatch, "0")
+
+
+@pytest.fixture
+def client_with_sudo(app_module_with_sudo):
+    with app_module_with_sudo.app.test_client() as client:
+        yield client, app_module_with_sudo
 
 
 def test_volume_missing_pactl_warns(monkeypatch, client):
@@ -78,3 +93,41 @@ def test_volume_missing_pactl_warns(monkeypatch, client):
     ] == commands
     assert app_module._PACTL_MISSING_MESSAGE.encode("utf-8") in response.data
     assert b"Lautst\xc3\xa4rke persistent gesetzt" in response.data
+
+
+def test_volume_missing_pactl_called_process_error(monkeypatch, client_with_sudo):
+    client, app_module = client_with_sudo
+    monkeypatch.setattr(app_module.pygame.mixer.music, "get_busy", lambda: False)
+    monkeypatch.setattr(app_module.pygame.mixer.music, "set_volume", lambda value: None)
+
+    _login(client)
+
+    monkeypatch.setattr(app_module, "get_current_sink", lambda: "test-sink")
+
+    executed_commands = []
+
+    def fake_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd:
+            executed_commands.append(list(cmd))
+            if cmd[0] == "pactl":
+                cmd.insert(0, "sudo")
+                raise app_module.subprocess.CalledProcessError(
+                    returncode=1,
+                    cmd=cmd,
+                    output="",
+                    stderr="missing pactl",
+                )
+        return app_module.subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+
+    response = csrf_post(
+        client,
+        "/volume",
+        data={"volume": "55"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert app_module._PACTL_MISSING_MESSAGE.encode("utf-8") in response.data
+    assert b"Kommando &#39;pactl&#39; fehlgeschlagen (Code 1)." in response.data
