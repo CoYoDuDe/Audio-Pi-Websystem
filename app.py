@@ -5354,8 +5354,8 @@ def set_volume():
                         "%s (ausgeführt als: %s)",
                         message,
                         command_display,
-                )
-                flash(message)
+                    )
+                    flash(message)
             except subprocess.CalledProcessError as exc:
                 failing_command = command
                 if isinstance(exc.cmd, Sequence) and not isinstance(
