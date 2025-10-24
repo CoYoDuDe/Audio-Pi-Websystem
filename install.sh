@@ -861,14 +861,16 @@ ensure_audio_dtparam() {
 
 print_audio_hat_summary() {
     local config_summary_path=""
-    if config_summary_path=$(resolve_config_txt_path "Audio-HAT-Zusammenfassung"); then
-        :
-    else
+    if ! config_summary_path=$(resolve_config_txt_path "Audio-HAT-Zusammenfassung"); then
         config_summary_path=""
     fi
 
-    local config_summary_hint
-    config_summary_hint="${config_summary_path:-Keine config.txt gefunden – bitte Pfad (z. B. /boot/config.txt oder /boot/firmware/config.txt) manuell prüfen}"
+    local config_summary_message
+    if [ -n "$config_summary_path" ]; then
+        config_summary_message="Konfigurationsdatei: ${config_summary_path}"
+    else
+        config_summary_message="Keine config.txt gefunden – bitte Pfad (z. B. /boot/config.txt oder /boot/firmware/config.txt) manuell prüfen"
+    fi
 
     echo "--- Zusammenfassung Audio-HAT ---"
     echo "Auswahl: $HAT_SELECTED_LABEL"
@@ -886,7 +888,7 @@ print_audio_hat_summary() {
         echo "Hinweis: $HAT_SELECTED_NOTES"
     fi
     echo "Nicht-interaktiv: nutze z.B. --hat-model=hifiberry_dacplus oder --hat-model=manual mit --hat-dtoverlay/--hat-sink."
-    echo "Anpassung später: ${config_summary_hint} und sqlite3 audio.db 'UPDATE settings SET value=... WHERE key=\\'dac_sink_name\\';'"
+    echo "Anpassung später: ${config_summary_message} und sqlite3 audio.db 'UPDATE settings SET value=... WHERE key=\\'dac_sink_name\\';'"
     echo "Alternativ kann DAC_SINK_NAME in ~/.profile überschrieben werden."
 }
 

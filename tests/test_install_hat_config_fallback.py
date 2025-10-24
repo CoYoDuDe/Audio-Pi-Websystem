@@ -76,7 +76,7 @@ def test_hat_overlay_prefers_firmware_config_when_standard_missing() -> None:
     assert "[Dry-Run] Würde 'dtparam=audio=off' an /boot/firmware/config.txt anhängen." in stdout
     assert "[Dry-Run] Würde 'dtparam=audio=on' an /boot/firmware/config.txt anhängen." in stdout
     assert "--- Zusammenfassung Audio-HAT ---" in stdout
-    assert "Anpassung später: /boot/firmware/config.txt und sqlite3 audio.db 'UPDATE settings SET value=... WHERE key=\\'dac_sink_name\\';'" in stdout
+    assert "Anpassung später: Konfigurationsdatei: /boot/firmware/config.txt und sqlite3 audio.db 'UPDATE settings SET value=... WHERE key=\\'dac_sink_name\\';'" in stdout
 
 
 
