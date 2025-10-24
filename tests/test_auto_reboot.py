@@ -1,4 +1,6 @@
 import os
+import logging
+from types import SimpleNamespace
 import pytest
 from unittest.mock import MagicMock
 
@@ -183,3 +185,29 @@ def test_load_schedules_preserves_auto_reboot_job(app_module):
     app_module.load_schedules()
 
     assert scheduler.get_job(app_module.AUTO_REBOOT_JOB_ID) is not None
+
+
+def test_run_auto_reboot_job_missing_systemctl_sudo(app_module, monkeypatch, caplog):
+    monkeypatch.setenv("AUDIO_PI_DISABLE_SUDO", "0")
+    monkeypatch.setattr(app_module, "_SUDO_DISABLED", False)
+
+    captured = {}
+
+    def fake_run(command, *, check, capture_output, text):
+        captured["command"] = command
+        return SimpleNamespace(
+            returncode=1,
+            stdout="",
+            stderr="sudo: systemctl: command not found\n",
+        )
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+    caplog.set_level(logging.ERROR)
+
+    app_module.run_auto_reboot_job()
+
+    assert captured["command"] == ["sudo", "systemctl", "reboot"]
+    assert any(
+        "Automatischer Neustart fehlgeschlagen: systemctl nicht gefunden" in message
+        for message in (record.getMessage() for record in caplog.records)
+    )

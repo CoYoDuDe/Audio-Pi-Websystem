@@ -2679,10 +2679,25 @@ def _normalize_time_for_input(time_str):
 def run_auto_reboot_job():
     try:
         logging.info("Automatischer Neustart wird initiiert.")
-        result = subprocess.call(privileged_command("systemctl", "reboot"))
-        if result != 0:
+        command = privileged_command("systemctl", "reboot")
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        stdout_text = result.stdout
+        stderr_text = result.stderr
+        if _command_not_found(stderr_text, stdout_text, result.returncode):
+            primary_command = _extract_primary_command(command)
             logging.error(
-                "Automatischer Neustart fehlgeschlagen – Rückgabewert %s", result
+                "Automatischer Neustart fehlgeschlagen: %s nicht gefunden",
+                primary_command,
+            )
+        elif result.returncode != 0:
+            logging.error(
+                "Automatischer Neustart fehlgeschlagen – Rückgabewert %s",
+                result.returncode,
             )
     except Exception as exc:  # pragma: no cover - reine Vorsichtsmaßnahme
         logging.error("Fehler beim automatischen Neustart: %s", exc, exc_info=True)
