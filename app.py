@@ -5266,21 +5266,32 @@ def set_volume():
                     text=True,
                 )
             except FileNotFoundError:
-                cmd_name = command[0] if command else "Befehl"
-                if cmd_name == "pactl":
+                primary_command = _extract_primary_command(command)
+                command_display = _describe_command(command)
+                if primary_command == "pactl":
                     _notify_missing_pactl()
                 else:
-                    message = f"Kommando '{cmd_name}' wurde nicht gefunden."
-                    logging.warning(message)
+                    message = (
+                        f"Kommando '{primary_command}' wurde nicht gefunden."
+                    )
+                    logging.warning(
+                        "%s (ausgeführt als: %s)",
+                        message,
+                        command_display,
+                    )
                     flash(message)
             except subprocess.CalledProcessError as exc:
-                cmd_name = command[0] if command else str(exc.cmd)
+                primary_command = _extract_primary_command(command)
+                command_display = _describe_command(command)
+                if primary_command == "pactl":
+                    _notify_missing_pactl()
                 message = (
-                    f"Kommando '{cmd_name}' fehlgeschlagen (Code {exc.returncode})."
+                    f"Kommando '{primary_command}' fehlgeschlagen (Code {exc.returncode})."
                 )
                 logging.warning(
-                    "%s stdout: %s stderr: %s",
+                    "%s Ausgeführt als: %s stdout: %s stderr: %s",
                     message,
+                    command_display,
                     exc.stdout or "",
                     exc.stderr or "",
                 )
