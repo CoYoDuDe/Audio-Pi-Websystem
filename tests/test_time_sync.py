@@ -277,7 +277,7 @@ def test_perform_internet_time_sync_handles_sudo_missing_timedatectl(
             raise sudo_app_module.subprocess.CalledProcessError(
                 127,
                 cmd,
-                stderr="sudo: timedatectl: command not found",
+                stderr="sudo: timedatectl: Befehl nicht gefunden",
                 output="",
             )
         return sudo_app_module.subprocess.CompletedProcess(cmd, 0, "", "")

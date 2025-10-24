@@ -2533,10 +2533,31 @@ def _extract_primary_command(args: Sequence[str]) -> str:
     return args[0]
 
 
+_COMMAND_NOT_FOUND_PATTERNS: Tuple[str, ...] = (
+    "command not found",
+    "befehl nicht gefunden",
+    "kommando nicht gefunden",
+    "commande introuvable",
+    "comando non trovato",
+    "comando no encontrado",
+    "comando não encontrado",
+)
+
+
+def _contains_command_not_found_message(*outputs: Optional[str]) -> bool:
+    for output in outputs:
+        if not isinstance(output, str):
+            continue
+        normalized = output.strip().lower()
+        if not normalized:
+            continue
+        if any(pattern in normalized for pattern in _COMMAND_NOT_FOUND_PATTERNS):
+            return True
+    return False
+
+
 def _command_not_found(stderr: Optional[str], stdout: Optional[str], returncode: Optional[int]) -> bool:
-    stderr_text = (stderr or "").lower()
-    stdout_text = (stdout or "").lower()
-    if "command not found" in stderr_text or "command not found" in stdout_text:
+    if _contains_command_not_found_message(stderr, stdout):
         return True
     return returncode == 127
 
@@ -5824,10 +5845,7 @@ BLUETOOTH_MISSING_CLI_MESSAGE = (
     "bluetoothctl nicht gefunden oder keine Berechtigung. Bitte Installation überprüfen."
 )
 
-_MISSING_BLUETOOTH_COMMAND_PATTERNS = (
-    "command not found",
-    "befehl nicht gefunden",
-)
+_MISSING_BLUETOOTH_COMMAND_PATTERNS = _COMMAND_NOT_FOUND_PATTERNS
 
 
 def _flash_missing_bluetooth_cli_message():
@@ -5852,12 +5870,7 @@ BluetoothActionResult = Literal["success", "missing_cli", "error"]
 
 
 def _missing_command_from_outputs(*outputs: Optional[str]) -> bool:
-    combined = " ".join(
-        output.strip().lower() for output in outputs if isinstance(output, str) and output.strip()
-    )
-    if not combined:
-        return False
-    return any(pattern in combined for pattern in _MISSING_BLUETOOTH_COMMAND_PATTERNS)
+    return _contains_command_not_found_message(*outputs)
 
 
 def _create_missing_command_error(

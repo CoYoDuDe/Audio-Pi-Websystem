@@ -163,7 +163,7 @@ def test_system_command_not_found_flash(monkeypatch, tmp_path):
         def __init__(self):
             self.returncode = 1
             self.stdout = ""
-            self.stderr = "sudo: systemctl: command not found"
+            self.stderr = "sudo: systemctl: Befehl nicht gefunden"
 
     original_run = app_module.subprocess.run
 
