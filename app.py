@@ -933,21 +933,46 @@ def sync_rtc_to_system() -> bool:
     date_command = privileged_command("timedatectl", "set-time", set_time_value)
 
     try:
-        subprocess.check_call(date_command)
+        subprocess.run(
+            date_command,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
     except FileNotFoundError as exc:
+        primary_command = exc.filename or _extract_primary_command(date_command)
         logging.error(
-            "RTC-Sync fehlgeschlagen: 'timedatectl'-Kommando nicht gefunden (%s)",
+            "RTC-Sync fehlgeschlagen: Kommando '%s' nicht gefunden (%s)",
+            primary_command,
             exc,
         )
-        _update_rtc_sync_status(False, str(exc))
+        _update_rtc_sync_status(
+            False,
+            f"Kommando '{primary_command}' nicht gefunden",
+        )
         return False
     except subprocess.CalledProcessError as exc:
-        logging.error(
-            "RTC-Sync fehlgeschlagen: Kommando %s lieferte Rückgabecode %s",
-            " ".join(map(str, date_command)),
-            exc.returncode,
-        )
-        _update_rtc_sync_status(False, f"Rückgabecode {exc.returncode}")
+        failing_command = exc.cmd if exc.cmd else date_command
+        primary_command = _extract_primary_command(failing_command or [])
+        stderr_text = exc.stderr if isinstance(exc.stderr, str) else ""
+        stdout_text = exc.stdout if isinstance(exc.stdout, str) else ""
+        if _command_not_found(stderr_text, stdout_text, exc.returncode):
+            logging.error(
+                "RTC-Sync fehlgeschlagen: Kommando '%s' nicht gefunden (%s)",
+                primary_command,
+                stderr_text or exc,
+            )
+            _update_rtc_sync_status(
+                False,
+                f"Kommando '{primary_command}' nicht gefunden",
+            )
+        else:
+            logging.error(
+                "RTC-Sync fehlgeschlagen: Kommando %s lieferte Rückgabecode %s",
+                " ".join(map(str, failing_command)),
+                exc.returncode,
+            )
+            _update_rtc_sync_status(False, f"Rückgabecode {exc.returncode}")
         return False
     except Exception as exc:  # pragma: no cover - unerwartete Fehler
         logging.error("RTC-Sync fehlgeschlagen: %s", exc)
@@ -2505,6 +2530,14 @@ def _extract_primary_command(args: Sequence[str]) -> str:
     if args[0] == "sudo" and len(args) > 1:
         return args[1]
     return args[0]
+
+
+def _command_not_found(stderr: Optional[str], stdout: Optional[str], returncode: Optional[int]) -> bool:
+    stderr_text = (stderr or "").lower()
+    stdout_text = (stdout or "").lower()
+    if "command not found" in stderr_text or "command not found" in stdout_text:
+        return True
+    return returncode == 127
 
 
 def _run_wifi_tool(
@@ -5382,7 +5415,12 @@ def perform_internet_time_sync():
     restart_completed = False
     try:
         for current_command in commands_to_run:
-            subprocess.check_call(current_command)
+            subprocess.run(
+                current_command,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
             if current_command is disable_command:
                 disable_completed = True
             elif current_command is enable_command:
@@ -5390,21 +5428,37 @@ def perform_internet_time_sync():
             elif current_command is restart_command:
                 restart_completed = True
     except FileNotFoundError as exc:
-        missing_command = exc.filename
-        if not missing_command and current_command:
-            missing_command = current_command[0]
-        missing_command = missing_command or "unbekannt"
+        primary_command = exc.filename
+        if not primary_command and current_command:
+            primary_command = _extract_primary_command(current_command)
+        primary_command = primary_command or "unbekannt"
         logging.error(
             "Zeit-Synchronisation fehlgeschlagen, Kommando '%s' nicht gefunden: %s",
-            missing_command,
+            primary_command,
             exc,
         )
         messages.append(
-            f"Kommando '{missing_command}' nicht gefunden, Internet-Sync abgebrochen"
+            f"Kommando '{primary_command}' nicht gefunden, Internet-Sync abgebrochen"
         )
     except subprocess.CalledProcessError as exc:
-        logging.error("Zeit-Synchronisation fehlgeschlagen (%s): %s", exc.cmd, exc)
-        messages.append("Fehler bei der Synchronisation")
+        failing_command = exc.cmd if exc.cmd else current_command
+        primary_command = _extract_primary_command(failing_command or [])
+        stderr_text = exc.stderr if isinstance(exc.stderr, str) else ""
+        stdout_text = exc.stdout if isinstance(exc.stdout, str) else ""
+        if _command_not_found(stderr_text, stdout_text, exc.returncode):
+            logging.error(
+                "Zeit-Synchronisation fehlgeschlagen, Kommando '%s' nicht gefunden: %s",
+                primary_command,
+                stderr_text or exc,
+            )
+            messages.append(
+                f"Kommando '{primary_command}' nicht gefunden, Internet-Sync abgebrochen"
+            )
+        else:
+            logging.error(
+                "Zeit-Synchronisation fehlgeschlagen (%s): %s", failing_command, exc
+            )
+            messages.append("Fehler bei der Synchronisation")
     except Exception as exc:  # pragma: no cover - unerwartete Fehler
         logging.error("Unerwarteter Fehler bei der Zeit-Synchronisation: %s", exc)
         messages.append("Fehler bei der Synchronisation")
@@ -5428,24 +5482,43 @@ def perform_internet_time_sync():
     finally:
         if disable_completed and not enable_completed:
             try:
-                subprocess.check_call(enable_command)
+                subprocess.run(
+                    enable_command,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
                 enable_completed = True
             except subprocess.CalledProcessError as exc:
-                logging.warning(
-                    "timedatectl konnte nach dem Internet-Sync nicht auf 'true' gestellt werden (Exit-Code): %s",
-                    exc,
-                )
-                messages.append(
-                    "timedatectl konnte NTP nach dem Sync nicht wieder aktivieren (siehe Logs für Details)"
-                )
+                failing_command = exc.cmd if exc.cmd else enable_command
+                primary_command = _extract_primary_command(failing_command or [])
+                stderr_text = exc.stderr if isinstance(exc.stderr, str) else ""
+                stdout_text = exc.stdout if isinstance(exc.stdout, str) else ""
+                if _command_not_found(stderr_text, stdout_text, exc.returncode):
+                    logging.warning(
+                        "timedatectl konnte nach dem Internet-Sync nicht ausgeführt werden: %s",
+                        stderr_text or exc,
+                    )
+                    messages.append(
+                        f"Kommando '{primary_command}' nicht gefunden, NTP konnte nach dem Sync nicht reaktiviert werden"
+                    )
+                else:
+                    logging.warning(
+                        "timedatectl konnte nach dem Internet-Sync nicht auf 'true' gestellt werden (Exit-Code): %s",
+                        exc,
+                    )
+                    messages.append(
+                        "timedatectl konnte NTP nach dem Sync nicht wieder aktivieren (siehe Logs für Details)"
+                    )
                 success = False
             except FileNotFoundError as exc:
+                primary_command = exc.filename or _extract_primary_command(enable_command)
                 logging.warning(
                     "timedatectl konnte nach dem Internet-Sync nicht ausgeführt werden: %s",
                     exc,
                 )
                 messages.append(
-                    "timedatectl ist nicht verfügbar, NTP konnte nach dem Sync nicht reaktiviert werden"
+                    f"Kommando '{primary_command}' nicht gefunden, NTP konnte nach dem Sync nicht reaktiviert werden"
                 )
                 success = False
             except Exception as exc:  # pragma: no cover - unerwartete Fehler
@@ -5459,24 +5532,44 @@ def perform_internet_time_sync():
                 success = False
         if enable_completed and not restart_completed:
             try:
-                subprocess.check_call(restart_command)
+                subprocess.run(
+                    restart_command,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
                 restart_completed = True
             except subprocess.CalledProcessError as exc:
-                logging.warning(
-                    "systemd-timesyncd konnte nach dem Internet-Sync nicht neu gestartet werden (Exit-Code): %s",
-                    exc,
-                )
-                messages.append(
-                    "systemd-timesyncd konnte nicht neu gestartet werden (siehe Logs für Details)"
-                )
+                failing_command = exc.cmd if exc.cmd else restart_command
+                primary_command = _extract_primary_command(failing_command or [])
+                stderr_text = exc.stderr if isinstance(exc.stderr, str) else ""
+                stdout_text = exc.stdout if isinstance(exc.stdout, str) else ""
+                if _command_not_found(stderr_text, stdout_text, exc.returncode):
+                    logging.warning(
+                        "systemd-timesyncd konnte nicht neu gestartet werden, da Kommando '%s' fehlt: %s",
+                        primary_command,
+                        stderr_text or exc,
+                    )
+                    messages.append(
+                        f"Kommando '{primary_command}' nicht gefunden, systemd-timesyncd konnte nicht neu gestartet werden"
+                    )
+                else:
+                    logging.warning(
+                        "systemd-timesyncd konnte nach dem Internet-Sync nicht neu gestartet werden (Exit-Code): %s",
+                        exc,
+                    )
+                    messages.append(
+                        "systemd-timesyncd konnte nicht neu gestartet werden (siehe Logs für Details)"
+                    )
                 success = False
             except FileNotFoundError as exc:
+                primary_command = exc.filename or _extract_primary_command(restart_command)
                 logging.warning(
                     "systemd-timesyncd konnte nicht neu gestartet werden, da systemctl nicht verfügbar ist oder Berechtigungen fehlen: %s",
                     exc,
                 )
                 messages.append(
-                    "systemd-timesyncd konnte nicht neu gestartet werden, da systemctl nicht verfügbar ist oder Berechtigungen fehlen"
+                    f"Kommando '{primary_command}' nicht gefunden, systemd-timesyncd konnte nicht neu gestartet werden"
                 )
                 success = False
             except Exception as exc:  # pragma: no cover - unerwartete Fehler
@@ -5516,27 +5609,50 @@ def set_time():
             time_value = dt.strftime("%Y-%m-%d %H:%M:%S")
             command = privileged_command("timedatectl", "set-time", time_value)
             try:
-                subprocess.run(command, check=True)
+                subprocess.run(
+                    command,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
             except FileNotFoundError as exc:
-                missing_command = exc.filename or command[0]
+                primary_command = exc.filename or _extract_primary_command(command)
                 logging.error(
                     "timedatectl zum Setzen der Systemzeit nicht gefunden (%s): %s",
-                    missing_command,
+                    primary_command,
                     exc,
                 )
                 flash(
-                    f"Kommando '{missing_command}' wurde nicht gefunden. Systemzeit konnte nicht gesetzt werden."
+                    f"Kommando '{primary_command}' wurde nicht gefunden. Systemzeit konnte nicht gesetzt werden."
                 )
             except subprocess.CalledProcessError as exc:
-                logging.error("Systemzeit setzen fehlgeschlagen (%s): %s", exc.cmd, exc)
-                executed_command = (
-                    " ".join(map(str, exc.cmd))
-                    if isinstance(exc.cmd, (list, tuple))
-                    else str(exc.cmd)
-                )
-                flash(
-                    f"Ausführung von '{executed_command}' ist fehlgeschlagen. Systemzeit konnte nicht gesetzt werden."
-                )
+                failing_command = exc.cmd if exc.cmd else command
+                primary_command = _extract_primary_command(failing_command or [])
+                stderr_text = exc.stderr if isinstance(exc.stderr, str) else ""
+                stdout_text = exc.stdout if isinstance(exc.stdout, str) else ""
+                if _command_not_found(stderr_text, stdout_text, exc.returncode):
+                    logging.error(
+                        "timedatectl zum Setzen der Systemzeit nicht gefunden (%s): %s",
+                        primary_command,
+                        stderr_text or exc,
+                    )
+                    flash(
+                        f"Kommando '{primary_command}' wurde nicht gefunden. Systemzeit konnte nicht gesetzt werden."
+                    )
+                else:
+                    logging.error(
+                        "Systemzeit setzen fehlgeschlagen (%s): %s",
+                        failing_command,
+                        exc,
+                    )
+                    executed_command = (
+                        " ".join(map(str, failing_command))
+                        if isinstance(failing_command, (list, tuple))
+                        else str(failing_command)
+                    )
+                    flash(
+                        f"Ausführung von '{executed_command}' ist fehlgeschlagen. Systemzeit konnte nicht gesetzt werden."
+                    )
             except Exception as exc:  # Fallback, um unerwartete Fehler abzufangen
                 logging.exception(
                     "Unerwarteter Fehler beim Setzen der Systemzeit (%s): %s",
