@@ -68,7 +68,12 @@ def test_wlan_connect_missing_cli_called_process_error(client, monkeypatch):
         flashes = session.get("_flashes", [])
 
     assert flashes
-    assert any(
-        "wpa_cli nicht gefunden oder keine Berechtigung. Bitte Installation prüfen." in message
-        for _category, message in flashes
+    messages = [message for _category, message in flashes]
+    not_found_message = (
+        "wpa_cli nicht gefunden oder keine Berechtigung. Bitte Installation prüfen."
     )
+    generic_error = "Fehler beim WLAN-Verbindungsaufbau. Details im Log einsehbar."
+
+    assert not_found_message in messages
+    assert generic_error in messages
+    assert messages.index(not_found_message) < messages.index(generic_error)

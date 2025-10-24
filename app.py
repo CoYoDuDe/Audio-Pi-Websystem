@@ -5260,15 +5260,7 @@ def wlan_connect():
             getattr(e, "output", ""),
             getattr(e, "stderr", ""),
         )
-        failing_command = e.cmd or base_cmd
-        if isinstance(failing_command, (list, tuple)):
-            command_parts = list(failing_command)
-        elif isinstance(failing_command, str):
-            command_parts = shlex.split(failing_command)
-        else:
-            command_parts = base_cmd
-
-        primary_command = _extract_primary_command(command_parts)
+        primary_command = _extract_primary_command(e.cmd or base_cmd)
         if primary_command and primary_command != "<unbekannt>":
             not_found_message = (
                 f"{primary_command} nicht gefunden oder keine Berechtigung. Bitte Installation prüfen."
