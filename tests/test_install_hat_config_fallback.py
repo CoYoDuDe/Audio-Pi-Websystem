@@ -124,6 +124,10 @@ def test_hat_overlay_removes_existing_entry_with_options(tmp_path: Path) -> None
         """
     )
 
+    existing_backup_names = {
+        path.name for path in firmware_dir.glob("config.txt.hat.bak.*")
+    }
+
     try:
         result = subprocess.run(
             ["/bin/bash", "-lc", shell_script],
@@ -148,4 +152,5 @@ def test_hat_overlay_removes_existing_entry_with_options(tmp_path: Path) -> None
             firmware_config.write_text(original_content, encoding="utf-8")
 
         for backup_file in firmware_dir.glob("config.txt.hat.bak.*"):
-            backup_file.unlink(missing_ok=True)
+            if backup_file.name not in existing_backup_names:
+                backup_file.unlink(missing_ok=True)
