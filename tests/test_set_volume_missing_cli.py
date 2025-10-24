@@ -110,10 +110,9 @@ def test_volume_missing_pactl_called_process_error(monkeypatch, client_with_sudo
         if isinstance(cmd, list) and cmd:
             executed_commands.append(list(cmd))
             if cmd[0] == "pactl":
-                cmd.insert(0, "sudo")
                 raise app_module.subprocess.CalledProcessError(
                     returncode=1,
-                    cmd=cmd,
+                    cmd=["sudo", *cmd],
                     output="",
                     stderr="missing pactl",
                 )

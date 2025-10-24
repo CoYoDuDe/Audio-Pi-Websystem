@@ -5258,6 +5258,8 @@ def set_volume():
         )
         any_success = False
         for command in commands:
+            command_display = _describe_command(command)
+            primary_command = _extract_primary_command(command)
             try:
                 subprocess.run(
                     command,
@@ -5266,8 +5268,6 @@ def set_volume():
                     text=True,
                 )
             except FileNotFoundError:
-                primary_command = _extract_primary_command(command)
-                command_display = _describe_command(command)
                 if primary_command == "pactl":
                     _notify_missing_pactl()
                 else:
@@ -5281,8 +5281,15 @@ def set_volume():
                     )
                     flash(message)
             except subprocess.CalledProcessError as exc:
-                primary_command = _extract_primary_command(command)
-                command_display = _describe_command(command)
+                failing_command = command
+                if isinstance(exc.cmd, Sequence) and not isinstance(
+                    exc.cmd, (str, bytes)
+                ):
+                    failing_command = exc.cmd
+                if not failing_command:
+                    failing_command = command
+                command_display = _describe_command(failing_command)
+                primary_command = _extract_primary_command(failing_command)
                 if primary_command == "pactl":
                     _notify_missing_pactl()
                 message = (
