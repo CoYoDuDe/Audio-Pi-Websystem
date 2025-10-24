@@ -188,6 +188,51 @@ def test_volume_failure_when_audio_commands_fail(monkeypatch, client):
     )
 
 
+def test_volume_persistence_failure(monkeypatch, client):
+    client, app_module = client
+    monkeypatch.setattr(app_module.pygame.mixer.music, "get_busy", lambda: False)
+    _login(client)
+
+    monkeypatch.setattr(app_module, "get_current_sink", lambda: "test-sink")
+    monkeypatch.setattr(app_module.pygame.mixer.music, "set_volume", lambda value: None)
+
+    commands = []
+
+    def fake_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list):
+            commands.append(cmd)
+            if cmd and cmd[0] == "systemctl":
+                raise app_module.subprocess.CalledProcessError(
+                    returncode=1,
+                    cmd=cmd,
+                    output="error",
+                    stderr="fail",
+                )
+        return app_module.subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+
+    response = csrf_post(
+        client,
+        "/volume",
+        data={"volume": "55"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert (
+        b"Lautst\xc3\xa4rke gesetzt, konnte aber nicht persistent gespeichert werden"
+        in response.data
+    )
+    assert b"Lautst\xc3\xa4rke persistent gesetzt" not in response.data
+    command_tuples = [tuple(cmd) if isinstance(cmd, list) else tuple(cmd) for cmd in commands]
+    assert (
+        ("pactl", "set-sink-volume", "test-sink", "55%") in command_tuples
+        and ("amixer", "sset", "Master", "55%") in command_tuples
+        and ("systemctl", "start", "audio-pi-alsactl.service") in command_tuples
+    )
+
+
 def test_volume_uses_default_sink(monkeypatch, client):
     client, app_module = client
     monkeypatch.setattr(app_module.pygame.mixer.music, "get_busy", lambda: False)
