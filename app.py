@@ -8,6 +8,7 @@ import subprocess
 import threading
 import types
 import glob
+import shlex
 from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.schedulers.base import (
@@ -4509,13 +4510,55 @@ def deactivate_amp():
 
 
 def _execute_system_command(command, success_message, error_message):
-    try:
-        subprocess.Popen(command)
-    except Exception as exc:  # pragma: no cover - Fehlerfall hardwareabhängig
-        logging.exception("Systemkommando %s fehlgeschlagen", command)
-        flash(f"{error_message}: {exc}")
+    if isinstance(command, (list, tuple)):
+        args = list(command)
+    elif isinstance(command, str):
+        args = shlex.split(command)
+    elif command is None:
+        args = []
     else:
+        args = [str(command)]
+
+    command_display = _describe_command(args)
+    primary_command = _extract_primary_command(args)
+
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except Exception as exc:  # pragma: no cover - Fehlerfall hardwareabhängig
+        logging.exception("Systemkommando %s fehlgeschlagen", command_display)
+        flash(f"{error_message}: {exc}")
+        return redirect(url_for("index"))
+
+    if result.returncode == 0:
+        logging.info("Systemkommando %s erfolgreich ausgeführt", command_display)
         flash(success_message)
+        return redirect(url_for("index"))
+
+    stdout = (result.stdout or "").strip()
+    stderr = (result.stderr or "").strip()
+
+    logging.error(
+        "Systemkommando %s fehlgeschlagen (Returncode %s): stdout=%s stderr=%s",
+        command_display,
+        result.returncode,
+        stdout or "<leer>",
+        stderr or "<leer>",
+    )
+
+    if _command_not_found(stderr, stdout, result.returncode):
+        flash(f"{error_message}: {primary_command} nicht gefunden")
+    else:
+        detail = stderr or stdout
+        if detail:
+            flash(f"{error_message}: {detail}")
+        else:
+            flash(f"{error_message}: Rückgabecode {result.returncode}")
+
     return redirect(url_for("index"))
 
 
