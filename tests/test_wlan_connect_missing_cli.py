@@ -1,3 +1,5 @@
+import subprocess
+
 import pytest
 
 from tests.csrf_utils import csrf_post
@@ -34,4 +36,39 @@ def test_wlan_connect_missing_cli(client, monkeypatch):
     assert (
         flashes[-1][1]
         == "wpa_cli nicht gefunden oder keine Berechtigung. Bitte Installation prüfen."
+    )
+
+
+def test_wlan_connect_missing_cli_called_process_error(client, monkeypatch):
+    flask_client, app_module = client
+    monkeypatch.setenv("AUDIO_PI_DISABLE_SUDO", "0")
+    monkeypatch.setattr(app_module, "_SUDO_DISABLED", False, raising=False)
+    _login_admin(flask_client)
+
+    def fake_run_wpa_cli(*args, **kwargs):
+        raise subprocess.CalledProcessError(
+            returncode=127,
+            cmd=["sudo", "wpa_cli", "-i", "wlan0", "add_network"],
+            stderr="sudo: wpa_cli: command not found",
+            output="",
+        )
+
+    monkeypatch.setattr(app_module, "_run_wpa_cli", fake_run_wpa_cli)
+
+    response = csrf_post(
+        flask_client,
+        "/wlan_connect",
+        data={"ssid": "MissingCLI", "password": "secretpass"},
+        follow_redirects=False,
+        source_url="/change_password",
+    )
+
+    assert response.status_code == 302
+    with flask_client.session_transaction() as session:
+        flashes = session.get("_flashes", [])
+
+    assert flashes
+    assert any(
+        "wpa_cli nicht gefunden oder keine Berechtigung. Bitte Installation prüfen." in message
+        for _category, message in flashes
     )
