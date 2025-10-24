@@ -5408,6 +5408,7 @@ def set_volume():
             ]
         )
         audio_command_success = False
+        persistence_success = False
         for command in commands:
             command_display = _describe_command(command)
             primary_command = _extract_primary_command(command)
@@ -5457,16 +5458,26 @@ def set_volume():
             else:
                 if primary_command in {"pactl", "amixer"}:
                     audio_command_success = True
+                if command is persistent_command:
+                    persistence_success = True
     except Exception as e:
         logging.error(f"Fehler beim Setzen der Lautstärke: {e}")
         flash("Fehler beim Setzen der Lautstärke")
     else:
         if audio_command_success:
-            logging.info(f"Lautstärke auf {int_vol}% gesetzt (persistent)")
-            flash("Lautstärke persistent gesetzt")
-            if info_on_missing_pygame and has_request_context():
-                # Nachricht bereits geflasht, kein weiterer Hinweis nötig
-                pass
+            if persistence_success:
+                logging.info(f"Lautstärke auf {int_vol}% gesetzt (persistent)")
+                flash("Lautstärke persistent gesetzt")
+                if info_on_missing_pygame and has_request_context():
+                    # Nachricht bereits geflasht, kein weiterer Hinweis nötig
+                    pass
+            else:
+                logging.warning(
+                    "Lautstärke gesetzt, konnte aber nicht persistent gespeichert werden."
+                )
+                flash(
+                    "Lautstärke gesetzt, konnte aber nicht persistent gespeichert werden"
+                )
         else:
             logging.error("Lautstärke konnte mit den verfügbaren Werkzeugen nicht gesetzt werden.")
             flash("Lautstärke konnte nicht gesetzt werden")
