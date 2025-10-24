@@ -14,6 +14,7 @@ Wichtige Optionen:
   --generate-secret               Stellt automatisch einen starken Secret Key bereit (alternativ INSTALL_GENERATE_SECRET=1).
   --flask-port VALUE              HTTP-Port für Gunicorn/Flask (Standard: 80; alternativ INSTALL_FLASK_PORT).
   --log-file-mode MODE            chmod-Modus für app.log (Standard: 666; alternativ INSTALL_LOG_FILE_MODE).
+  --target-user VALUE             Dienstbenutzer explizit setzen (alternativ INSTALL_TARGET_USER).
   --rtc-mode MODE                 RTC-Modus: auto, pcf8563, ds3231, skip.
   --rtc-addresses LIST            Kommagetrennte I²C-Adressen (z.B. 0x51,0x68).
   --rtc-overlay VALUE             dtoverlay-Wert für die RTC ("-" oder "none" deaktiviert die Änderung).
@@ -288,6 +289,7 @@ ARG_AP_DHCP_LEASE=""
 ARG_AP_WAN=""
 ARG_LOG_FILE_MODE=""
 ARG_GENERATE_SECRET=0
+ARG_TARGET_USER=""
 FORCE_NONINTERACTIVE=0
 INSTALL_DRY_RUN=${INSTALL_DRY_RUN:-0}
 
@@ -311,6 +313,11 @@ while [ $# -gt 0 ]; do
         --log-file-mode)
             require_value "$1" "$2"
             ARG_LOG_FILE_MODE="$2"
+            shift 2
+            ;;
+        --target-user)
+            require_value "$1" "$2"
+            ARG_TARGET_USER="$2"
             shift 2
             ;;
         --rtc-mode)
@@ -520,6 +527,59 @@ if [ "$LOG_FILE_MODE_SOURCE" = "Standard (666)" ]; then
     echo "Logfile-Modus: ${LOG_FILE_MODE}"
 else
     echo "Logfile-Modus: ${LOG_FILE_MODE} (Quelle: ${LOG_FILE_MODE_SOURCE})"
+fi
+
+TARGET_USER=""
+TARGET_USER_SOURCE="Automatisch (SUDO_USER/USER)"
+TARGET_USER_EXPLICIT=0
+if [ -n "$ARG_TARGET_USER" ]; then
+    TARGET_USER="$ARG_TARGET_USER"
+    TARGET_USER_SOURCE="CLI (--target-user)"
+    TARGET_USER_EXPLICIT=1
+elif [ -n "${INSTALL_TARGET_USER:-}" ]; then
+    TARGET_USER="$INSTALL_TARGET_USER"
+    TARGET_USER_SOURCE="INSTALL_TARGET_USER"
+    TARGET_USER_EXPLICIT=1
+else
+    TARGET_USER=${SUDO_USER:-$USER}
+    if [ -z "$TARGET_USER" ]; then
+        TARGET_USER=$(id -un)
+        TARGET_USER_SOURCE="id -un (Fallback)"
+    else
+        TARGET_USER_SOURCE="SUDO_USER/USER (automatisch)"
+    fi
+fi
+
+if [ -z "$TARGET_USER" ]; then
+    echo "Fehler: Zielbenutzer konnte nicht ermittelt werden. Bitte --target-user oder INSTALL_TARGET_USER verwenden." >&2
+    exit 1
+fi
+
+if ! TARGET_UID=$(id -u "$TARGET_USER" 2>/dev/null); then
+    echo "Fehler: Der angegebene Zielbenutzer '$TARGET_USER' existiert nicht. Bitte einen gültigen Account (z. B. via --target-user) wählen." >&2
+    exit 1
+fi
+if ! TARGET_GID=$(id -g "$TARGET_USER" 2>/dev/null); then
+    echo "Fehler: Die primäre Gruppe für '$TARGET_USER' konnte nicht ermittelt werden. Konto prüfen oder explizit angeben." >&2
+    exit 1
+fi
+TARGET_GROUP=$(id -gn "$TARGET_USER" 2>/dev/null)
+if [ -z "$TARGET_GROUP" ]; then
+    echo "Fehler: Die primäre Gruppe für '$TARGET_USER' konnte nicht bestimmt werden. Bitte Benutzer-/Gruppenzuordnung prüfen." >&2
+    exit 1
+fi
+
+if [ "$TARGET_USER" = "root" ] && [ "$TARGET_USER_EXPLICIT" -eq 0 ]; then
+    echo "Fehler: Der Installer richtet standardmäßig keinen Root-Dienstbenutzer ein. Bitte --target-user bzw. INSTALL_TARGET_USER auf ein separates Konto setzen." >&2
+    exit 1
+fi
+
+if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
+    echo "[Dry-Run] Dienstbenutzer wäre: ${TARGET_USER} (${TARGET_USER_SOURCE}, UID ${TARGET_UID})"
+    echo "[Dry-Run] Primäre Gruppe wäre: ${TARGET_GROUP} (GID ${TARGET_GID})"
+else
+    echo "Dienstbenutzer: ${TARGET_USER} (${TARGET_USER_SOURCE}, UID ${TARGET_UID})"
+    echo "Primäre Gruppe: ${TARGET_GROUP} (GID ${TARGET_GID})"
 fi
 
 if [ -z "$ARG_RTC_MODE" ] && [ -n "${INSTALL_RTC_MODE:-}" ]; then
@@ -950,13 +1010,16 @@ if ! validate_secret_strength "$SECRET" "$SECRET_SOURCE"; then
     exit 1
 fi
 
-TARGET_USER=${SUDO_USER:-$USER}
-if [ -z "$TARGET_USER" ]; then
-    TARGET_USER=$(id -un)
+TARGET_HOME=$(eval printf '%s' "~$TARGET_USER")
+if [ -z "$TARGET_HOME" ] || [ "$TARGET_HOME" = "~$TARGET_USER" ]; then
+    if command -v getent >/dev/null 2>&1; then
+        TARGET_HOME=$(getent passwd "$TARGET_USER" | cut -d: -f6)
+    fi
 fi
-TARGET_UID=$(id -u "$TARGET_USER")
-TARGET_GROUP=$(id -gn "$TARGET_USER")
-TARGET_HOME=$(eval echo "~$TARGET_USER")
+if [ -z "$TARGET_HOME" ]; then
+    echo "Fehler: Home-Verzeichnis für '$TARGET_USER' konnte nicht ermittelt werden." >&2
+    exit 1
+fi
 PROFILE_FILE="$TARGET_HOME/.profile"
 AUDIO_PI_ENV_DIR="${INSTALL_ENV_DIR:-/etc/audio-pi}"
 AUDIO_PI_ENV_FILE="${INSTALL_ENV_FILE:-$AUDIO_PI_ENV_DIR/audio-pi.env}"
@@ -1009,6 +1072,7 @@ if [ "${INSTALL_EXIT_AFTER_SECRET:-0}" = "1" ]; then
 fi
 
 if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
+    echo "[Dry-Run] Würde audio-pi.service auf Benutzer ${TARGET_USER} und Gruppe ${TARGET_GROUP} aktualisieren."
     enable_i2c_support
     echo "[Dry-Run] Würde 'sudo usermod -aG pulse \"$TARGET_USER\"' ausführen."
     echo "[Dry-Run] Würde 'sudo usermod -aG pulse-access \"$TARGET_USER\"' ausführen."

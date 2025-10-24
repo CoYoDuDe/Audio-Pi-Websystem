@@ -103,6 +103,27 @@ Umgebungsvariablen mit dem Präfix `INSTALL_…` vorbelegen. Sobald alle
 Pflichtwerte gesetzt sind, läuft `install.sh` vollständig automatisch. Das
 Kommando `./install.sh --help` listet alle verfügbaren Optionen auf.
 
+Der Installer ermittelt den Dienstbenutzer standardmäßig aus `SUDO_USER` bzw.
+`USER`. Für gehärtete Deployments kann der Account nun explizit mit
+`--target-user` gesetzt werden; dasselbe Verhalten lässt sich über die
+Umgebungsvariable `INSTALL_TARGET_USER` automatisieren. Sobald der automatisch
+ermittelte Benutzer `root` wäre, bricht `install.sh` mit einem Hinweis ab und
+verweist auf `--target-user`, weil systemd-Dienste laut offizieller
+Dokumentation nach Möglichkeit ohne Root-Rechte laufen sollten. Auf diese Weise
+erhält der Webdienst keinen vollständigen Systemzugriff, selbst wenn die
+Anwendung kompromittiert würde. Ein kompletter Non-Root-Lauf sieht beispielsweise
+so aus:
+
+```bash
+SECRET=$(sudo awk -F= '/^FLASK_SECRET_KEY=/{print $2}' /etc/audio-pi/audio-pi.env)
+sudo INSTALL_FLASK_SECRET_KEY="$SECRET" INSTALL_TARGET_USER=audio-pi ./install.sh --dry-run
+```
+
+Im produktiven Durchlauf kann anschließend `--dry-run` entfallen. Existiert der
+Dienstbenutzer noch nicht, empfiehlt sich ein dedizierter Systemaccount, z. B.
+`sudo adduser --system --home /srv/audio-pi --group audio-pi`, bevor das Skript
+erneut mit `--target-user audio-pi` aufgerufen wird.
+
 Die Paketinstallation selbst läuft nun komplett unattended. `install.sh` nutzt
 `apt-get` mit `DEBIAN_FRONTEND=noninteractive` sowie den dpkg-Optionen
 `--force-confdef` und `--force-confold`, damit Upgrades ohne Rückfragen
@@ -131,7 +152,20 @@ den ausführenden Benutzer automatisch um die Gruppen `pulse`, `pulse-access`, `
 kann den Beitritt über `sudo adduser <dienstkonto> i2c` sowie `sudo adduser <dienstkonto> gpio`
 nachholen. Die Gruppenmitgliedschaft wird beim nächsten Login aktiv.
 
-#### Migration bestehender Installationen
+#### Migration bestehender Installationen (Dienstbenutzer absichern)
+
+1. Eigenen Dienstbenutzer anlegen (falls noch nicht vorhanden), z. B. mit
+   `sudo adduser --system --home /srv/audio-pi --group audio-pi`.
+2. Den bisherigen Secret Key auslesen, damit die Web-Anmeldung erhalten bleibt:
+   `SECRET=$(sudo awk -F= '/^FLASK_SECRET_KEY=/{print $2}' /etc/audio-pi/audio-pi.env)`.
+3. Installer im Dry-Run testen, um die Änderungen zu prüfen:
+   `sudo INSTALL_FLASK_SECRET_KEY="$SECRET" ./install.sh --target-user audio-pi --dry-run`.
+4. Installer erneut ohne `--dry-run` ausführen, damit Unit, Gruppen und Rechte
+   aktualisiert werden. Anschließend `sudo systemctl daemon-reload && sudo systemctl restart audio-pi.service`.
+5. Mit `systemctl status audio-pi.service` kontrollieren, ob `User=` auf den
+   neuen Account zeigt.
+
+#### Migration bestehender Installationen (I²C/GPIO-Gruppen)
 
 Sollte eine Installation vor dieser Anpassung erfolgt sein, reicht es aus, den Dienstbenutzer
 einmalig in die I²C- und GPIO-Gruppen aufzunehmen:
@@ -324,6 +358,11 @@ lässt sich das Verhalten bei Bedarf weiter abstimmen.
   genügt `sudo systemctl restart audio-pi.service`. Für reine
   Konfigurationsupdates der Gunicorn-Parameter empfiehlt sich `sudo systemctl
   reload audio-pi.service`, wodurch Gunicorn einen Hot-Reload per HUP erhält.
+- **Dienstbenutzer-Härtung:** Die Unit wird ausschließlich mit dem zuvor
+  validierten Account beschrieben. Ohne explizite Vorgabe verweigert
+  `install.sh` Root als Dienstkonto und verweist auf `--target-user` bzw.
+  `INSTALL_TARGET_USER`. Dadurch folgt die Installation der systemd-Empfehlung,
+  privilegierte Dienste möglichst als eigener Benutzer zu starten.
 - **Gehärtete Defaults:** Die Unit `audio-pi.service` beschränkt sich jetzt beim
   Capability-Set konsequent auf `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`
   (gleichzeitig als `AmbientCapabilities` gesetzt) und kombiniert dies mit
