@@ -26,6 +26,7 @@ def test_install_rejects_too_short_secret(tmp_path: Path) -> None:
             "PATH": _prepare_fake_path(tmp_path),
         }
     )
+    env.setdefault("INSTALL_TARGET_USER", "root")
 
     result = subprocess.run(
         ["/bin/bash", str(script)],
@@ -64,6 +65,7 @@ def test_install_generates_secret_into_env_file(tmp_path: Path) -> None:
             "PATH": _prepare_fake_path(tmp_path),
         }
     )
+    env.setdefault("INSTALL_TARGET_USER", "root")
 
     result = subprocess.run(
         ["/bin/bash", str(script)],

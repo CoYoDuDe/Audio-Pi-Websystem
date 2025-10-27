@@ -52,6 +52,7 @@ def test_hat_overlay_prefers_firmware_config_when_standard_missing() -> None:
     ).format(script=script)
 
     env = os.environ.copy()
+    env.setdefault("INSTALL_TARGET_USER", "root")
     result = subprocess.run(
         ["/bin/bash", "-lc", shell_script],
         stdout=subprocess.PIPE,
@@ -112,6 +113,7 @@ def test_hat_overlay_removes_existing_entry_with_options(tmp_path: Path) -> None
     sudo_stub.chmod(0o755)
 
     env = os.environ.copy()
+    env.setdefault("INSTALL_TARGET_USER", "root")
     env["PATH"] = f"{sudo_stub.parent}:{env.get('PATH', '')}"
 
     shell_script = textwrap.dedent(
