@@ -5605,8 +5605,14 @@ TIME_SYNC_INTERNET_SETTING_KEY = "time_sync_internet_default"
 def perform_internet_time_sync():
     success = False
     messages: List[str] = []
-    pending_success_message: Optional[str] = None
+    success_message: Optional[str] = None
     cleanup_failed = False
+    extra_restart_cleanup_enabled = (
+        os.environ.get("AUDIO_PI_FORCE_EXTRA_TIMESYNC_RESTART", "")
+        .strip()
+        .lower()
+        in {"1", "true", "yes", "on"}
+    )
     disable_command = privileged_command("timedatectl", "set-ntp", "false")
     enable_command = privileged_command("timedatectl", "set-ntp", "true")
     restart_command = privileged_command(
@@ -5681,7 +5687,7 @@ def perform_internet_time_sync():
             )
             messages.append("RTC konnte nicht aktualisiert werden")
         else:
-            pending_success_message = "Zeit vom Internet synchronisiert"
+            success_message = "Zeit vom Internet synchronisiert"
             success = True
     finally:
         if disable_completed and not enable_completed:
@@ -5791,14 +5797,63 @@ def perform_internet_time_sync():
                 )
                 cleanup_failed = True
                 success = False
-    if success and not cleanup_failed and pending_success_message:
-        messages.append(pending_success_message)
-    elif pending_success_message and pending_success_message in messages and (
-        not success or cleanup_failed
-    ):
-        # Sicherheitsnetz, falls zukünftige Änderungen die Nachricht früher hinzufügen
-        messages = [msg for msg in messages if msg != pending_success_message]
-    return success, messages
+        if success and not cleanup_failed and extra_restart_cleanup_enabled:
+            try:
+                subprocess.run(
+                    restart_command,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            except subprocess.CalledProcessError as exc:
+                failing_command = exc.cmd if exc.cmd else restart_command
+                primary_command = _extract_primary_command(failing_command or [])
+                stderr_text = exc.stderr if isinstance(exc.stderr, str) else ""
+                stdout_text = exc.stdout if isinstance(exc.stdout, str) else ""
+                if _command_not_found(stderr_text, stdout_text, exc.returncode):
+                    logging.warning(
+                        "systemd-timesyncd konnte nicht neu gestartet werden, da Kommando '%s' fehlt: %s",
+                        primary_command,
+                        stderr_text or exc,
+                    )
+                    messages.append(
+                        f"Kommando '{primary_command}' nicht gefunden, systemd-timesyncd konnte nicht neu gestartet werden",
+                    )
+                else:
+                    logging.warning(
+                        "systemd-timesyncd konnte nach dem Internet-Sync nicht neu gestartet werden (Cleanup-Phase, Exit-Code): %s",
+                        exc,
+                    )
+                    messages.append(
+                        "systemd-timesyncd konnte nicht neu gestartet werden (siehe Logs für Details)",
+                    )
+                cleanup_failed = True
+                success = False
+            except FileNotFoundError as exc:
+                primary_command = exc.filename or _extract_primary_command(restart_command)
+                logging.warning(
+                    "systemd-timesyncd konnte im Cleanup nicht neu gestartet werden, da systemctl nicht verfügbar ist oder Berechtigungen fehlen: %s",
+                    exc,
+                )
+                messages.append(
+                    f"Kommando '{primary_command}' nicht gefunden, systemd-timesyncd konnte nicht neu gestartet werden",
+                )
+                cleanup_failed = True
+                success = False
+            except Exception as exc:  # pragma: no cover - unerwartete Fehler
+                logging.warning(
+                    "Unerwarteter Fehler beim Neustart von systemd-timesyncd während des Cleanup-Schritts nach dem Internet-Sync: %s",
+                    exc,
+                )
+                messages.append(
+                    "systemd-timesyncd konnte nicht neu gestartet werden (unerwarteter Fehler, bitte Logs prüfen)",
+                )
+                cleanup_failed = True
+                success = False
+    final_success = success and not cleanup_failed
+    if final_success and success_message:
+        messages.append(success_message)
+    return final_success, messages
 
 
 def _is_checked(value):

@@ -404,3 +404,46 @@ def test_perform_internet_time_sync_handles_sudo_missing_timedatectl(
         "kommando 'timedatectl' nicht gefunden" in message.lower()
         for message in messages
     )
+
+
+def test_perform_internet_time_sync_cleanup_failure_after_success(monkeypatch, app_module):
+    restart_calls = {"count": 0}
+    rtc_calls = {"count": 0}
+    restart_command = app_module.privileged_command(
+        "systemctl", "restart", "systemd-timesyncd"
+    )
+
+    def fake_run(cmd, *args, **kwargs):
+        assert kwargs.get("check") is True
+        assert kwargs.get("capture_output") is True
+        assert kwargs.get("text") is True
+        if cmd == restart_command:
+            restart_calls["count"] += 1
+            if restart_calls["count"] == 2:
+                raise app_module.subprocess.CalledProcessError(
+                    1,
+                    cmd,
+                    stderr="Restart fehlgeschlagen",
+                    output="",
+                )
+        return app_module.subprocess.CompletedProcess(cmd, 0, "", "")
+
+    def fake_set_rtc(dt):
+        rtc_calls["count"] += 1
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(app_module, "set_rtc", fake_set_rtc)
+    monkeypatch.setenv("AUDIO_PI_FORCE_EXTRA_TIMESYNC_RESTART", "1")
+
+    success, messages = app_module.perform_internet_time_sync()
+
+    assert rtc_calls["count"] == 1
+    assert restart_calls["count"] == 2
+    assert success is False
+    assert not any(
+        "Zeit vom Internet synchronisiert" in message for message in messages
+    )
+    assert any(
+        "systemd-timesyncd konnte nicht neu gestartet werden" in message
+        for message in messages
+    )
