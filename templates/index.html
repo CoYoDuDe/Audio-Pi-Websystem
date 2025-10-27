@@ -1,7 +1,24 @@
 {% extends 'base.html' %}
 {% block title %}Audio Pi Control{% endblock %}
+{% block flashes %}{% endblock %}
 {% block content %}
+{% set flashed_messages = get_flashed_messages(with_categories=true) %}
+{% set flash_groups = namespace(general=[], network=[]) %}
+{% for category, message in flashed_messages %}
+    {% if category == 'network_settings' %}
+        {% set flash_groups.network = flash_groups.network + [message] %}
+    {% else %}
+        {% set flash_groups.general = flash_groups.general + [message] %}
+    {% endif %}
+{% endfor %}
 <h2>Audio Pi Websteuerung</h2>
+{% if flash_groups.general %}
+<ul class="flashes">
+    {% for message in flash_groups.general %}
+    <li>{{ message }}</li>
+    {% endfor %}
+</ul>
+{% endif %}
 
 <section id="status">
     <h3>Status</h3>
@@ -44,6 +61,145 @@
     <div class="alert alert-warning rtc-warning" style="background-color:#fff3cd;padding:1rem;border:1px solid #ffeeba;border-radius:0.5rem;color:#856404;margin-top:1rem;">
         <strong>Warnung:</strong> Keine RTC erkannt. Die Systemzeit läuft ohne Hardware-Uhr weiter; bitte Verkabelung und I²C-Konfiguration prüfen.
     </div>
+    {% endif %}
+</section>
+
+{% set network_mode = (network_settings.mode | default('dhcp')) %}
+{% set manual_mode = (network_mode == 'manual') %}
+{% set manual_hidden_style = 'display:none;' if not manual_mode else '' %}
+
+<section id="network-settings">
+    <h3>Netzwerkeinstellungen</h3>
+    <form
+        id="network-settings-form"
+        action="{{ url_for('save_network_settings') }}"
+        method="POST"
+        class="network-settings-form"
+        style="display:flex;flex-direction:column;gap:0.75rem;max-width:36rem;"
+    >
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <fieldset style="display:flex;gap:1.5rem;flex-wrap:wrap;align-items:center;margin:0;">
+            <legend style="font-weight:bold;">IPv4-Konfiguration</legend>
+            <label style="display:flex;align-items:center;gap:0.5rem;">
+                <input type="radio" name="mode" value="dhcp" {% if not manual_mode %}checked{% endif %}>
+                DHCP (automatisch beziehen)
+            </label>
+            <label style="display:flex;align-items:center;gap:0.5rem;">
+                <input type="radio" name="mode" value="manual" {% if manual_mode %}checked{% endif %}>
+                Manuell (statische IPv4)
+            </label>
+        </fieldset>
+        <div
+            class="network-field-grid"
+            style="display:grid;gap:0.75rem;grid-template-columns:repeat(auto-fit, minmax(14rem, 1fr));"
+        >
+            <label
+                for="ipv4-address"
+                data-manual-field
+                style="display:flex;flex-direction:column;gap:0.25rem;{{ manual_hidden_style }}"
+            >
+                IPv4-Adresse
+                <input
+                    type="text"
+                    id="ipv4-address"
+                    name="ipv4_address"
+                    placeholder="z. B. 192.168.0.10"
+                    value="{{ network_settings.ipv4_address }}"
+                    data-manual-input
+                    data-required-when-manual="true"
+                >
+            </label>
+            <label
+                for="ipv4-prefix"
+                data-manual-field
+                style="display:flex;flex-direction:column;gap:0.25rem;{{ manual_hidden_style }}"
+            >
+                Präfix (CIDR)
+                <input
+                    type="number"
+                    id="ipv4-prefix"
+                    name="ipv4_prefix"
+                    min="0"
+                    max="32"
+                    placeholder="z. B. 24"
+                    value="{{ network_settings.ipv4_prefix }}"
+                    data-manual-input
+                    data-required-when-manual="true"
+                >
+            </label>
+            <label
+                for="ipv4-gateway"
+                data-manual-field
+                style="display:flex;flex-direction:column;gap:0.25rem;{{ manual_hidden_style }}"
+            >
+                Gateway
+                <input
+                    type="text"
+                    id="ipv4-gateway"
+                    name="ipv4_gateway"
+                    placeholder="z. B. 192.168.0.1"
+                    value="{{ network_settings.ipv4_gateway }}"
+                    data-manual-input
+                    data-required-when-manual="true"
+                >
+            </label>
+            <label
+                for="dns-servers"
+                data-manual-field
+                style="display:flex;flex-direction:column;gap:0.25rem;{{ manual_hidden_style }}"
+            >
+                DNS-Server
+                <input
+                    type="text"
+                    id="dns-servers"
+                    name="dns_servers"
+                    placeholder="z. B. 1.1.1.1, 8.8.8.8"
+                    value="{{ network_settings.dns_servers }}"
+                    data-manual-input
+                    data-required-when-manual="true"
+                >
+            </label>
+            <label
+                for="hostname"
+                data-manual-field
+                style="display:flex;flex-direction:column;gap:0.25rem;{{ manual_hidden_style }}"
+            >
+                Hostname
+                <input
+                    type="text"
+                    id="hostname"
+                    name="hostname"
+                    placeholder="z. B. audio-pi"
+                    value="{{ network_settings.hostname }}"
+                    data-manual-input
+                    data-required-when-manual="true"
+                >
+            </label>
+            <label
+                for="local-domain"
+                data-manual-field
+                style="display:flex;flex-direction:column;gap:0.25rem;{{ manual_hidden_style }}"
+            >
+                Lokale Domain (optional)
+                <input
+                    type="text"
+                    id="local-domain"
+                    name="local_domain"
+                    placeholder="z. B. lan"
+                    value="{{ network_settings.local_domain }}"
+                    data-manual-input
+                >
+            </label>
+        </div>
+        <small data-manual-hint style="{{ manual_hidden_style }}">Bei Modus „Manuell“ müssen alle relevanten Felder plausibel ausgefüllt werden.</small>
+        <button type="submit" class="btn" style="align-self:flex-start;">Speichern</button>
+    </form>
+    {% if flash_groups.network %}
+    <ul class="flashes" style="margin-top:0.5rem;">
+        {% for message in flash_groups.network %}
+        <li>{{ message }}</li>
+        {% endfor %}
+    </ul>
     {% endif %}
 </section>
 
@@ -634,6 +790,11 @@
         const volumeValue = document.getElementById('volume-value');
         const scheduleVolumeSlider = document.getElementById('schedule-volume');
         const scheduleVolumeValue = document.getElementById('schedule-volume-value');
+        const networkForm = document.getElementById('network-settings-form');
+        const networkModeRadios = networkForm ? networkForm.querySelectorAll('input[name="mode"]') : null;
+        const manualFieldWrappers = networkForm ? networkForm.querySelectorAll('[data-manual-field]') : null;
+        const manualInputs = networkForm ? networkForm.querySelectorAll('[data-manual-input]') : null;
+        const manualHint = networkForm ? networkForm.querySelector('[data-manual-hint]') : null;
 
         function populate() {
             if (!itemSelect || !typeSelect) {
@@ -685,6 +846,51 @@
             autoRebootWeekdayWrapper.style.display = autoRebootModeSelect.value === 'weekly' ? 'block' : 'none';
         }
 
+        function getSelectedNetworkMode() {
+            if (!networkModeRadios) {
+                return 'dhcp';
+            }
+            for (const radio of networkModeRadios) {
+                if (radio instanceof HTMLInputElement && radio.checked) {
+                    return radio.value || 'dhcp';
+                }
+            }
+            return 'dhcp';
+        }
+
+        function updateManualNetworkVisibility() {
+            if (!networkForm) {
+                return;
+            }
+            const mode = getSelectedNetworkMode();
+            const manual = mode === 'manual';
+
+            if (manualFieldWrappers) {
+                manualFieldWrappers.forEach((element) => {
+                    if (element instanceof HTMLElement) {
+                        element.style.display = manual ? '' : 'none';
+                    }
+                });
+            }
+
+            if (manualInputs) {
+                manualInputs.forEach((inputElement) => {
+                    if (!(inputElement instanceof HTMLInputElement)) {
+                        return;
+                    }
+                    const mustFill = inputElement.dataset.requiredWhenManual === 'true';
+                    inputElement.required = manual && mustFill;
+                    if (!manual) {
+                        inputElement.setCustomValidity('');
+                    }
+                });
+            }
+
+            if (manualHint && manualHint instanceof HTMLElement) {
+                manualHint.style.display = manual ? '' : 'none';
+            }
+        }
+
         if (typeSelect) {
             typeSelect.addEventListener('change', populate);
         }
@@ -711,6 +917,56 @@
         updateAutoRebootWeekdayVisibility();
         if (autoRebootModeSelect) {
             autoRebootModeSelect.addEventListener('change', updateAutoRebootWeekdayVisibility);
+        }
+
+        if (networkModeRadios) {
+            networkModeRadios.forEach((radio) => {
+                radio.addEventListener('change', updateManualNetworkVisibility);
+            });
+        }
+        updateManualNetworkVisibility();
+
+        if (manualInputs) {
+            manualInputs.forEach((inputElement) => {
+                if (inputElement instanceof HTMLInputElement) {
+                    inputElement.addEventListener('input', () => {
+                        inputElement.setCustomValidity('');
+                    });
+                }
+            });
+        }
+
+        if (networkForm) {
+            networkForm.addEventListener('submit', (event) => {
+                if (!manualInputs || getSelectedNetworkMode() !== 'manual') {
+                    return;
+                }
+                let firstInvalid = null;
+                manualInputs.forEach((inputElement) => {
+                    if (!(inputElement instanceof HTMLInputElement)) {
+                        return;
+                    }
+                    const mustFill = inputElement.dataset.requiredWhenManual === 'true';
+                    if (!mustFill) {
+                        inputElement.setCustomValidity('');
+                        return;
+                    }
+                    const value = inputElement.value.trim();
+                    if (!value) {
+                        inputElement.setCustomValidity('Dieses Feld ist erforderlich, wenn der Modus „Manuell“ aktiv ist.');
+                        if (!firstInvalid) {
+                            firstInvalid = inputElement;
+                        }
+                    } else {
+                        inputElement.setCustomValidity('');
+                    }
+                });
+
+                if (firstInvalid) {
+                    event.preventDefault();
+                    firstInvalid.reportValidity();
+                }
+            });
         }
 
         const confirmForms = document.querySelectorAll('form[data-confirm]');
