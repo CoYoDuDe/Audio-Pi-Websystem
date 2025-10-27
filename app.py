@@ -199,48 +199,73 @@ _SUBPROCESS_METHODS = (
 )
 
 
+try:
+    _ORIGINAL_SUBPROCESS_FUNCTIONS  # type: ignore[name-defined]
+except NameError:  # pragma: no cover - nur beim ersten Import relevant
+    _ORIGINAL_SUBPROCESS_FUNCTIONS: Dict[str, Callable[..., Any]] = {}
+
+try:
+    _SUBPROCESS_PATCHED  # type: ignore[name-defined]
+except NameError:  # pragma: no cover - nur beim ersten Import relevant
+    _SUBPROCESS_PATCHED: bool = False
+
+
 def _store_original_subprocess_functions() -> None:
+    if _ORIGINAL_SUBPROCESS_FUNCTIONS:
+        return
+
     for name in _SUBPROCESS_METHODS:
-        attr_name = f"_audio_pi_original_{name}"
-        if not hasattr(subprocess, attr_name):
-            setattr(subprocess, attr_name, getattr(subprocess, name))
+        _ORIGINAL_SUBPROCESS_FUNCTIONS[name] = getattr(subprocess, name)
 
 
 def _restore_subprocess_functions() -> None:
-    for name in _SUBPROCESS_METHODS:
-        attr_name = f"_audio_pi_original_{name}"
-        original = getattr(subprocess, attr_name, None)
-        if original is not None:
-            setattr(subprocess, name, original)
+    global _SUBPROCESS_PATCHED
+
+    if not _SUBPROCESS_PATCHED:
+        return
+
+    for name, original in _ORIGINAL_SUBPROCESS_FUNCTIONS.items():
+        setattr(subprocess, name, original)
+
+    _SUBPROCESS_PATCHED = False
 
 
 def _patch_subprocess_functions() -> None:
+    global _SUBPROCESS_PATCHED
+
+    if _SUBPROCESS_PATCHED:
+        return
+
     _store_original_subprocess_functions()
+
     subprocess.run = _wrap_subprocess_function(
-        getattr(subprocess, "_audio_pi_original_run")
-    )
+        _ORIGINAL_SUBPROCESS_FUNCTIONS["run"]
+    )  # type: ignore[assignment]
     subprocess.check_call = _wrap_subprocess_function(
-        getattr(subprocess, "_audio_pi_original_check_call")
-    )
+        _ORIGINAL_SUBPROCESS_FUNCTIONS["check_call"]
+    )  # type: ignore[assignment]
     subprocess.call = _wrap_subprocess_function(
-        getattr(subprocess, "_audio_pi_original_call")
-    )
+        _ORIGINAL_SUBPROCESS_FUNCTIONS["call"]
+    )  # type: ignore[assignment]
     subprocess.check_output = _wrap_subprocess_function(
-        getattr(subprocess, "_audio_pi_original_check_output")
-    )
+        _ORIGINAL_SUBPROCESS_FUNCTIONS["check_output"]
+    )  # type: ignore[assignment]
     subprocess.Popen = _wrap_subprocess_popen(
-        getattr(subprocess, "_audio_pi_original_Popen")
-    )
+        _ORIGINAL_SUBPROCESS_FUNCTIONS["Popen"]
+    )  # type: ignore[assignment]
+
+    _SUBPROCESS_PATCHED = True
 
 
-def _configure_subprocess_for_sudo_state() -> None:
+def refresh_subprocess_wrapper_state() -> None:
     if _should_strip_sudo():
         _patch_subprocess_functions()
     else:
         _restore_subprocess_functions()
 
 
-_configure_subprocess_for_sudo_state()
+_store_original_subprocess_functions()
+refresh_subprocess_wrapper_state()
 
 from pydub import AudioSegment
 from pydub.exceptions import CouldntDecodeError
@@ -285,7 +310,7 @@ else:
 import sys
 import secrets
 import re
-from typing import Any, Callable, Iterable, List, Optional, Sequence, Tuple, Literal, Set
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Literal, Set
 from hardware.buttons import ButtonAssignment, ButtonMonitor
 
 if GPIO_AVAILABLE:

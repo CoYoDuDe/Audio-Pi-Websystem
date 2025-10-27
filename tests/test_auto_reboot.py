@@ -190,6 +190,7 @@ def test_load_schedules_preserves_auto_reboot_job(app_module):
 def test_run_auto_reboot_job_missing_systemctl_sudo(app_module, monkeypatch, caplog):
     monkeypatch.setenv("AUDIO_PI_DISABLE_SUDO", "0")
     monkeypatch.setattr(app_module, "_SUDO_DISABLED", False)
+    app_module.refresh_subprocess_wrapper_state()
 
     captured = {}
 

@@ -43,6 +43,7 @@ def test_wlan_connect_missing_cli_called_process_error(client, monkeypatch):
     flask_client, app_module = client
     monkeypatch.setenv("AUDIO_PI_DISABLE_SUDO", "0")
     monkeypatch.setattr(app_module, "_SUDO_DISABLED", False, raising=False)
+    app_module.refresh_subprocess_wrapper_state()
     _login_admin(flask_client)
 
     def fake_run_wpa_cli(*args, **kwargs):

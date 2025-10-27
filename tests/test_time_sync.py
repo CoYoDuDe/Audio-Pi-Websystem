@@ -92,7 +92,7 @@ def test_reload_reactivates_subprocess_originals(monkeypatch, tmp_path):
     assert command_without_sudo
     assert command_without_sudo[0] != "sudo"
 
-    original_run = getattr(app_module.subprocess, "_audio_pi_original_run")
+    original_run = app_module._ORIGINAL_SUBPROCESS_FUNCTIONS["run"]
 
     monkeypatch.setenv("AUDIO_PI_DISABLE_SUDO", "0")
     app_module = importlib.reload(app_module)
@@ -104,6 +104,7 @@ def test_reload_reactivates_subprocess_originals(monkeypatch, tmp_path):
     command_with_sudo = app_module.privileged_command("systemctl", "status")
     assert command_with_sudo
     assert command_with_sudo[0] == "sudo"
+    assert app_module.subprocess.run is app_module._ORIGINAL_SUBPROCESS_FUNCTIONS["run"]
     assert app_module.subprocess.run is original_run
 
     captured = {}
