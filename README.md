@@ -645,6 +645,12 @@ pytest
 ```
 ausführen.
 
+`tests/test_network_settings.py` deckt sowohl die Normalisierung der
+`dhcpcd.conf`-Schreiblogik als auch Fehlerpfade (ungültige IP-/DNS-/Gateway- und
+Domain-Eingaben) inklusive Backup-Wiederherstellung beim Fehlschlag ab. Damit
+gehört der Netzwerkpfad zur Standard-Qualitätssicherung und sollte bei lokalen
+Änderungen immer mitlaufen.
+
 Empfohlener Schnelltest für die Netzwerkpfade:
 
 ```bash
