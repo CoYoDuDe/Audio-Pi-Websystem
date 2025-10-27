@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% block title %}Audio Pi Control{% endblock %}
+{% block page_heading %}Audio Pi Websteuerung{% endblock %}
 {% block flashes %}{% endblock %}
 {% block content %}
 {% set flashed_messages = get_flashed_messages(with_categories=true) %}
@@ -11,17 +12,20 @@
         {% set flash_groups.general = flash_groups.general + [message] %}
     {% endif %}
 {% endfor %}
-<h2>Audio Pi Websteuerung</h2>
-{% if flash_groups.general %}
-<ul class="flashes">
-    {% for message in flash_groups.general %}
-    <li>{{ message }}</li>
-    {% endfor %}
-</ul>
-{% endif %}
 
-<section id="status">
-    <h3>Status</h3>
+<div class="dashboard-group" id="group-status">
+    <h2 class="dashboard-group-title">Systemstatus</h2>
+    {% if flash_groups.general %}
+    <ul class="flashes">
+        {% for message in flash_groups.general %}
+        <li>{{ message }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+
+    <section id="status" class="dashboard-section dashboard-section--status">
+        <article class="dashboard-card stack-md">
+            <h3>Status</h3>
     {% set dac_label = status.get('dac_sink_label') or 'Konfigurierter DAC' %}
     {% set target_sink = status.get('target_dac_sink') or status.get('dac_sink_hint') %}
     {% if status.get('dac_sink_detected') is sameas false %}
@@ -62,20 +66,25 @@
         <strong>Warnung:</strong> Keine RTC erkannt. Die Systemzeit läuft ohne Hardware-Uhr weiter; bitte Verkabelung und I²C-Konfiguration prüfen.
     </div>
     {% endif %}
-</section>
+        </article>
+    </section>
+</div>
 
 {% set network_mode = (network_settings.mode | default('dhcp')) %}
 {% set manual_mode = (network_mode == 'manual') %}
 {% set manual_hidden_class = '' if manual_mode else 'is-hidden' %}
 
-<section id="network-settings" class="section-card">
-    <h3>Netzwerkeinstellungen</h3>
-    <form
-        id="network-settings-form"
-        action="{{ url_for('save_network_settings') }}"
-        method="POST"
-        class="network-settings-form form-card stack-md max-w-36"
-    >
+<div class="dashboard-group" id="group-network">
+    <h2 class="dashboard-group-title">Netzwerk</h2>
+    <section id="network-settings" class="dashboard-section dashboard-section--network section-card">
+        <article class="dashboard-card stack-lg">
+            <h3>Netzwerkeinstellungen</h3>
+            <form
+                id="network-settings-form"
+                action="{{ url_for('save_network_settings') }}"
+                method="POST"
+                class="network-settings-form form-card stack-md max-w-36"
+            >
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <fieldset class="fieldset-inline">
             <legend class="legend-strong">IPv4-Konfiguration</legend>
@@ -180,464 +189,455 @@
         </div>
         <small data-manual-hint class="form-helper manual-only {{ manual_hidden_class }}">IPv4-Adresse, Präfix, Gateway und DNS-Server werden nur benötigt, wenn „Manuell (statische IPv4)“ aktiv ist.</small>
         <button type="submit" class="btn align-self-start">Speichern</button>
-    </form>
-    {% if flash_groups.network %}
-    <ul class="flashes mt-sm">
-        {% for message in flash_groups.network %}
-        <li>{{ message }}</li>
-        {% endfor %}
-    </ul>
-    {% endif %}
-</section>
-
-<section id="amplifier-settings" class="section-card">
-    <h3>Verstärker-GPIO</h3>
-    {% set amplifier_source = status.get('amplifier_gpio_pin_source', 'default') %}
-    {% set amplifier_source_labels = {'default': 'Standard', 'settings': 'Benutzerdefiniert'} %}
-    <form action="{{ url_for('save_amplifier_pin') }}" method="POST" class="amplifier-pin-form form-card stack-sm max-w-20">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <label for="amplifier-gpio-pin" class="form-field">
-            GPIO-Pin für die Endstufe
-            <input
-                type="number"
-                id="amplifier-gpio-pin"
-                name="amplifier_gpio_pin"
-                min="0"
-                required
-                value="{{ status.get('amplifier_gpio_pin', status.get('amplifier_gpio_pin_default', 17)) }}"
-            >
-        </label>
-        <small class="form-helper">
-            Aktuell: GPIO{{ status.get('amplifier_gpio_pin', status.get('amplifier_gpio_pin_default', 17)) }}
-            ({{ amplifier_source_labels.get(amplifier_source, amplifier_source) }}).
-            Standard ist GPIO{{ status.get('amplifier_gpio_pin_default', 17) }}.
-            Für den HiFiBerry&nbsp;Amp2 kann alternativ GPIO18 genutzt werden.
-        </small>
-        <small class="form-helper">
-            Hinweis: Die I²C-Leitungen GPIO2&nbsp;(SDA1) und GPIO3&nbsp;(SCL1) bleiben unbelegt – z.&nbsp;B. für RTC-Module oder Sensoren.
-            Weitere freie GPIOs können für Taster oder Relais vergeben werden, solange sie nicht mit diesem Verstärker-Pin kollidieren.
-        </small>
-        <button type="submit" class="btn align-self-start">Speichern</button>
-    </form>
-</section>
-
-<section id="audio-sink-settings" class="section-card">
-    <h3>Audio-Sink Konfiguration</h3>
-    <form action="{{ url_for('save_dac_sink') }}" method="POST" class="dac-sink-form form-card stack-sm max-w-32">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <label for="dac-sink-name" class="form-field">
-            Bevorzugter PulseAudio-Sink
-            <input
-                type="text"
-                id="dac-sink-name"
-                name="dac_sink_name"
-                value="{{ status['configured_dac_sink'] or '' }}"
-                placeholder="z.B. alsa_output.platform-soc_107c000000_sound.stereo-fallback"
-            >
-        </label>
-        <small class="form-helper">
-            Leer lassen, um den Standardsink
-            <code>{{ status['default_dac_sink'] }}</code>
-            zu verwenden.
-            Aktuell aktiv: <code>{{ status['current_sink'] }}</code>
-        </small>
-        <button type="submit" class="btn align-self-start">Speichern</button>
-    </form>
-</section>
-
-<section id="audio-normalization-settings" class="section-card">
-    <h3>Audio-Normalisierung</h3>
-    {% set stored_headroom = status.get('normalization_headroom_stored') %}
-    {% set env_headroom = status.get('normalization_headroom_env') %}
-    {% set effective_headroom = '%.2f' % status.get('normalization_headroom', default_headroom) %}
-    {% set input_headroom = stored_headroom if stored_headroom else (env_headroom if env_headroom else effective_headroom) %}
-    <form action="{{ url_for('save_normalization_headroom') }}" method="POST" class="normalization-form form-card stack-sm max-w-20">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <label for="normalization-headroom" class="form-field">
-            Zielpegel (negativ) bzw. Headroom (positiv) für die Normalisierung (dB)
-            <input
-                type="number"
-                id="normalization-headroom"
-                name="normalization_headroom_db"
-                step="0.1"
-                value="{{ input_headroom }}"
-                placeholder="z. B. -3 für Zielpegel oder 3 für Headroom"
-            >
-        </label>
-        <small class="form-helper">
-            Negative Eingaben werden als gewünschter Zielpegel interpretiert und in den entsprechenden positiven Headroom umgerechnet.
-            Leer lassen, um den Standardwert von {{ '%.2f' % default_headroom }}&nbsp;dB zu verwenden.
-            Wirksam genutzter Headroom: {{ '%.2f' % status.get('normalization_headroom', default_headroom) }}&nbsp;dB.
-        </small>
-        {% if env_headroom %}
-        <p class="hint mb-none">
-            Hinweis: Die Umgebungsvariable <code>{{ normalization_headroom_env_key }}</code>
-            überschreibt gespeicherte Zielpegel/Headroom-Vorgaben (aktuell {{ env_headroom }}).
-        </p>
-        {% endif %}
-        <button type="submit" class="btn align-self-start">Speichern</button>
-    </form>
-</section>
-
-<section id="schedule-default-volume-settings" class="section-card">
-    <h3>Standard-Lautstärke für Zeitpläne</h3>
-    {% set schedule_volume_percent = status.get('schedule_default_volume_percent', schedule_default_volume_fallback) %}
-    {% set schedule_volume_source = status.get('schedule_default_volume_source', 'default') %}
-    {% set schedule_volume_raw_percent = schedule_default_volume_raw_percent %}
-    {% set schedule_volume_raw_db = schedule_default_volume_raw_db %}
-    {% set schedule_volume_db_value = schedule_default_volume_db_value %}
-    {% set schedule_volume_input = schedule_volume_raw_percent if schedule_volume_raw_percent else (schedule_volume_raw_db if schedule_volume_raw_db else '') %}
-    {% set schedule_volume_source_labels = {
-        'settings_percent': 'gespeicherter Prozentwert',
-        'settings_db': 'gespeicherter dB-Wert',
-        'default': 'Voreinstellung'
-    } %}
-    {% set schedule_volume_source_label = schedule_volume_source_labels.get(schedule_volume_source, schedule_volume_source) %}
-    <form action="{{ url_for('save_schedule_default_volume') }}" method="POST" class="schedule-default-volume-form form-card stack-sm max-w-20">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <label for="schedule-default-volume" class="form-field">
-            Standard-Lautstärke für neue Zeitpläne (0–100&nbsp;% oder dB)
-            <input
-                type="text"
-                id="schedule-default-volume"
-                name="schedule_default_volume"
-                value="{{ schedule_volume_input }}"
-                placeholder="z. B. 75 oder -6 dB"
-            >
-        </label>
-        <small class="form-helper">
-            Aktuell wirksam: {{ schedule_volume_percent }}% (Quelle: {{ schedule_volume_source_label }}{% if schedule_volume_db_value is not none %}, {{ '%g' % schedule_volume_db_value }}&nbsp;dB{% endif %}).
-            Feld leer lassen, um den Standardwert von {{ schedule_default_volume_fallback }}% zu verwenden.
-        </small>
-        {% if schedule_volume_raw_percent %}
-        <p class="hint mb-none">Gespeicherter Prozentwert: {{ schedule_volume_raw_percent }}.</p>
-        {% elif schedule_volume_raw_db %}
-        <p class="hint mb-none">Gespeicherter dB-Wert: {{ schedule_volume_raw_db }}.</p>
-        {% endif %}
-        <button type="submit" class="btn align-self-start">Speichern</button>
-    </form>
-</section>
-
-<section id="auto-reboot" class="section-card">
-    <h3>Automatischer Neustart</h3>
-    <form action="{{ url_for('save_auto_reboot_settings') }}" method="POST" class="auto-reboot-form form-card stack-sm max-w-32">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <label class="choice-inline">
-            <input type="checkbox" name="auto_reboot_enabled" {% if auto_reboot_settings.enabled %}checked{% endif %}>
-            Automatischer Neustart aktiv
-        </label>
-        <div class="flex-row flex-wrap gap-lg items-center">
-            <label class="form-field">
-                Uhrzeit
-                <input type="time" name="auto_reboot_time" value="{{ auto_reboot_settings.time }}" required>
-            </label>
-            <label class="form-field">
-                Ausführung
-                <select name="auto_reboot_mode" id="auto-reboot-mode">
-                    <option value="daily" {% if auto_reboot_settings.mode == 'daily' %}selected{% endif %}>Täglich</option>
-                    <option value="weekly" {% if auto_reboot_settings.mode == 'weekly' %}selected{% endif %}>Wöchentlich</option>
-                </select>
-            </label>
-            <label id="auto-reboot-weekday-wrapper" class="form-field {% if auto_reboot_settings.mode != 'weekly' %}is-hidden{% endif %}">
-                Wochentag
-                <select name="auto_reboot_weekday" id="auto-reboot-weekday">
-                    {% for weekday in auto_reboot_weekdays %}
-                    <option value="{{ weekday }}" {% if auto_reboot_settings.weekday == weekday %}selected{% endif %}>{{ weekday|capitalize }}</option>
-                    {% endfor %}
-                </select>
-            </label>
-        </div>
-        <button type="submit" class="btn mt-sm align-self-start">Speichern</button>
-    </form>
-    <p class="hint">Der automatische Neustart nutzt den System-Scheduler. Bei "Wöchentlich" erfolgt der Neustart nur am gewählten Tag.</p>
-</section>
-
-<section id="hardware-buttons-admin" class="section-card">
-    <h3>Hardware-Taster Verwaltung</h3>
-    <p class="hint max-w-60ch">
-        Konfiguriere hier physische Taster des Raspberry&nbsp;Pi. Die Zuweisungen werden sofort gespeichert
-        und der Button-Monitor automatisch neu gestartet. Für die Aktion <strong>PLAY</strong> muss ein Ziel
-        (Datei oder Playlist) gewählt werden.
-    </p>
-    <div class="hardware-button-admin grid-2 gap-xl mt-lg">
-        <div class="hardware-button-create form-card stack-md">
-            <h4>Neue Zuordnung</h4>
-            <form action="{{ url_for('create_hardware_button') }}" method="POST" class="hardware-button-form stack-md">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <label class="form-field">
-                    GPIO-Pin
-                    <input type="number" name="gpio_pin" min="0" required>
-                </label>
-                <label class="form-field">
-                    Aktion
-                    <select name="action" required>
-                        {% for value, label in hardware_button_actions %}
-                        <option value="{{ value }}">{{ label }}</option>
-                        {% endfor %}
-                    </select>
-                </label>
-                <label class="form-field">
-                    Ziel (nur für PLAY erforderlich)
-                    <select name="item_reference">
-                        <option value="">– Keine Auswahl –</option>
-                        <optgroup label="Audiodateien">
-                            {% for file in files_all %}
-                            <option value="file:{{ file['id'] }}">{{ file['filename'] }}</option>
-                            {% endfor %}
-                        </optgroup>
-                        <optgroup label="Playlists">
-                            {% for playlist in playlists_all %}
-                            <option value="playlist:{{ playlist['id'] }}">{{ playlist['name'] }}</option>
-                            {% endfor %}
-                        </optgroup>
-                    </select>
-                </label>
-                <label class="form-field">
-                    Entprellzeit (ms)
-                    <input type="number" name="debounce_ms" min="0" value="{{ default_button_debounce_ms }}">
-                </label>
-                <label class="choice-inline">
-                    <input type="checkbox" name="enabled" checked>
-                    Aktiviert
-                </label>
-                <button type="submit" class="btn align-self-start">Anlegen</button>
             </form>
-        </div>
-        <div class="hardware-button-existing form-card stack-md">
-            <h4>Bestehende Zuordnungen</h4>
-            {% if hardware_buttons %}
-            <div class="hardware-button-list card-list">
-                {% for button in hardware_buttons %}
-                <div class="hardware-button-entry card">
-                    <form action="{{ url_for('update_hardware_button', button_id=button['id']) }}" method="POST" class="flex-row flex-wrap gap-lg items-end">
+            {% if flash_groups.network %}
+            <ul class="flashes mt-sm">
+                {% for message in flash_groups.network %}
+                <li>{{ message }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+        </article>
+    </section>
+</div>
+
+<div class="dashboard-group" id="group-audio">
+    <h2 class="dashboard-group-title">Audio &amp; Wiedergabe</h2>
+    <section id="amplifier-settings" class="dashboard-section dashboard-section--audio section-card">
+        <article class="dashboard-card stack-md">
+            <h3>Verstärker-GPIO</h3>
+            {% set amplifier_source = status.get('amplifier_gpio_pin_source', 'default') %}
+            {% set amplifier_source_labels = {'default': 'Standard', 'settings': 'Benutzerdefiniert'} %}
+            <form action="{{ url_for('save_amplifier_pin') }}" method="POST" class="amplifier-pin-form form-card stack-sm max-w-20">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <label for="amplifier-gpio-pin" class="form-field">
+                    GPIO-Pin für die Endstufe
+                    <input
+                        type="number"
+                        id="amplifier-gpio-pin"
+                        name="amplifier_gpio_pin"
+                        min="0"
+                        required
+                        value="{{ status.get('amplifier_gpio_pin', status.get('amplifier_gpio_pin_default', 17)) }}"
+                    >
+                </label>
+                <small class="form-helper">
+                    Aktuell: GPIO{{ status.get('amplifier_gpio_pin', status.get('amplifier_gpio_pin_default', 17)) }}
+                    ({{ amplifier_source_labels.get(amplifier_source, amplifier_source) }}).
+                    Standard ist GPIO{{ status.get('amplifier_gpio_pin_default', 17) }}.
+                    Für den HiFiBerry&nbsp;Amp2 kann alternativ GPIO18 genutzt werden.
+                </small>
+                <small class="form-helper">
+                    Hinweis: Die I²C-Leitungen GPIO2&nbsp;(SDA1) und GPIO3&nbsp;(SCL1) bleiben unbelegt – z.&nbsp;B. für RTC-Module oder Sensoren.
+                    Weitere freie GPIOs können für Taster oder Relais vergeben werden, solange sie nicht mit diesem Verstärker-Pin kollidieren.
+                </small>
+                <button type="submit" class="btn align-self-start">Speichern</button>
+            </form>
+        </article>
+    </section>
+
+    <section id="audio-sink-settings" class="dashboard-section dashboard-section--audio section-card">
+        <article class="dashboard-card stack-md">
+            <h3>Audio-Sink Konfiguration</h3>
+            <form action="{{ url_for('save_dac_sink') }}" method="POST" class="dac-sink-form form-card stack-sm max-w-32">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <label for="dac-sink-name" class="form-field">
+                    Bevorzugter PulseAudio-Sink
+                    <input
+                        type="text"
+                        id="dac-sink-name"
+                        name="dac_sink_name"
+                        value="{{ status['configured_dac_sink'] or '' }}"
+                        placeholder="z.B. alsa_output.platform-soc_107c000000_sound.stereo-fallback"
+                    >
+                </label>
+                <small class="form-helper">
+                    Leer lassen, um den Standardsink
+                    <code>{{ status['default_dac_sink'] }}</code>
+                    zu verwenden.
+                    Aktuell aktiv: <code>{{ status['current_sink'] }}</code>
+                </small>
+                <button type="submit" class="btn align-self-start">Speichern</button>
+            </form>
+        </article>
+    </section>
+
+    <section id="audio-normalization-settings" class="dashboard-section dashboard-section--audio section-card">
+        <article class="dashboard-card stack-md">
+            <h3>Audio-Normalisierung</h3>
+            {% set stored_headroom = status.get('normalization_headroom_stored') %}
+            {% set env_headroom = status.get('normalization_headroom_env') %}
+            {% set effective_headroom = '%.2f' % status.get('normalization_headroom', default_headroom) %}
+            {% set input_headroom = stored_headroom if stored_headroom else (env_headroom if env_headroom else effective_headroom) %}
+            <form action="{{ url_for('save_normalization_headroom') }}" method="POST" class="normalization-form form-card stack-sm max-w-20">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <label for="normalization-headroom" class="form-field">
+                    Zielpegel (negativ) bzw. Headroom (positiv) für die Normalisierung (dB)
+                    <input
+                        type="number"
+                        id="normalization-headroom"
+                        name="normalization_headroom_db"
+                        step="0.1"
+                        value="{{ input_headroom }}"
+                        placeholder="z. B. -3 für Zielpegel oder 3 für Headroom"
+                    >
+                </label>
+                <small class="form-helper">
+                    Negative Eingaben werden als gewünschter Zielpegel interpretiert und in den entsprechenden positiven Headroom umgerechnet.
+                    Leer lassen, um den Standardwert von {{ '%.2f' % default_headroom }}&nbsp;dB zu verwenden.
+                    Wirksam genutzter Headroom: {{ '%.2f' % status.get('normalization_headroom', default_headroom) }}&nbsp;dB.
+                </small>
+                {% if env_headroom %}
+                <p class="hint mb-none">
+                    Hinweis: Die Umgebungsvariable <code>{{ normalization_headroom_env_key }}</code>
+                    überschreibt gespeicherte Zielpegel/Headroom-Vorgaben (aktuell {{ env_headroom }}).
+                </p>
+                {% endif %}
+                <button type="submit" class="btn align-self-start">Speichern</button>
+            </form>
+        </article>
+    </section>
+
+    <section id="schedule-default-volume-settings" class="dashboard-section dashboard-section--audio section-card">
+        <article class="dashboard-card stack-md">
+            <h3>Standard-Lautstärke für Zeitpläne</h3>
+            {% set schedule_volume_percent = status.get('schedule_default_volume_percent', schedule_default_volume_fallback) %}
+            {% set schedule_volume_source = status.get('schedule_default_volume_source', 'default') %}
+            {% set schedule_volume_raw_percent = schedule_default_volume_raw_percent %}
+            {% set schedule_volume_raw_db = schedule_default_volume_raw_db %}
+            {% set schedule_volume_db_value = schedule_default_volume_db_value %}
+            {% set schedule_volume_input = schedule_volume_raw_percent if schedule_volume_raw_percent else (schedule_volume_raw_db if schedule_volume_raw_db else '') %}
+            {% set schedule_volume_source_labels = {
+                'settings_percent': 'gespeicherter Prozentwert',
+                'settings_db': 'gespeicherter dB-Wert',
+                'default': 'Voreinstellung'
+            } %}
+            {% set schedule_volume_source_label = schedule_volume_source_labels.get(schedule_volume_source, schedule_volume_source) %}
+            <form action="{{ url_for('save_schedule_default_volume') }}" method="POST" class="schedule-default-volume-form form-card stack-sm max-w-20">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <label for="schedule-default-volume" class="form-field">
+                    Standard-Lautstärke für neue Zeitpläne (0–100&nbsp;% oder dB)
+                    <input
+                        type="text"
+                        id="schedule-default-volume"
+                        name="schedule_default_volume"
+                        value="{{ schedule_volume_input }}"
+                        placeholder="z. B. 75 oder -6 dB"
+                    >
+                </label>
+                <small class="form-helper">
+                    Aktuell wirksam: {{ schedule_volume_percent }}% (Quelle: {{ schedule_volume_source_label }}{% if schedule_volume_db_value is not none %}, {{ '%g' % schedule_volume_db_value }}&nbsp;dB{% endif %}).
+                    Feld leer lassen, um den Standardwert von {{ schedule_default_volume_fallback }}% zu verwenden.
+                </small>
+                {% if schedule_volume_raw_percent %}
+                <p class="hint mb-none">Gespeicherter Prozentwert: {{ schedule_volume_raw_percent }}.</p>
+                {% elif schedule_volume_raw_db %}
+                <p class="hint mb-none">Gespeicherter dB-Wert: {{ schedule_volume_raw_db }}.</p>
+                {% endif %}
+                <button type="submit" class="btn align-self-start">Speichern</button>
+            </form>
+        </article>
+    </section>
+
+    <section id="hardware-buttons-admin" class="dashboard-section dashboard-section--audio section-card">
+        <article class="dashboard-card stack-lg">
+            <h3>Hardware-Taster Verwaltung</h3>
+            <p class="hint max-w-60ch">
+                Konfiguriere hier physische Taster des Raspberry&nbsp;Pi. Die Zuweisungen werden sofort gespeichert
+                und der Button-Monitor automatisch neu gestartet. Für die Aktion <strong>PLAY</strong> muss ein Ziel
+                (Datei oder Playlist) gewählt werden.
+            </p>
+            <div class="hardware-button-admin grid-2 gap-xl mt-lg">
+                <div class="hardware-button-create form-card stack-md">
+                    <h4>Neue Zuordnung</h4>
+                    <form action="{{ url_for('create_hardware_button') }}" method="POST" class="hardware-button-form stack-md">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <label class="form-field min-w-10">
+                        <label class="form-field">
                             GPIO-Pin
-                            <input type="number" name="gpio_pin" min="0" value="{{ button['gpio_pin'] }}" required>
+                            <input type="number" name="gpio_pin" min="0" required>
                         </label>
-                        <label class="form-field min-w-12">
+                        <label class="form-field">
                             Aktion
                             <select name="action" required>
                                 {% for value, label in hardware_button_actions %}
-                                <option value="{{ value }}" {% if button['action'] == value %}selected{% endif %}>{{ label }}</option>
+                                <option value="{{ value }}">{{ label }}</option>
                                 {% endfor %}
                             </select>
                         </label>
-                        <label class="form-field min-w-14">
-                            Ziel (für PLAY)
+                        <label class="form-field">
+                            Ziel (nur für PLAY erforderlich)
                             <select name="item_reference">
                                 <option value="">– Keine Auswahl –</option>
                                 <optgroup label="Audiodateien">
                                     {% for file in files_all %}
-                                    <option value="file:{{ file['id'] }}" {% if button['item_reference'] == 'file:' ~ file['id'] %}selected{% endif %}>{{ file['filename'] }}</option>
+                                    <option value="file:{{ file['id'] }}">{{ file['filename'] }}</option>
                                     {% endfor %}
                                 </optgroup>
                                 <optgroup label="Playlists">
                                     {% for playlist in playlists_all %}
-                                    <option value="playlist:{{ playlist['id'] }}" {% if button['item_reference'] == 'playlist:' ~ playlist['id'] %}selected{% endif %}>{{ playlist['name'] }}</option>
+                                    <option value="playlist:{{ playlist['id'] }}">{{ playlist['name'] }}</option>
                                     {% endfor %}
                                 </optgroup>
                             </select>
-                            {% if button['item_label'] %}
-                            <small>Aktuell: {{ button['item_label'] }}</small>
-                            {% endif %}
                         </label>
-                        <label class="form-field min-w-10">
+                        <label class="form-field">
                             Entprellzeit (ms)
-                            <input type="number" name="debounce_ms" min="0" value="{{ button['debounce_ms'] }}">
+                            <input type="number" name="debounce_ms" min="0" value="{{ default_button_debounce_ms }}">
                         </label>
                         <label class="choice-inline">
-                            <input type="checkbox" name="enabled" {% if button['enabled'] %}checked{% endif %}>
+                            <input type="checkbox" name="enabled" checked>
                             Aktiviert
                         </label>
-                        <div class="inline-actions-tight">
-                            <button type="submit" class="btn">Speichern</button>
-                        </div>
-                    </form>
-                    <form action="{{ url_for('delete_hardware_button', button_id=button['id']) }}" method="POST" class="inline-form align-self-end">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button type="submit" class="btn btn-danger" onclick="return confirm('Zuordnung wirklich löschen?');">Löschen</button>
+                        <button type="submit" class="btn align-self-start">Anlegen</button>
                     </form>
                 </div>
-                {% endfor %}
+                <div class="hardware-button-existing form-card stack-md">
+                    <h4>Bestehende Zuordnungen</h4>
+                    {% if hardware_buttons %}
+                    <div class="hardware-button-list card-list">
+                        {% for button in hardware_buttons %}
+                        <div class="hardware-button-entry card">
+                            <form action="{{ url_for('update_hardware_button', button_id=button['id']) }}" method="POST" class="flex-row flex-wrap gap-lg items-end">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <label class="form-field min-w-10">
+                                    GPIO-Pin
+                                    <input type="number" name="gpio_pin" min="0" value="{{ button['gpio_pin'] }}" required>
+                                </label>
+                                <label class="form-field min-w-12">
+                                    Aktion
+                                    <select name="action" required>
+                                        {% for value, label in hardware_button_actions %}
+                                        <option value="{{ value }}" {% if button['action'] == value %}selected{% endif %}>{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </label>
+                                <label class="form-field min-w-14">
+                                    Ziel (für PLAY)
+                                    <select name="item_reference">
+                                        <option value="">– Keine Auswahl –</option>
+                                        <optgroup label="Audiodateien">
+                                            {% for file in files_all %}
+                                            <option value="file:{{ file['id'] }}" {% if button['item_reference'] == 'file:' ~ file['id'] %}selected{% endif %}>{{ file['filename'] }}</option>
+                                            {% endfor %}
+                                        </optgroup>
+                                        <optgroup label="Playlists">
+                                            {% for playlist in playlists_all %}
+                                            <option value="playlist:{{ playlist['id'] }}" {% if button['item_reference'] == 'playlist:' ~ playlist['id'] %}selected{% endif %}>{{ playlist['name'] }}</option>
+                                            {% endfor %}
+                                        </optgroup>
+                                    </select>
+                                    {% if button['item_label'] %}
+                                    <small>Aktuell: {{ button['item_label'] }}</small>
+                                    {% endif %}
+                                </label>
+                                <label class="form-field min-w-10">
+                                    Entprellzeit (ms)
+                                    <input type="number" name="debounce_ms" min="0" value="{{ button['debounce_ms'] }}">
+                                </label>
+                                <label class="choice-inline">
+                                    <input type="checkbox" name="enabled" {% if button['enabled'] %}checked{% endif %}>
+                                    Aktiviert
+                                </label>
+                                <div class="inline-actions-tight">
+                                    <button type="submit" class="btn">Speichern</button>
+                                </div>
+                            </form>
+                            <form action="{{ url_for('delete_hardware_button', button_id=button['id']) }}" method="POST" class="inline-form align-self-end">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-danger" onclick="return confirm('Zuordnung wirklich löschen?');">Löschen</button>
+                            </form>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p>Keine Hardware-Taster konfiguriert.</p>
+                    {% endif %}
+                </div>
             </div>
-            {% else %}
-            <p>Keine Hardware-Taster konfiguriert.</p>
-            {% endif %}
-        </div>
-    </div>
-</section>
+        </article>
+    </section>
 
-<section id="playback" class="section-card">
-    <h3>Playback Steuerung</h3>
-    <form action="{{ url_for('set_volume') }}" method="POST" class="inline-actions">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        {% set raw_volume = status['current_volume'] | default('50', true) %}
-        {% set volume_digits = raw_volume | replace('%', '') | replace(' ', '') | trim %}
-        {% set volume_initial = volume_digits if volume_digits.isdigit() else '50' %}
-        <label class="volume-slider choice-inline">
-            <input
-                type="range"
-                min="0"
-                max="100"
-                name="volume"
-                id="volume-slider"
-                value="{{ volume_initial }}"
-            >
-            <span id="volume-value" class="inline-value">{{ volume_initial }}%</span>
-        </label>
-        <button type="submit" class="btn">Setzen</button>
-    </form>
-    <form action="{{ url_for('activate_amp') }}" method="POST" class="inline-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="btn">Endstufe an</button>
-    </form>
-    <form action="{{ url_for('deactivate_amp') }}" method="POST" class="inline-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="btn">Endstufe aus</button>
-    </form>
-    <form action="{{ url_for('set_relay_invert') }}" method="POST" class="inline-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <label class="choice-inline">
-            <input type="checkbox" name="invert" value="1" {% if status['relay_invert'] %}checked{% endif %}>
-            Relay umkehren
-        </label>
-        <button type="submit" class="btn">Speichern</button>
-    </form>
-    <form action="{{ url_for('toggle_pause') }}" method="POST" class="inline-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="btn">Pause/Resume</button>
-    </form>
-    <form action="{{ url_for('stop_playback') }}" method="POST" class="inline-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="btn">Stopp</button>
-    </form>
-</section>
+    <section id="playback" class="dashboard-section dashboard-section--audio section-card">
+        <article class="dashboard-card stack-md">
+            <h3>Playback Steuerung</h3>
+            <form action="{{ url_for('set_volume') }}" method="POST" class="inline-actions">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% set raw_volume = status['current_volume'] | default('50', true) %}
+                {% set volume_digits = raw_volume | replace('%', '') | replace(' ', '') | trim %}
+                {% set volume_initial = volume_digits if volume_digits.isdigit() else '50' %}
+                <label class="volume-slider choice-inline">
+                    <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        name="volume"
+                        id="volume-slider"
+                        value="{{ volume_initial }}"
+                    >
+                    <span id="volume-value" class="inline-value">{{ volume_initial }}%</span>
+                </label>
+                <button type="submit" class="btn">Setzen</button>
+            </form>
+            <form action="{{ url_for('activate_amp') }}" method="POST" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn">Endstufe an</button>
+            </form>
+            <form action="{{ url_for('deactivate_amp') }}" method="POST" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn">Endstufe aus</button>
+            </form>
+            <form action="{{ url_for('set_relay_invert') }}" method="POST" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <label class="choice-inline">
+                    <input type="checkbox" name="invert" value="1" {% if status['relay_invert'] %}checked{% endif %}>
+                    Relay umkehren
+                </label>
+                <button type="submit" class="btn">Speichern</button>
+            </form>
+            <form action="{{ url_for('toggle_pause') }}" method="POST" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn">Pause/Resume</button>
+            </form>
+            <form action="{{ url_for('stop_playback') }}" method="POST" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn">Stopp</button>
+            </form>
+        </article>
+    </section>
 
-<section id="files">
-    <h3>Datei-Upload</h3>
-    <form action="{{ url_for('upload') }}" method="POST" enctype="multipart/form-data">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="file" name="file" required>
-        <button type="submit" class="btn">Upload</button>
-    </form>
+    <section id="files" class="dashboard-section dashboard-section--audio">
+        <article class="dashboard-card stack-lg">
+            <div class="dashboard-subsection stack-sm">
+                <h3>Datei-Upload</h3>
+                <form action="{{ url_for('upload') }}" method="POST" enctype="multipart/form-data" class="stack-sm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="file" name="file" required>
+                    <button type="submit" class="btn">Upload</button>
+                </form>
+            </div>
 
-    <h3>Audio-Dateien</h3>
-    <div class="pagination-container">
-        <form method="get" class="page-size-form">
-            <input type="hidden" name="file_page" value="1">
-            <input type="hidden" name="schedule_page" value="{{ schedules_page.page }}">
-            <input type="hidden" name="schedule_page_size" value="{{ schedules_page.page_size_value }}">
-            <label>
-                Einträge pro Seite
-                <select name="file_page_size" onchange="this.form.submit()">
-                    {% for option in page_size_options %}
-                    <option value="{{ option.value }}" {% if option.value == files_page.page_size_value %}selected{% endif %}>{{ option.label }}</option>
+            <div class="dashboard-subsection stack-md">
+                <h3>Audio-Dateien</h3>
+                <div class="pagination-container">
+                    <form method="get" class="page-size-form">
+                        <input type="hidden" name="file_page" value="1">
+                        <input type="hidden" name="schedule_page" value="{{ schedules_page.page }}">
+                        <input type="hidden" name="schedule_page_size" value="{{ schedules_page.page_size_value }}">
+                        <label>
+                            Einträge pro Seite
+                            <select name="file_page_size" onchange="this.form.submit()">
+                                {% for option in page_size_options %}
+                                <option value="{{ option.value }}" {% if option.value == files_page.page_size_value %}selected{% endif %}>{{ option.label }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                    </form>
+                    <div class="pagination-info" data-target="files">
+                        <span>Seite {{ files_page.page }} von {{ files_page.total_pages }}</span>
+                        <span>{{ files_total.count }} Dateien gesamt</span>
+                    </div>
+                </div>
+                <ul class="item-list file-list">
+                    {% for file in files_page['items'] %}
+                    <li class="file-entry" data-file-id="{{ file.id }}">
+                        <span class="item-title">{{ file.filename }}</span>
+                        {% if file.duration_seconds is not none %}
+                            <span class="item-meta">({{ '%.2f' % file.duration_seconds }}&nbsp;s)</span>
+                        {% else %}
+                            <span class="item-meta">(Dauer unbekannt)</span>
+                        {% endif %}
+                        <form
+                            action="{{ url_for('play_now', item_type='file', item_id=file.id) }}"
+                            method="POST"
+                            class="inline-form"
+                        >
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn">Play</button>
+                        </form>
+                        <form action="{{ url_for('delete', file_id=file.id) }}" method="POST" class="inline-form">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn">Löschen</button>
+                        </form>
+                    </li>
+                    {% else %}
+                    <li class="empty-state">Keine Dateien vorhanden.</li>
                     {% endfor %}
-                </select>
-            </label>
-        </form>
-        <div class="pagination-info" data-target="files">
-            <span>Seite {{ files_page.page }} von {{ files_page.total_pages }}</span>
-            <span>{{ files_total.count }} Dateien gesamt</span>
-        </div>
-    </div>
-    <ul class="item-list file-list">
-        {% for file in files_page['items'] %}
-        <li class="file-entry" data-file-id="{{ file.id }}">
-            <span class="item-title">{{ file.filename }}</span>
-            {% if file.duration_seconds is not none %}
-                <span class="item-meta">({{ '%.2f' % file.duration_seconds }}&nbsp;s)</span>
-            {% else %}
-                <span class="item-meta">(Dauer unbekannt)</span>
-            {% endif %}
-            <form
-                action="{{ url_for('play_now', item_type='file', item_id=file.id) }}"
-                method="POST"
-                class="inline-form"
-            >
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button type="submit" class="btn">Play</button>
-            </form>
-            <form action="{{ url_for('delete', file_id=file.id) }}" method="POST" class="inline-form">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button type="submit" class="btn">Löschen</button>
-            </form>
-        </li>
-        {% else %}
-        <li class="empty-state">Keine Dateien vorhanden.</li>
-        {% endfor %}
-    </ul>
-    <nav class="pagination-nav" aria-label="Dateiliste">
-        {% if files_page.has_previous %}
-        <a
-            class="page-link"
-            href="{{ build_index_url(file_page=files_page.previous_page, file_page_size=files_page.page_size_value, schedule_page=schedules_page.page, schedule_page_size=schedules_page.page_size_value) }}"
-        >&laquo;</a>
-        {% else %}
-        <span class="page-link disabled">&laquo;</span>
-        {% endif %}
-        {% for page_number in files_page.pages %}
-            {% if page_number == files_page.page %}
-            <span class="page-link active">{{ page_number }}</span>
-            {% else %}
-            <a
-                class="page-link"
-                href="{{ build_index_url(file_page=page_number, file_page_size=files_page.page_size_value, schedule_page=schedules_page.page, schedule_page_size=schedules_page.page_size_value) }}"
-            >{{ page_number }}</a>
-            {% endif %}
-        {% endfor %}
-        {% if files_page.has_next %}
-        <a
-            class="page-link"
-            href="{{ build_index_url(file_page=files_page.next_page, file_page_size=files_page.page_size_value, schedule_page=schedules_page.page, schedule_page_size=schedules_page.page_size_value) }}"
-        >&raquo;</a>
-        {% else %}
-        <span class="page-link disabled">&raquo;</span>
-        {% endif %}
-    </nav>
-</section>
-
-<section id="playlists">
-    <h3>Playlists</h3>
-    <form action="{{ url_for('create_playlist') }}" method="POST">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="text" name="name" placeholder="Playlist-Name" required>
-        <button type="submit" class="btn">Erstellen</button>
-    </form>
-    <ul>
-        {% for playlist in playlists %}
-        <li>
-            {{ playlist.name }}
-            <form
-                action="{{ url_for('play_now', item_type='playlist', item_id=playlist.id) }}"
-                method="POST"
-                class="inline-form"
-            >
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button type="submit" class="btn">Play</button>
-            </form>
-            <form action="{{ url_for('delete_playlist', playlist_id=playlist.id) }}" method="POST" class="inline-form">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button type="submit" class="btn">Löschen</button>
-            </form>
-            <form action="{{ url_for('add_to_playlist') }}" method="POST" class="inline-form inline-actions-tight">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <select name="file_id">
-                    {% for file in files_all %}
-                    <option value="{{ file.id }}">{{ file.filename }}</option>
+                </ul>
+                <nav class="pagination-nav" aria-label="Dateiliste">
+                    {% if files_page.has_previous %}
+                    <a
+                        class="page-link"
+                        href="{{ build_index_url(file_page=files_page.previous_page, file_page_size=files_page.page_size_value, schedule_page=schedules_page.page, schedule_page_size=schedules_page.page_size_value) }}"
+                    >&laquo;</a>
+                    {% else %}
+                    <span class="page-link disabled">&laquo;</span>
+                    {% endif %}
+                    {% for page_number in files_page.pages %}
+                        {% if page_number == files_page.page %}
+                        <span class="page-link active">{{ page_number }}</span>
+                        {% else %}
+                        <a
+                            class="page-link"
+                            href="{{ build_index_url(file_page=page_number, file_page_size=files_page.page_size_value, schedule_page=schedules_page.page, schedule_page_size=schedules_page.page_size_value) }}"
+                        >{{ page_number }}</a>
+                        {% endif %}
                     {% endfor %}
-                </select>
-                <input type="hidden" name="playlist_id" value="{{ playlist.id }}">
-                <button type="submit" class="btn">Hinzufügen</button>
-            </form>
-        </li>
-        {% endfor %}
-    </ul>
-</section>
+                    {% if files_page.has_next %}
+                    <a
+                        class="page-link"
+                        href="{{ build_index_url(file_page=files_page.next_page, file_page_size=files_page.page_size_value, schedule_page=schedules_page.page, schedule_page_size=schedules_page.page_size_value) }}"
+                    >&raquo;</a>
+                    {% else %}
+                    <span class="page-link disabled">&raquo;</span>
+                    {% endif %}
+                </nav>
+            </div>
+        </article>
+    </section>
 
-<section id="schedules">
-    <h3>Zeitpläne</h3>
+    <section id="playlists" class="dashboard-section dashboard-section--audio">
+        <article class="dashboard-card stack-md">
+            <h3>Playlists</h3>
+            <form action="{{ url_for('create_playlist') }}" method="POST" class="inline-actions stack-sm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="text" name="name" placeholder="Playlist-Name" required>
+                <button type="submit" class="btn">Erstellen</button>
+            </form>
+            <ul>
+                {% for playlist in playlists %}
+                <li>
+                    {{ playlist.name }}
+                    <form
+                        action="{{ url_for('play_now', item_type='playlist', item_id=playlist.id) }}"
+                        method="POST"
+                        class="inline-form"
+                    >
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn">Play</button>
+                    </form>
+                    <form action="{{ url_for('delete_playlist', playlist_id=playlist.id) }}" method="POST" class="inline-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn">Löschen</button>
+                    </form>
+                    <form action="{{ url_for('add_to_playlist') }}" method="POST" class="inline-form inline-actions-tight">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <select name="file_id">
+                            {% for file in files_all %}
+                            <option value="{{ file.id }}">{{ file.filename }}</option>
+                            {% endfor %}
+                        </select>
+                        <input type="hidden" name="playlist_id" value="{{ playlist.id }}">
+                        <button type="submit" class="btn">Hinzufügen</button>
+                    </form>
+                </li>
+                {% endfor %}
+            </ul>
+        </article>
+    </section>
+
+    <section id="schedules" class="dashboard-section dashboard-section--audio">
+        <article class="dashboard-card stack-lg">
+            <h3>Zeitpläne</h3>
     <form action="{{ url_for('add_schedule') }}" method="POST" class="stack-sm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <select name="item_type" id="item-type">
@@ -987,32 +987,77 @@
         }
     });
     </script>
-</section>
+        </article>
+    </section>
+</div>
 
-<section id="system" class="section-card">
-    <h3>System</h3>
-    <form action="{{ url_for('update') }}" method="POST">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="btn">Update</button>
-    </form>
-    <form action="{{ url_for('bluetooth_on') }}" method="POST" class="inline-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="btn">Bluetooth an</button>
-    </form>
-    <form action="{{ url_for('bluetooth_off') }}" method="POST" class="inline-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="btn">Bluetooth aus</button>
-    </form>
-    <div class="power-controls action-row mt-lg">
-        <form action="{{ url_for('system_reboot') }}" method="POST" data-confirm="System jetzt neu starten?" class="inline-form">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn">Neustart</button>
-        </form>
-        <form action="{{ url_for('system_shutdown') }}" method="POST" data-confirm="System wirklich herunterfahren?" class="inline-form">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn">Herunterfahren</button>
-        </form>
-    </div>
-</section>
+<div class="dashboard-group" id="group-system">
+    <h2 class="dashboard-group-title">System &amp; Wartung</h2>
+    <section id="auto-reboot" class="dashboard-section dashboard-section--system section-card">
+        <article class="dashboard-card stack-md">
+            <h3>Automatischer Neustart</h3>
+            <form action="{{ url_for('save_auto_reboot_settings') }}" method="POST" class="auto-reboot-form form-card stack-sm max-w-32">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <label class="choice-inline">
+                    <input type="checkbox" name="auto_reboot_enabled" {% if auto_reboot_settings.enabled %}checked{% endif %}>
+                    Automatischer Neustart aktiv
+                </label>
+                <div class="flex-row flex-wrap gap-lg items-center">
+                    <label class="form-field">
+                        Uhrzeit
+                        <input type="time" name="auto_reboot_time" value="{{ auto_reboot_settings.time }}" required>
+                    </label>
+                    <label class="form-field">
+                        Ausführung
+                        <select name="auto_reboot_mode" id="auto-reboot-mode">
+                            <option value="daily" {% if auto_reboot_settings.mode == 'daily' %}selected{% endif %}>Täglich</option>
+                            <option value="weekly" {% if auto_reboot_settings.mode == 'weekly' %}selected{% endif %}>Wöchentlich</option>
+                        </select>
+                    </label>
+                    <label id="auto-reboot-weekday-wrapper" class="form-field {% if auto_reboot_settings.mode != 'weekly' %}is-hidden{% endif %}">
+                        Wochentag
+                        <select name="auto_reboot_weekday" id="auto-reboot-weekday">
+                            {% for weekday in auto_reboot_weekdays %}
+                            <option value="{{ weekday }}" {% if auto_reboot_settings.weekday == weekday %}selected{% endif %}>{{ weekday|capitalize }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                </div>
+                <button type="submit" class="btn mt-sm align-self-start">Speichern</button>
+            </form>
+            <p class="hint">Der automatische Neustart nutzt den System-Scheduler. Bei "Wöchentlich" erfolgt der Neustart nur am gewählten Tag.</p>
+        </article>
+    </section>
+
+    <section id="system" class="dashboard-section dashboard-section--system section-card">
+        <article class="dashboard-card stack-md">
+            <h3>System</h3>
+            <form action="{{ url_for('update') }}" method="POST" class="stack-sm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn">Update</button>
+            </form>
+            <div class="inline-actions">
+                <form action="{{ url_for('bluetooth_on') }}" method="POST" class="inline-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn">Bluetooth an</button>
+                </form>
+                <form action="{{ url_for('bluetooth_off') }}" method="POST" class="inline-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn">Bluetooth aus</button>
+                </form>
+            </div>
+            <div class="power-controls action-row mt-lg">
+                <form action="{{ url_for('system_reboot') }}" method="POST" data-confirm="System jetzt neu starten?" class="inline-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn">Neustart</button>
+                </form>
+                <form action="{{ url_for('system_shutdown') }}" method="POST" data-confirm="System wirklich herunterfahren?" class="inline-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn">Herunterfahren</button>
+                </form>
+            </div>
+        </article>
+    </section>
+</div>
 
 {% endblock %}
