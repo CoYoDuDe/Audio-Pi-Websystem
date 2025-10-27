@@ -82,11 +82,12 @@ def test_perform_internet_time_sync_handles_i2c_write_error(monkeypatch, app_mod
 
     commands = []
 
-    def fake_check_call(cmd, *args, **kwargs):
+    def fake_run(cmd, *args, **kwargs):
         commands.append(cmd)
-        return 0
+        assert kwargs.get("check") is True
+        return app_module.subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
 
     success, messages = app_module.perform_internet_time_sync()
 
