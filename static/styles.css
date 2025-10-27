@@ -5,6 +5,54 @@ nav a,
 nav form {
     margin-right: 1em;
 }
+
+.dashboard-layout {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 1.5rem 1rem 3rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2.5rem;
+}
+
+.dashboard-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: flex-start;
+}
+
+.dashboard-title {
+    font-size: clamp(1.75rem, 2vw + 1rem, 2.75rem);
+    font-weight: 700;
+    margin: 0;
+    color: #1e1e1e;
+}
+
+.dashboard-group {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.dashboard-group-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 0;
+    color: #2c2c2c;
+}
+
+.dashboard-section {
+    display: grid;
+    gap: 1.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+    align-items: stretch;
+}
+
+.dashboard-section--status,
+.dashboard-section--system {
+    grid-template-columns: minmax(0, 1fr);
+}
 .flashes {
     list-style: none;
     padding: 0;
@@ -28,6 +76,7 @@ pre { background: #eee; padding: 1em; }
 }
 
 /* Karten & Formulare */
+.dashboard-card,
 .form-card,
 .card {
     background-color: #fff;
@@ -35,6 +84,22 @@ pre { background: #eee; padding: 1em; }
     border-radius: 0.75rem;
     padding: 1.25rem;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.dashboard-card {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.dashboard-subsection {
+    background-color: #f8f9fb;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    border-radius: 0.75rem;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
 }
 
 .card {
@@ -397,6 +462,42 @@ pre { background: #eee; padding: 1em; }
     color: #333;
     text-decoration: none;
     background-color: #f7f7f7;
+}
+
+@media (min-width: 1280px) {
+    .dashboard-layout {
+        max-width: 1320px;
+        padding-left: 2rem;
+        padding-right: 2rem;
+    }
+}
+
+@media (max-width: 900px) {
+    .dashboard-layout {
+        padding: 1.25rem 1rem 2.5rem;
+    }
+
+    .dashboard-section {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .dashboard-header {
+        align-items: flex-start;
+    }
+}
+
+@media (max-width: 600px) {
+    .dashboard-layout {
+        padding: 1rem 0.75rem 2rem;
+    }
+
+    .dashboard-title {
+        font-size: clamp(1.6rem, 5vw + 0.9rem, 2.2rem);
+    }
+
+    .dashboard-group-title {
+        font-size: 1.35rem;
+    }
 }
 
 .page-link:hover {

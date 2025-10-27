@@ -32,7 +32,14 @@
             {% endif %}
         {% endwith %}
     {% endblock %}
-    {% block content %}{% endblock %}
+    <main class="dashboard-layout">
+        {% block global_header %}
+        <header class="dashboard-header">
+            <h1 class="dashboard-title">{% block page_heading %}Audio Pi Websteuerung{% endblock %}</h1>
+        </header>
+        {% endblock %}
+        {% block content %}{% endblock %}
+    </main>
     <script>
     (function () {
         document.addEventListener('DOMContentLoaded', function () {
