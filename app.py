@@ -118,8 +118,11 @@ _ensure_pygame_music_interface()
 
 from network_config import (
     NetworkConfigError,
+    NormalizedNetworkSettings,
     get_current_hostname as _get_current_hostname,
     load_network_settings as _load_network_settings,
+    normalize_network_settings as _normalize_network_settings,
+    restore_network_backup as _restore_network_backup,
     update_hosts_file as _update_hosts_file,
     validate_hostname as _validate_hostname,
     write_network_settings as _write_network_settings,
@@ -4953,18 +4956,21 @@ def save_network_settings():
         ):
             payload[key] = ""
 
+    normalized_result: NormalizedNetworkSettings
     try:
-        normalized_settings = _write_network_settings("wlan0", payload)
+        normalized_result = _normalize_network_settings("wlan0", payload)
     except NetworkConfigError as exc:
         flash(str(exc), "network_settings")
         return redirect(redirect_url)
     except Exception:  # pragma: no cover - robuste Fehlerbehandlung
-        logger.error("Fehler beim Speichern der Netzwerkeinstellungen", exc_info=True)
+        logger.error("Validierung der Netzwerkeinstellungen fehlgeschlagen.", exc_info=True)
         flash(
-            "Beim Speichern der Netzwerkeinstellungen ist ein Fehler aufgetreten.",
+            "Die Netzwerkeinstellungen konnten nicht validiert werden.",
             "network_settings",
         )
         return redirect(redirect_url)
+
+    normalized_settings: Dict[str, str] = dict(normalized_result.normalized)
 
     try:
         current_hostname = _get_current_hostname()
@@ -5038,11 +5044,55 @@ def save_network_settings():
         )
         return redirect(redirect_url)
 
+    try:
+        normalized_settings = _write_network_settings(
+            "wlan0",
+            payload,
+            normalized_result=normalized_result,
+        )
+    except NetworkConfigError as exc:
+        flash(str(exc), "network_settings")
+        return redirect(redirect_url)
+    except Exception:  # pragma: no cover - robuste Fehlerbehandlung
+        logger.error("Fehler beim Speichern der Netzwerkeinstellungen", exc_info=True)
+        if normalized_result.requires_update:
+            try:
+                _restore_network_backup(normalized_result)
+            except Exception:  # pragma: no cover - defensiv loggen
+                logger.error(
+                    "Backup der Netzwerkkonfiguration konnte nicht wiederhergestellt werden.",
+                    exc_info=True,
+                )
+        flash(
+            "Beim Speichern der Netzwerkeinstellungen ist ein Fehler aufgetreten. Änderungen wurden zurückgesetzt.",
+            "network_settings",
+        )
+        return redirect(redirect_url)
+
     settings_to_store: Dict[str, str] = dict(normalized_settings)
     settings_to_store["hostname"] = hostname_to_store
 
-    for field, setting_key in NETWORK_SETTING_KEY_MAP.items():
-        set_setting(setting_key, settings_to_store.get(field, ""))
+    try:
+        for field, setting_key in NETWORK_SETTING_KEY_MAP.items():
+            set_setting(setting_key, settings_to_store.get(field, ""))
+    except Exception:
+        logger.error(
+            "Die Netzwerkeinstellungen konnten nicht in der Datenbank gesichert werden.",
+            exc_info=True,
+        )
+        if normalized_result.requires_update:
+            try:
+                _restore_network_backup(normalized_result)
+            except Exception:  # pragma: no cover - defensiv loggen
+                logger.error(
+                    "Backup der Netzwerkkonfiguration konnte nicht wiederhergestellt werden.",
+                    exc_info=True,
+                )
+        flash(
+            "Beim Aktualisieren der Einstellungen ist ein Fehler aufgetreten. Änderungen wurden zurückgesetzt.",
+            "network_settings",
+        )
+        return redirect(redirect_url)
 
     if normalized_settings.get("mode") == "manual":
         flash("Statische IPv4-Konfiguration gespeichert.", "network_settings")

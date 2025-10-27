@@ -14,6 +14,7 @@ import shutil
 import socket
 import stat
 import tempfile
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
@@ -147,6 +148,23 @@ def _strip_static_directives(lines: Iterable[str], interface: str) -> List[str]:
 def _split_dns_values(raw: str) -> List[str]:
     values = [part for part in DNS_VALUE_SPLIT_RE.split(raw) if part]
     return values
+
+
+@dataclass
+class NormalizedNetworkSettings:
+    """Enthält die Ergebnisse der Normalisierung einer Netzwerkkonfiguration."""
+
+    interface: str
+    normalized: Dict[str, str]
+    original_lines: List[str]
+    new_lines: List[str]
+    dhcpcd_path: Path
+    backup_path: Optional[Path]
+    original_exists: bool
+
+    @property
+    def requires_update(self) -> bool:
+        return self.new_lines != self.original_lines
 
 
 def _validate_ipv4_interface(address: str, prefix: str) -> ipaddress.IPv4Interface:
@@ -370,11 +388,11 @@ def load_network_settings(
     return result
 
 
-def write_network_settings(
+def normalize_network_settings(
     interface: str,
     settings: Dict[str, str],
     dhcpcd_path: Path = Path("/etc/dhcpcd.conf"),
-) -> Dict[str, str]:
+) -> NormalizedNetworkSettings:
     interface = interface.strip()
     if not interface:
         raise NetworkConfigError("Netzwerkschnittstelle darf nicht leer sein.")
@@ -382,9 +400,8 @@ def write_network_settings(
     mode_raw = str(settings.get("mode", "dhcp")).strip().lower()
     manual = mode_raw in {"manual", "static", "static_ipv4"}
 
-    lines = _read_lines(dhcpcd_path)
-    original_lines = list(lines)
-    lines = _remove_client_block(lines)
+    original_lines = _read_lines(dhcpcd_path)
+    lines = _remove_client_block(original_lines)
     lines = _strip_static_directives(lines, interface)
 
     normalized: Dict[str, str]
@@ -422,10 +439,86 @@ def write_network_settings(
             "local_domain": "",
         }
 
-    if lines != original_lines:
-        _write_lines(dhcpcd_path, lines, create_backup=True)
+    new_lines = list(lines)
+    original_lines_copy = list(original_lines)
+    backup_path: Optional[Path] = None
+    if new_lines != original_lines_copy:
+        backup_path = _backup_file(dhcpcd_path)
 
-    return normalized
+    return NormalizedNetworkSettings(
+        interface=interface,
+        normalized=dict(normalized),
+        original_lines=original_lines_copy,
+        new_lines=new_lines,
+        dhcpcd_path=dhcpcd_path,
+        backup_path=backup_path,
+        original_exists=dhcpcd_path.exists(),
+    )
+
+
+def write_network_settings(
+    interface: str,
+    settings: Dict[str, str],
+    dhcpcd_path: Path = Path("/etc/dhcpcd.conf"),
+    *,
+    normalized_result: Optional[NormalizedNetworkSettings] = None,
+) -> Dict[str, str]:
+    result = normalized_result
+    if result is None:
+        result = normalize_network_settings(interface, settings, dhcpcd_path)
+    else:
+        if result.interface != interface:
+            raise NetworkConfigError(
+                "Normalisierte Einstellungen gehören zu einer anderen Schnittstelle."
+            )
+        if result.dhcpcd_path != dhcpcd_path:
+            raise NetworkConfigError(
+                "Normalisierte Einstellungen wurden für eine andere Konfigurationsdatei erstellt."
+            )
+
+    if not result.requires_update:
+        return dict(result.normalized)
+
+    backup_path = result.backup_path
+    if backup_path is None and result.original_exists:
+        backup_path = _backup_file(dhcpcd_path)
+        result.backup_path = backup_path
+
+    try:
+        _write_lines(dhcpcd_path, result.new_lines, create_backup=False)
+    except Exception:
+        if backup_path and backup_path.exists():
+            shutil.copy2(backup_path, dhcpcd_path)
+        elif not result.original_exists:
+            try:
+                dhcpcd_path.unlink()
+            except FileNotFoundError:
+                pass
+        else:
+            _write_lines(dhcpcd_path, result.original_lines, create_backup=False)
+        raise
+
+    return dict(result.normalized)
+
+
+def restore_network_backup(result: NormalizedNetworkSettings) -> None:
+    """Stellt die ursprüngliche ``dhcpcd.conf`` auf Basis eines Backups wieder her."""
+
+    if not result.requires_update:
+        return
+
+    path = result.dhcpcd_path
+    if result.backup_path and result.backup_path.exists():
+        shutil.copy2(result.backup_path, path)
+        return
+
+    if result.original_exists:
+        _write_lines(path, result.original_lines, create_backup=False)
+    else:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            return
 
 
 def get_current_hostname(hostname_path: Path = Path("/etc/hostname")) -> str:
