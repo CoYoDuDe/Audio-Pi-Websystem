@@ -174,6 +174,144 @@ def test_write_network_settings_manual_appends_client_block(network_module, tmp_
     assert backups[0].read_text(encoding="utf-8").startswith("# Basis\ninterface wlan0")
 
 
+def test_write_network_settings_invalid_ipv4(network_module, tmp_path: Path):
+    conf = tmp_path / "dhcpcd.conf"
+    original_lines = ["interface wlan0", "static ip_address=10.0.0.5/24"]
+    _write_conf(conf, original_lines)
+
+    with pytest.raises(network_module.NetworkConfigError) as excinfo:
+        network_module.write_network_settings(
+            "wlan0",
+            {
+                "mode": "manual",
+                "ipv4_address": "300.1.1.1",
+                "ipv4_prefix": "24",
+                "ipv4_gateway": "192.168.1.1",
+                "dns_servers": "8.8.8.8",
+                "local_domain": "",
+            },
+            conf,
+        )
+
+    assert "IPv4-Adresse" in str(excinfo.value)
+    assert conf.read_text(encoding="utf-8").splitlines() == original_lines
+    assert list(conf.parent.glob("dhcpcd.conf.bak.*")) == []
+
+
+def test_write_network_settings_invalid_gateway(network_module, tmp_path: Path):
+    conf = tmp_path / "dhcpcd.conf"
+    original_lines = ["interface wlan0", "static ip_address=10.0.0.5/24"]
+    _write_conf(conf, original_lines)
+
+    with pytest.raises(network_module.NetworkConfigError) as excinfo:
+        network_module.write_network_settings(
+            "wlan0",
+            {
+                "mode": "manual",
+                "ipv4_address": "192.168.1.5",
+                "ipv4_prefix": "24",
+                "ipv4_gateway": "192.168.2.1",
+                "dns_servers": "8.8.8.8",
+                "local_domain": "",
+            },
+            conf,
+        )
+
+    assert "Gateway" in str(excinfo.value)
+    assert conf.read_text(encoding="utf-8").splitlines() == original_lines
+    assert list(conf.parent.glob("dhcpcd.conf.bak.*")) == []
+
+
+def test_write_network_settings_invalid_dns(network_module, tmp_path: Path):
+    conf = tmp_path / "dhcpcd.conf"
+    original_lines = ["interface wlan0", "static ip_address=10.0.0.5/24"]
+    _write_conf(conf, original_lines)
+
+    with pytest.raises(network_module.NetworkConfigError) as excinfo:
+        network_module.write_network_settings(
+            "wlan0",
+            {
+                "mode": "manual",
+                "ipv4_address": "192.168.1.5",
+                "ipv4_prefix": "24",
+                "ipv4_gateway": "192.168.1.1",
+                "dns_servers": "1.1.1.1,invalid",  # Kommagetrennte Eingabe wie im Formular
+                "local_domain": "",
+            },
+            conf,
+        )
+
+    assert "DNS-Server" in str(excinfo.value)
+    assert conf.read_text(encoding="utf-8").splitlines() == original_lines
+    assert list(conf.parent.glob("dhcpcd.conf.bak.*")) == []
+
+
+def test_write_network_settings_invalid_domain(network_module, tmp_path: Path):
+    conf = tmp_path / "dhcpcd.conf"
+    original_lines = ["interface wlan0", "static ip_address=10.0.0.5/24"]
+    _write_conf(conf, original_lines)
+
+    with pytest.raises(network_module.NetworkConfigError) as excinfo:
+        network_module.write_network_settings(
+            "wlan0",
+            {
+                "mode": "manual",
+                "ipv4_address": "192.168.1.5",
+                "ipv4_prefix": "24",
+                "ipv4_gateway": "192.168.1.1",
+                "dns_servers": "1.1.1.1",
+                "local_domain": "bad_domain",  # Unterstrich ist ungültig
+            },
+            conf,
+        )
+
+    assert "Domain" in str(excinfo.value)
+    assert conf.read_text(encoding="utf-8").splitlines() == original_lines
+    assert list(conf.parent.glob("dhcpcd.conf.bak.*")) == []
+
+
+def test_write_network_settings_restores_backup_on_failure(
+    network_module, tmp_path: Path, monkeypatch
+):
+    conf = tmp_path / "dhcpcd.conf"
+    original_lines = [
+        "# Kommentar",
+        "interface wlan0",
+        "static ip_address=10.0.0.5/24",
+        "static routers=10.0.0.1",
+    ]
+    _write_conf(conf, original_lines)
+
+    backups_before = list(conf.parent.glob("dhcpcd.conf.bak.*"))
+    assert backups_before == []
+
+    def failing_chmod(path, mode):
+        raise OSError("chmod fehlgeschlagen")
+
+    monkeypatch.setattr(network_module.os, "chmod", failing_chmod)
+
+    with pytest.raises(network_module.NetworkConfigError) as excinfo:
+        network_module.write_network_settings(
+            "wlan0",
+            {
+                "mode": "manual",
+                "ipv4_address": "192.168.1.20",
+                "ipv4_prefix": "24",
+                "ipv4_gateway": "192.168.1.1",
+                "dns_servers": "8.8.8.8 1.1.1.1",
+                "local_domain": "lan.local",
+            },
+            conf,
+        )
+
+    assert "Fehler beim Schreiben der Netzwerkkonfiguration" in str(excinfo.value)
+    assert conf.read_text(encoding="utf-8").splitlines() == original_lines
+
+    backups = list(conf.parent.glob("dhcpcd.conf.bak.*"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8").splitlines() == original_lines
+
+
 def test_write_network_settings_dhcp_removes_client_block(network_module, tmp_path: Path):
     conf = tmp_path / "dhcpcd.conf"
     _write_conf(
