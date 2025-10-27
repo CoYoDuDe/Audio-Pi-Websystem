@@ -9,6 +9,7 @@ import threading
 import types
 import glob
 import shlex
+import socket
 from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.schedulers.base import (
@@ -115,24 +116,14 @@ def _ensure_pygame_music_interface() -> None:
 _ensure_pygame_music_interface()
 
 
-try:  # pragma: no cover - optional Import, Backend-Task liefert Implementierungen
-    import network_settings as _network_settings_module
-except ImportError:  # pragma: no cover - Verhalten wird in Tests geprüft
-    _network_settings_module = None
-    _load_network_settings_impl = None
-    _save_network_settings_impl = None
-else:
-    _load_network_settings_impl = getattr(
-        _network_settings_module, "load_network_settings", None
-    )
-    if not callable(_load_network_settings_impl):
-        _load_network_settings_impl = None
-
-    _save_network_settings_impl = getattr(
-        _network_settings_module, "save_network_settings", None
-    )
-    if not callable(_save_network_settings_impl):
-        _save_network_settings_impl = None
+from network_config import (
+    NetworkConfigError,
+    get_current_hostname as _get_current_hostname,
+    load_network_settings as _load_network_settings,
+    update_hosts_file as _update_hosts_file,
+    validate_hostname as _validate_hostname,
+    write_network_settings as _write_network_settings,
+)
 
 
 NETWORK_SETTINGS_DEFAULTS: Dict[str, str] = {
@@ -145,40 +136,55 @@ NETWORK_SETTINGS_DEFAULTS: Dict[str, str] = {
     "local_domain": "",
 }
 
+NETWORK_SETTING_KEY_MAP: Dict[str, str] = {
+    "mode": "network_mode",
+    "ipv4_address": "network_ipv4_address",
+    "ipv4_prefix": "network_ipv4_prefix",
+    "ipv4_gateway": "network_ipv4_gateway",
+    "dns_servers": "network_dns_servers",
+    "hostname": "network_hostname",
+    "local_domain": "network_local_domain",
+}
+
 
 def _load_network_settings_for_template(interface: str) -> Dict[str, str]:
     """Lädt Netzwerkeinstellungen und wandelt sie für das Template auf."""
 
     defaults = dict(NETWORK_SETTINGS_DEFAULTS)
-    loader = _load_network_settings_impl
-    if loader is None:
-        return defaults
-
     try:
-        candidate = loader(interface)
+        candidate = _load_network_settings(interface)
+    except NetworkConfigError as exc:  # pragma: no cover - Validierungsfehler protokollieren
+        logger.warning(
+            "Netzwerkeinstellungen für %s konnten nicht geladen werden: %s",
+            interface,
+            exc,
+        )
+        normalized: Dict[str, Any] = {}
     except Exception:  # pragma: no cover - robustes Fallback
         logger.warning(
-            "Netzwerkeinstellungen für %s konnten nicht geladen werden.", interface, exc_info=True
+            "Netzwerkeinstellungen für %s konnten nicht geladen werden.",
+            interface,
+            exc_info=True,
         )
-        return defaults
-
-    if candidate is None:
-        normalized: Dict[str, Any] = {}
-    elif isinstance(candidate, dict):
-        normalized = candidate
-    elif is_dataclass(candidate):
-        normalized = asdict(candidate)
-    elif hasattr(candidate, "to_dict") and callable(getattr(candidate, "to_dict")):
-        try:
-            normalized = candidate.to_dict()  # type: ignore[assignment]
-        except Exception:  # pragma: no cover - resiliente Konvertierung
-            logger.warning(
-                "Netzwerkeinstellungen-Objekt konnte nicht in ein Dict konvertiert werden.",
-                exc_info=True,
-            )
-            normalized = {}
-    else:
         normalized = {}
+    else:
+        if candidate is None:
+            normalized = {}
+        elif isinstance(candidate, dict):
+            normalized = dict(candidate)
+        elif is_dataclass(candidate):
+            normalized = asdict(candidate)
+        elif hasattr(candidate, "to_dict") and callable(getattr(candidate, "to_dict")):
+            try:
+                normalized = candidate.to_dict()  # type: ignore[assignment]
+            except Exception:  # pragma: no cover - resiliente Konvertierung
+                logger.warning(
+                    "Netzwerkeinstellungen-Objekt konnte nicht in ein Dict konvertiert werden.",
+                    exc_info=True,
+                )
+                normalized = {}
+        else:
+            normalized = {}
 
     result = defaults.copy()
     for key in defaults:
@@ -204,6 +210,21 @@ def _load_network_settings_for_template(interface: str) -> Dict[str, str]:
             result[key] = rendered
         else:
             result[key] = str(value)
+
+    for field, setting_key in NETWORK_SETTING_KEY_MAP.items():
+        try:
+            stored_value = get_setting(setting_key, None)
+        except Exception:
+            stored_value = None
+        if stored_value in (None, ""):
+            continue
+        result[field] = stored_value
+
+    if not result.get("hostname"):
+        try:
+            result["hostname"] = _get_current_hostname()
+        except Exception:  # pragma: no cover - defensiver Fallback
+            result["hostname"] = socket.gethostname()
 
     return result
 
@@ -2819,6 +2840,25 @@ def gather_status():
     headroom_details = get_normalization_headroom_details()
     schedule_default_volume = get_schedule_default_volume_details()
     amplifier_state = get_amplifier_gpio_pin_state()
+    network_info = _load_network_settings_for_template("wlan0")
+    network_mode = (network_info.get("mode") or "dhcp").strip().lower()
+    if network_mode not in {"manual", "dhcp"}:
+        network_mode = "dhcp"
+    if network_mode == "manual" and network_info.get("ipv4_address"):
+        ipv4_address = network_info.get("ipv4_address", "").strip()
+        ipv4_prefix = network_info.get("ipv4_prefix", "").strip()
+        if ipv4_address and ipv4_prefix:
+            network_ip = f"{ipv4_address}/{ipv4_prefix}"
+        else:
+            network_ip = ipv4_address or "Unbekannt"
+    else:
+        network_ip = "DHCP"
+    hostname_value = network_info.get("hostname") or ""
+    if not hostname_value:
+        try:
+            hostname_value = _get_current_hostname()
+        except Exception:  # pragma: no cover - defensiver Fallback
+            hostname_value = socket.gethostname()
 
     return {
         "playing": is_playing,
@@ -2848,6 +2888,9 @@ def gather_status():
         "amplifier_gpio_pin_default": amplifier_state["default"],
         "amplifier_gpio_pin_source": amplifier_state["source"],
         "amplifier_gpio_pin_configured": amplifier_state["configured"],
+        "network_mode": network_mode,
+        "network_ip": network_ip,
+        "network_hostname": hostname_value,
     }
 
 
@@ -4882,7 +4925,7 @@ def save_auto_reboot_settings():
     return redirect(url_for("index"))
 
 
-@app.route("/network/settings", methods=["POST"])
+@app.route("/network_settings", methods=["POST"])
 @login_required
 def save_network_settings():
     redirect_url = _network_settings_redirect_url()
@@ -4901,25 +4944,21 @@ def save_network_settings():
     payload: Dict[str, Any] = {"mode": mode, **manual_values}
 
     if mode != "manual":
-        for key in ("ipv4_address", "ipv4_prefix", "ipv4_gateway", "dns_servers"):
+        for key in (
+            "ipv4_address",
+            "ipv4_prefix",
+            "ipv4_gateway",
+            "dns_servers",
+            "local_domain",
+        ):
             payload[key] = ""
 
-    if _save_network_settings_impl is None:
-        flash(
-            "Das Speichern der Netzwerkeinstellungen ist aktuell nicht verfügbar.",
-            "network_settings",
-        )
-        return redirect(redirect_url)
-
     try:
-        result = _save_network_settings_impl("wlan0", payload)
-    except NotImplementedError:
-        flash(
-            "Das Speichern der Netzwerkeinstellungen ist noch nicht implementiert.",
-            "network_settings",
-        )
+        normalized_settings = _write_network_settings("wlan0", payload)
+    except NetworkConfigError as exc:
+        flash(str(exc), "network_settings")
         return redirect(redirect_url)
-    except Exception:
+    except Exception:  # pragma: no cover - robuste Fehlerbehandlung
         logger.error("Fehler beim Speichern der Netzwerkeinstellungen", exc_info=True)
         flash(
             "Beim Speichern der Netzwerkeinstellungen ist ein Fehler aufgetreten.",
@@ -4927,13 +4966,88 @@ def save_network_settings():
         )
         return redirect(redirect_url)
 
-    if result is False:
+    try:
+        current_hostname = _get_current_hostname()
+    except Exception:  # pragma: no cover - defensiver Fallback
+        current_hostname = socket.gethostname()
+
+    hostname_input = manual_values.get("hostname", "")
+    hostname_to_store = current_hostname
+    if hostname_input:
+        try:
+            hostname_candidate = _validate_hostname(hostname_input)
+        except NetworkConfigError as exc:
+            flash(str(exc), "network_settings")
+            return redirect(redirect_url)
+
+        if hostname_candidate != current_hostname:
+            command = privileged_command("hostnamectl", "set-hostname", hostname_candidate)
+            try:
+                result = subprocess.run(
+                    command,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+            except Exception:
+                logger.error("hostnamectl konnte nicht ausgeführt werden.", exc_info=True)
+                flash(
+                    "Hostname konnte nicht gesetzt werden (hostnamectl fehlgeschlagen).",
+                    "network_settings",
+                )
+                return redirect(redirect_url)
+
+            stdout_text = result.stdout
+            stderr_text = result.stderr
+            if _command_not_found(stderr_text, stdout_text, result.returncode):
+                primary_command = _extract_primary_command(command)
+                flash(
+                    f"{primary_command} ist nicht verfügbar. Hostname wurde nicht geändert.",
+                    "network_settings",
+                )
+                return redirect(redirect_url)
+            if result.returncode != 0:
+                logger.error(
+                    "hostnamectl fehlgeschlagen – Rückgabewert %s, stderr: %s",
+                    result.returncode,
+                    stderr_text,
+                )
+                flash(
+                    "Hostname konnte nicht gesetzt werden (hostnamectl meldete einen Fehler).",
+                    "network_settings",
+                )
+                return redirect(redirect_url)
+
+            hostname_to_store = hostname_candidate
+        else:
+            hostname_to_store = hostname_candidate
+
+    try:
+        _update_hosts_file(
+            hostname_to_store,
+            normalized_settings.get("local_domain", ""),
+        )
+    except NetworkConfigError as exc:
+        flash(str(exc), "network_settings")
+        return redirect(redirect_url)
+    except Exception:
+        logger.error("/etc/hosts konnte nicht aktualisiert werden.", exc_info=True)
         flash(
-            "Netzwerkeinstellungen konnten nicht übernommen werden.",
+            "Die Host-Datei konnte nicht aktualisiert werden.",
             "network_settings",
         )
+        return redirect(redirect_url)
+
+    settings_to_store: Dict[str, str] = dict(normalized_settings)
+    settings_to_store["hostname"] = hostname_to_store
+
+    for field, setting_key in NETWORK_SETTING_KEY_MAP.items():
+        set_setting(setting_key, settings_to_store.get(field, ""))
+
+    if normalized_settings.get("mode") == "manual":
+        flash("Statische IPv4-Konfiguration gespeichert.", "network_settings")
     else:
-        flash("Netzwerkeinstellungen wurden aktualisiert.", "network_settings")
+        flash("DHCP-Konfiguration aktiviert.", "network_settings")
 
     return redirect(redirect_url)
 
