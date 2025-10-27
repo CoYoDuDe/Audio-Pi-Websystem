@@ -71,24 +71,39 @@ def _write_lines(path: Path, lines: Sequence[str], *, create_backup: bool = True
         except OSError:
             mode = None
 
+    backup_path: Optional[Path] = None
     if create_backup:
-        _backup_file(path)
+        backup_path = _backup_file(path)
 
     text = "\n".join(lines)
     if lines:
         text += "\n"
 
-    with tempfile.NamedTemporaryFile(
-        "w", delete=False, encoding="utf-8", dir=str(path.parent)
-    ) as tmp:
-        tmp.write(text)
-        tmp_path = Path(tmp.name)
+    tmp_path: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", delete=False, encoding="utf-8", dir=str(path.parent)
+        ) as tmp:
+            tmp.write(text)
+            tmp_path = Path(tmp.name)
 
-    os.replace(tmp_path, path)
-    if mode is not None:
-        os.chmod(path, mode)
-    else:
-        os.chmod(path, 0o644)
+        try:
+            os.replace(tmp_path, path)
+            tmp_path = None
+            if mode is not None:
+                os.chmod(path, mode)
+            else:
+                os.chmod(path, 0o644)
+        except Exception:
+            if create_backup and backup_path and backup_path.exists():
+                shutil.copy2(backup_path, path)
+            raise
+    finally:
+        if tmp_path is not None and tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
     return True
 
 
@@ -423,7 +438,14 @@ def write_network_settings(
         }
 
     if lines != original_lines:
-        _write_lines(dhcpcd_path, lines, create_backup=True)
+        try:
+            _write_lines(dhcpcd_path, lines, create_backup=True)
+        except NetworkConfigError:
+            raise
+        except Exception as exc:
+            raise NetworkConfigError(
+                "Fehler beim Schreiben der Netzwerkkonfiguration: %s" % exc
+            ) from exc
 
     return normalized
 
