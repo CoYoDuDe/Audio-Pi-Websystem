@@ -66,6 +66,64 @@ def sudo_client(sudo_app_module):
         yield client, sudo_app_module
 
 
+def test_reload_reactivates_subprocess_originals(monkeypatch, tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    monkeypatch.syspath_prepend(str(repo_root))
+
+    monkeypatch.setenv("FLASK_SECRET_KEY", "testkey")
+    monkeypatch.setenv("TESTING", "1")
+    monkeypatch.setenv("DB_FILE", str(tmp_path / "test.db"))
+    monkeypatch.setenv("INITIAL_ADMIN_PASSWORD", "password")
+
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir()
+
+    monkeypatch.setenv("AUDIO_PI_DISABLE_SUDO", "1")
+    if "app" in sys.modules:
+        del sys.modules["app"]
+    app_module = importlib.import_module("app")
+    app_module = importlib.reload(app_module)
+
+    if app_module.pygame is not None:
+        app_module.pygame.mixer.music.get_busy = lambda: False
+    app_module.app.config["UPLOAD_FOLDER"] = str(upload_dir)
+
+    command_without_sudo = app_module.privileged_command("systemctl", "status")
+    assert command_without_sudo
+    assert command_without_sudo[0] != "sudo"
+
+    original_run = getattr(app_module.subprocess, "_audio_pi_original_run")
+
+    monkeypatch.setenv("AUDIO_PI_DISABLE_SUDO", "0")
+    app_module = importlib.reload(app_module)
+
+    if app_module.pygame is not None:
+        app_module.pygame.mixer.music.get_busy = lambda: False
+    app_module.app.config["UPLOAD_FOLDER"] = str(upload_dir)
+
+    command_with_sudo = app_module.privileged_command("systemctl", "status")
+    assert command_with_sudo
+    assert command_with_sudo[0] == "sudo"
+    assert app_module.subprocess.run is original_run
+
+    captured = {}
+
+    def fake_run(cmd, *args, **kwargs):
+        captured["cmd"] = cmd
+        return app_module.subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+
+    app_module.subprocess.run(command_with_sudo)
+
+    assert captured["cmd"][0] == "sudo"
+
+    if hasattr(app_module, "conn") and app_module.conn is not None:
+        app_module.conn.close()
+    if "app" in sys.modules:
+        del sys.modules["app"]
+
+
 def _login(client):
     response = csrf_post(
         client,
