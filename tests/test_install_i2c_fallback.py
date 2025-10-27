@@ -70,6 +70,7 @@ def test_install_dry_run_uses_device_tree_fallback(tmp_path: Path) -> None:
     env = os.environ.copy()
     env["PATH"] = _prepare_fake_path(tmp_path)
     env["INSTALL_FLASK_SECRET_KEY"] = "Fallback-SecretKey_Example-1234567890"
+    env.setdefault("INSTALL_TARGET_USER", "root")
 
     result = subprocess.run(
         ["/bin/bash", str(script), "--dry-run"],

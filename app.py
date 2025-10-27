@@ -5420,6 +5420,7 @@ def set_volume():
                     text=True,
                 )
             except FileNotFoundError:
+                message: Optional[str] = None
                 if primary_command == "pactl":
                     _notify_missing_pactl()
                 else:
@@ -5430,8 +5431,9 @@ def set_volume():
                         "%s (ausgeführt als: %s)",
                         message,
                         command_display,
-                )
-                flash(message)
+                    )
+                if message is not None:
+                    flash(message)
             except subprocess.CalledProcessError as exc:
                 failing_command = command
                 if isinstance(exc.cmd, Sequence) and not isinstance(

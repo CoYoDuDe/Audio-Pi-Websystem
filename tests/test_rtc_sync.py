@@ -37,8 +37,10 @@ def test_sync_rtc_logs_error_on_subprocess_failure(app_module, monkeypatch, capl
     executed_commands = []
 
     def fake_run(cmd, *args, **kwargs):
-        executed_commands.append(cmd)
+        executed_commands.append((cmd, kwargs))
         assert kwargs.get("check") is True
+        assert kwargs.get("capture_output") is True
+        assert kwargs.get("text") is True
         raise app_module.subprocess.CalledProcessError(1, cmd)
 
     monkeypatch.setattr(app_module.subprocess, "run", fake_run)
@@ -48,8 +50,11 @@ def test_sync_rtc_logs_error_on_subprocess_failure(app_module, monkeypatch, capl
         result = app_module.sync_rtc_to_system()
 
     assert executed_commands == [
-        app_module.privileged_command(
-            "timedatectl", "set-time", "2024-01-02 03:04:05"
+        (
+            app_module.privileged_command(
+                "timedatectl", "set-time", "2024-01-02 03:04:05"
+            ),
+            {"check": True, "capture_output": True, "text": True},
         )
     ]
 

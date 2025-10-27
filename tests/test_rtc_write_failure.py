@@ -83,7 +83,7 @@ def test_perform_internet_time_sync_handles_i2c_write_error(monkeypatch, app_mod
     commands = []
 
     def fake_run(cmd, *args, **kwargs):
-        commands.append(cmd)
+        commands.append((cmd, kwargs))
         assert kwargs.get("check") is True
         return app_module.subprocess.CompletedProcess(cmd, 0)
 
@@ -91,15 +91,19 @@ def test_perform_internet_time_sync_handles_i2c_write_error(monkeypatch, app_mod
 
     success, messages = app_module.perform_internet_time_sync()
 
-    assert app_module.privileged_command(
-        "timedatectl", "set-ntp", "false"
-    ) in commands
-    assert app_module.privileged_command(
-        "timedatectl", "set-ntp", "true"
-    ) in commands
-    assert app_module.privileged_command(
-        "systemctl", "restart", "systemd-timesyncd"
-    ) in commands
+    expected_calls = {
+        tuple(app_module.privileged_command("timedatectl", "set-ntp", "false")),
+        tuple(app_module.privileged_command("timedatectl", "set-ntp", "true")),
+        tuple(app_module.privileged_command("systemctl", "restart", "systemd-timesyncd")),
+    }
+
+    recorded_commands = {
+        tuple(command)
+        for command, kwargs in commands
+        if kwargs.get("check") is True
+    }
+
+    assert expected_calls.issubset(recorded_commands)
     assert success is False
     assert "RTC konnte nicht aktualisiert werden (I²C-Schreibfehler)" in messages
 
@@ -109,7 +113,10 @@ def test_set_time_handles_i2c_write_error(monkeypatch, client):
     _login(client)
     _prepare_rtc_failure(app_module)
 
+    executed_commands = []
+
     def fake_run(cmd, *args, **kwargs):
+        executed_commands.append((cmd, kwargs))
         if isinstance(cmd, (list, tuple)) and list(cmd)[:2] == [
             "timedatectl",
             "set-time",
@@ -127,6 +134,11 @@ def test_set_time_handles_i2c_write_error(monkeypatch, client):
         data={"datetime": "2024-01-01T12:00:00"},
         follow_redirects=True,
         source_url="/set_time",
+    )
+
+    assert any(
+        tuple(command)[:2] == ("timedatectl", "set-time") and kwargs.get("check") is True
+        for command, kwargs in executed_commands
     )
 
     expected = "RTC konnte nicht gesetzt werden (I²C-Schreibfehler)"

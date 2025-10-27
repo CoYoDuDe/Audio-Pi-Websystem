@@ -10,7 +10,14 @@ from flask import get_flashed_messages
 
 def test_setup_ap_logs_warning_on_service_failure(monkeypatch, caplog):
     monkeypatch.setattr(app, "has_network", lambda: False)
-    monkeypatch.setattr(app.subprocess, "call", lambda *_args, **_kwargs: 1)
+
+    def fake_run(cmd, *args, **kwargs):
+        assert kwargs.get("check") is False
+        assert kwargs.get("capture_output") is True
+        assert kwargs.get("text") is True
+        return app.subprocess.CompletedProcess(cmd, 1, stdout="", stderr="failed")
+
+    monkeypatch.setattr(app.subprocess, "run", fake_run)
 
     with caplog.at_level(logging.WARNING):
         with app.app.test_request_context("/"):
@@ -29,7 +36,13 @@ def test_setup_ap_logs_warning_on_service_failure(monkeypatch, caplog):
 
 
 def test_disable_ap_logs_warning_on_service_failure(monkeypatch, caplog):
-    monkeypatch.setattr(app.subprocess, "call", lambda *_args, **_kwargs: 1)
+    def fake_run(cmd, *args, **kwargs):
+        assert kwargs.get("check") is False
+        assert kwargs.get("capture_output") is True
+        assert kwargs.get("text") is True
+        return app.subprocess.CompletedProcess(cmd, 1, stdout="", stderr="failed")
+
+    monkeypatch.setattr(app.subprocess, "run", fake_run)
 
     with caplog.at_level(logging.WARNING):
         with app.app.test_request_context("/"):
@@ -50,12 +63,16 @@ def test_disable_ap_logs_warning_on_service_failure(monkeypatch, caplog):
 def test_disable_ap_stops_dnsmasq_even_if_hostapd_fails(monkeypatch):
     calls = []
 
-    def fake_call(cmd, *_args, **_kwargs):
+    def fake_run(cmd, *args, **kwargs):
+        assert kwargs.get("check") is False
+        assert kwargs.get("capture_output") is True
+        assert kwargs.get("text") is True
         service = cmd[-1]
         calls.append(service)
-        return 1 if service == "hostapd" else 0
+        return_code = 1 if service == "hostapd" else 0
+        return app.subprocess.CompletedProcess(cmd, return_code, stdout="", stderr="")
 
-    monkeypatch.setattr(app.subprocess, "call", fake_call)
+    monkeypatch.setattr(app.subprocess, "run", fake_run)
 
     assert app.disable_ap() is False
     assert calls == ["hostapd", "dnsmasq"]
