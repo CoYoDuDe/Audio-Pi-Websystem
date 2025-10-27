@@ -199,6 +199,50 @@ def test_sync_time_handles_timesyncd_failure(monkeypatch, client):
     assert called_set_rtc is False
 
 
+def test_sync_time_does_not_flash_success_on_restart_failure(monkeypatch, client):
+    client, app_module = client
+    _login(client)
+
+    restart_attempts = {"count": 0}
+    called_set_rtc = False
+
+    restart_command = app_module.privileged_command(
+        "systemctl", "restart", "systemd-timesyncd"
+    )
+
+    def fake_run(cmd, *args, **kwargs):
+        assert kwargs.get("check") is True
+        assert kwargs.get("capture_output") is True
+        assert kwargs.get("text") is True
+        if cmd == restart_command:
+            restart_attempts["count"] += 1
+            raise app_module.subprocess.CalledProcessError(
+                1,
+                cmd,
+                stderr="restart failed",
+                output="",
+            )
+        return app_module.subprocess.CompletedProcess(cmd, 0, "", "")
+
+    def fake_set_rtc(dt):
+        nonlocal called_set_rtc
+        called_set_rtc = True
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(app_module, "set_rtc", fake_set_rtc)
+
+    response = csrf_post(
+        client,
+        "/sync_time_from_internet",
+        follow_redirects=True,
+    )
+
+    assert restart_attempts["count"] >= 1
+    assert called_set_rtc is False
+    assert b"Zeit vom Internet synchronisiert" not in response.data
+    assert b"systemd-timesyncd konnte nicht neu gestartet werden" in response.data
+
+
 def test_sync_time_rejects_get_after_login(client):
     client, _ = client
     _login(client)
