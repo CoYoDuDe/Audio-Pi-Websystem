@@ -27,6 +27,299 @@ pre { background: #eee; padding: 1em; }
     padding: 0.4em 1em;
 }
 
+/* Karten & Formulare */
+.form-card,
+.card {
+    background-color: #fff;
+    border: 1px solid #dddddd;
+    border-radius: 0.75rem;
+    padding: 1.25rem;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.section-card {
+    margin-bottom: 2rem;
+}
+
+.form-card .form-actions,
+.card .form-actions {
+    margin-top: 0.75rem;
+}
+
+/* Layout-Hilfsklassen */
+.stack-sm {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.stack-md {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.stack-lg {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.inline-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.inline-actions .btn {
+    margin: 0;
+}
+
+.inline-actions-tight {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.action-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.inline-form {
+    display: inline;
+}
+
+.flex-row {
+    display: flex;
+    flex-direction: row;
+}
+
+.flex-wrap {
+    flex-wrap: wrap;
+}
+
+.gap-sm {
+    gap: 0.5rem;
+}
+
+.gap-md {
+    gap: 0.75rem;
+}
+
+.gap-lg {
+    gap: 1rem;
+}
+
+.gap-xl {
+    gap: 2rem;
+}
+
+.items-center {
+    align-items: center;
+}
+
+.items-end {
+    align-items: flex-end;
+}
+
+.form-grid,
+.grid-2 {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+}
+
+.grid-tight {
+    gap: 0.5rem;
+}
+
+.fieldset-inline {
+    border: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1.5rem;
+}
+
+.legend-strong {
+    font-weight: 600;
+}
+
+.form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.choice-inline {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.form-section-divider {
+    border-top: 1px solid rgba(0, 0, 0, 0.15);
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+}
+
+.align-self-start {
+    align-self: flex-start;
+}
+
+.align-self-end {
+    align-self: flex-end;
+}
+
+.max-w-20 {
+    max-width: 20rem;
+}
+
+.max-w-28 {
+    max-width: 28rem;
+}
+
+.max-w-32 {
+    max-width: 32rem;
+}
+
+.max-w-36 {
+    max-width: 36rem;
+}
+
+.max-w-60ch {
+    max-width: 60ch;
+}
+
+.mt-xs {
+    margin-top: 0.25rem;
+}
+
+.mt-sm {
+    margin-top: 0.5rem;
+}
+
+.mt-md {
+    margin-top: 0.75rem;
+}
+
+.mt-lg {
+    margin-top: 1rem;
+}
+
+.mb-none {
+    margin-bottom: 0;
+}
+
+.min-w-10 {
+    min-width: 10rem;
+}
+
+.min-w-12 {
+    min-width: 12rem;
+}
+
+.min-w-14 {
+    min-width: 14rem;
+}
+
+.text-right {
+    text-align: right;
+}
+
+.text-warning {
+    color: #b30000;
+    font-weight: 600;
+}
+
+.alert {
+    border-radius: 0.5rem;
+    padding: 1rem;
+    border: 1px solid transparent;
+    margin-top: 1rem;
+}
+
+.alert-warning {
+    background-color: #fff3cd;
+    border-color: #ffeeba;
+    color: #856404;
+}
+
+.is-hidden {
+    display: none !important;
+}
+
+.inline-value {
+    min-width: 3ch;
+    text-align: right;
+}
+
+.w-50 {
+    width: 50px;
+}
+
+.card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.card-list .card {
+    border-color: #e0e0e0;
+}
+
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border-radius: 999px;
+    background: #f0f0f0;
+    padding: 0.15rem 0.6rem;
+    font-size: 0.85rem;
+}
+
+.btn-danger {
+    background-color: #b30000;
+    border-color: #b30000;
+    color: #ffffff;
+}
+
+.btn-secondary {
+    background-color: #6c757d;
+    border-color: #6c757d;
+    color: #ffffff;
+}
+
+.inline-block {
+    display: inline-block;
+}
+
+.justify-between {
+    justify-content: space-between;
+}
+
+.gap-row-md {
+    row-gap: 1rem;
+}
+
+.form-helper {
+    font-size: 0.9rem;
+    color: #555;
+}
+
 .pagination-container {
     display: flex;
     justify-content: space-between;
