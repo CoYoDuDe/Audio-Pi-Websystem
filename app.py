@@ -190,12 +190,57 @@ def _should_strip_sudo() -> bool:
     return _SUDO_DISABLED
 
 
-if _should_strip_sudo():
-    subprocess.run = _wrap_subprocess_function(subprocess.run)
-    subprocess.check_call = _wrap_subprocess_function(subprocess.check_call)
-    subprocess.call = _wrap_subprocess_function(subprocess.call)
-    subprocess.check_output = _wrap_subprocess_function(subprocess.check_output)
-    subprocess.Popen = _wrap_subprocess_popen(subprocess.Popen)
+_SUBPROCESS_METHODS = (
+    "run",
+    "check_call",
+    "call",
+    "check_output",
+    "Popen",
+)
+
+
+def _store_original_subprocess_functions() -> None:
+    for name in _SUBPROCESS_METHODS:
+        attr_name = f"_audio_pi_original_{name}"
+        if not hasattr(subprocess, attr_name):
+            setattr(subprocess, attr_name, getattr(subprocess, name))
+
+
+def _restore_subprocess_functions() -> None:
+    for name in _SUBPROCESS_METHODS:
+        attr_name = f"_audio_pi_original_{name}"
+        original = getattr(subprocess, attr_name, None)
+        if original is not None:
+            setattr(subprocess, name, original)
+
+
+def _patch_subprocess_functions() -> None:
+    _store_original_subprocess_functions()
+    subprocess.run = _wrap_subprocess_function(
+        getattr(subprocess, "_audio_pi_original_run")
+    )
+    subprocess.check_call = _wrap_subprocess_function(
+        getattr(subprocess, "_audio_pi_original_check_call")
+    )
+    subprocess.call = _wrap_subprocess_function(
+        getattr(subprocess, "_audio_pi_original_call")
+    )
+    subprocess.check_output = _wrap_subprocess_function(
+        getattr(subprocess, "_audio_pi_original_check_output")
+    )
+    subprocess.Popen = _wrap_subprocess_popen(
+        getattr(subprocess, "_audio_pi_original_Popen")
+    )
+
+
+def _configure_subprocess_for_sudo_state() -> None:
+    if _should_strip_sudo():
+        _patch_subprocess_functions()
+    else:
+        _restore_subprocess_functions()
+
+
+_configure_subprocess_for_sudo_state()
 
 from pydub import AudioSegment
 from pydub.exceptions import CouldntDecodeError
