@@ -95,7 +95,7 @@
         >
             <label
                 for="ipv4-address"
-                data-manual-field
+                data-manual-field="ipv4"
                 style="display:flex;flex-direction:column;gap:0.25rem;{{ manual_hidden_style }}"
             >
                 IPv4-Adresse
@@ -105,13 +105,13 @@
                     name="ipv4_address"
                     placeholder="z. B. 192.168.0.10"
                     value="{{ network_settings.ipv4_address }}"
-                    data-manual-input
+                    data-manual-input="ipv4"
                     data-required-when-manual="true"
                 >
             </label>
             <label
                 for="ipv4-prefix"
-                data-manual-field
+                data-manual-field="ipv4"
                 style="display:flex;flex-direction:column;gap:0.25rem;{{ manual_hidden_style }}"
             >
                 Präfix (CIDR)
@@ -123,13 +123,13 @@
                     max="32"
                     placeholder="z. B. 24"
                     value="{{ network_settings.ipv4_prefix }}"
-                    data-manual-input
+                    data-manual-input="ipv4"
                     data-required-when-manual="true"
                 >
             </label>
             <label
                 for="ipv4-gateway"
-                data-manual-field
+                data-manual-field="ipv4"
                 style="display:flex;flex-direction:column;gap:0.25rem;{{ manual_hidden_style }}"
             >
                 Gateway
@@ -139,13 +139,13 @@
                     name="ipv4_gateway"
                     placeholder="z. B. 192.168.0.1"
                     value="{{ network_settings.ipv4_gateway }}"
-                    data-manual-input
+                    data-manual-input="ipv4"
                     data-required-when-manual="true"
                 >
             </label>
             <label
                 for="dns-servers"
-                data-manual-field
+                data-manual-field="ipv4"
                 style="display:flex;flex-direction:column;gap:0.25rem;{{ manual_hidden_style }}"
             >
                 DNS-Server
@@ -155,14 +155,18 @@
                     name="dns_servers"
                     placeholder="z. B. 1.1.1.1, 8.8.8.8"
                     value="{{ network_settings.dns_servers }}"
-                    data-manual-input
+                    data-manual-input="ipv4"
                     data-required-when-manual="true"
                 >
             </label>
+        </div>
+        <div
+            class="network-identity-group"
+            style="border-top:1px solid rgba(0, 0, 0, 0.15);margin-top:0.75rem;padding-top:0.75rem;display:grid;gap:0.75rem;grid-template-columns:repeat(auto-fit, minmax(14rem, 1fr));"
+        >
             <label
                 for="hostname"
-                data-manual-field
-                style="display:flex;flex-direction:column;gap:0.25rem;{{ manual_hidden_style }}"
+                style="display:flex;flex-direction:column;gap:0.25rem;"
             >
                 Hostname
                 <input
@@ -171,14 +175,11 @@
                     name="hostname"
                     placeholder="z. B. audio-pi"
                     value="{{ network_settings.hostname }}"
-                    data-manual-input
-                    data-required-when-manual="true"
                 >
             </label>
             <label
                 for="local-domain"
-                data-manual-field
-                style="display:flex;flex-direction:column;gap:0.25rem;{{ manual_hidden_style }}"
+                style="display:flex;flex-direction:column;gap:0.25rem;"
             >
                 Lokale Domain (optional)
                 <input
@@ -187,11 +188,10 @@
                     name="local_domain"
                     placeholder="z. B. lan"
                     value="{{ network_settings.local_domain }}"
-                    data-manual-input
                 >
             </label>
         </div>
-        <small data-manual-hint style="{{ manual_hidden_style }}">Bei Modus „Manuell“ müssen alle relevanten Felder plausibel ausgefüllt werden.</small>
+        <small data-manual-hint style="{{ manual_hidden_style }}">IPv4-Adresse, Präfix, Gateway und DNS-Server werden nur benötigt, wenn „Manuell (statische IPv4)“ aktiv ist.</small>
         <button type="submit" class="btn" style="align-self:flex-start;">Speichern</button>
     </form>
     {% if flash_groups.network %}
@@ -792,8 +792,12 @@
         const scheduleVolumeValue = document.getElementById('schedule-volume-value');
         const networkForm = document.getElementById('network-settings-form');
         const networkModeRadios = networkForm ? networkForm.querySelectorAll('input[name="mode"]') : null;
-        const manualFieldWrappers = networkForm ? networkForm.querySelectorAll('[data-manual-field]') : null;
-        const manualInputs = networkForm ? networkForm.querySelectorAll('[data-manual-input]') : null;
+        const manualFieldWrappers = networkForm
+            ? networkForm.querySelectorAll('[data-manual-field="ipv4"]')
+            : null;
+        const manualInputs = networkForm
+            ? networkForm.querySelectorAll('input[data-manual-input="ipv4"]')
+            : null;
         const manualHint = networkForm ? networkForm.querySelector('[data-manual-hint]') : null;
 
         function populate() {
