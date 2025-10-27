@@ -36,11 +36,12 @@ def test_sync_rtc_logs_error_on_subprocess_failure(app_module, monkeypatch, capl
 
     executed_commands = []
 
-    def fake_check_call(cmd, *args, **kwargs):
+    def fake_run(cmd, *args, **kwargs):
         executed_commands.append(cmd)
+        assert kwargs.get("check") is True
         raise app_module.subprocess.CalledProcessError(1, cmd)
 
-    monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
 
     caplog.clear()
     with caplog.at_level(logging.INFO):
@@ -64,10 +65,11 @@ def test_sync_rtc_failure_does_not_raise_system_exit(app_module, monkeypatch):
     fake_time = datetime(2025, 5, 4, 3, 2, 1)
     monkeypatch.setattr(app_module, "read_rtc", lambda: fake_time)
 
-    def fake_check_call(cmd, *args, **kwargs):
+    def fake_run(cmd, *args, **kwargs):
+        assert kwargs.get("check") is True
         raise app_module.subprocess.CalledProcessError(5, cmd)
 
-    monkeypatch.setattr(app_module.subprocess, "check_call", fake_check_call)
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
 
     try:
         result = app_module.sync_rtc_to_system()
