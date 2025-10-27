@@ -603,6 +603,38 @@ Bestätigung.
 > Die exakten Pfade zu `reboot` bzw. `poweroff` können je nach Distribution
 > variieren (`/usr/sbin` vs. `/sbin`).
 
+## Netzwerkeinstellungen
+
+Die Weboberfläche bündelt alle relevanten Werte für den Client-Betrieb von
+`wlan0`. Folgende Felder stehen bereit:
+
+- **Modus** – DHCP (Standard) oder statisches IPv4-Profil.
+- **IPv4-Adresse, Präfix, Gateway** – Pflichtfelder für die statische
+  Konfiguration. Die Oberfläche validiert Adressen und Subnetzmaske anhand der
+  `network_config`-Hilfsfunktionen und orientiert sich an den offiziellen
+  Empfehlungen für `dhcpcd.conf` ([Raspberry Pi Dokumentation – Static
+  IP](https://www.raspberrypi.com/documentation/computers/configuration.html#configuring-a-static-ip)).
+- **DNS-Server** – Mehrere Server werden durch Leerzeichen oder Kommata
+  getrennt, intern auf eine durch Komma getrennte Darstellung normalisiert.
+- **Hostname & lokale Domain** – optional, aber ideal für eindeutige
+  Hostnamen; Änderungen werden per `hostnamectl` geschrieben (siehe
+  [systemd-hostnamed Referenz](https://www.freedesktop.org/software/systemd/man/latest/hostnamectl.html)).
+
+Beim Speichern ruft Flask `write_network_settings` auf, erzeugt bei Bedarf eine
+Backup-Datei und schreibt nur die Client-Sektion von `dhcpcd.conf`, während der
+Access-Point-Block unangetastet bleibt. Nach erfolgreicher Validierung wird
+`hostnamectl` ausgeführt, sobald sich der Wunschhost vom aktuellen Namen
+unterscheidet. Der anschließende `hosts`-Abgleich trägt `127.0.1.1` mit Hostname
+und optionaler lokaler Domain ein. Für einen vollständigen Systemwechsel empfiehlt
+es sich, `dhcpcd` neu zu starten bzw. den Pi zu rebooten, wie es die Raspberry-Pi
+Dokumentation beschreibt.
+
+> ⚠️ **Rechteverwaltung:** Die ausführende Benutzerkennung benötigt weiterhin
+> die passenden `sudo`-Rechte für `hostnamectl` und ggf. `dhcpcd`. Entsprechende
+> Regeln lassen sich in `/etc/sudoers` bzw. unter
+> `/etc/sudoers.d/` hinterlegen (siehe `sudoers(5)` in der offiziellen
+> Manpage: <https://man7.org/linux/man-pages/man5/sudoers.5.html>).
+
 ## Tests
 
 Die Tests laufen mit `pytest`. Nachdem die Abhängigkeiten installiert sind,
@@ -612,6 +644,12 @@ Die Tests laufen mit `pytest`. Nachdem die Abhängigkeiten installiert sind,
 pytest
 ```
 ausführen.
+
+Empfohlener Schnelltest für die Netzwerkpfade:
+
+```bash
+pytest tests/test_network_settings.py tests/test_wlan_connect.py
+```
 
 ## License
 
