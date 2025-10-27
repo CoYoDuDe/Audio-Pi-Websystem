@@ -23,7 +23,7 @@ import calendar
 import fnmatch
 import math
 import logging
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, is_dataclass
 from datetime import date, datetime, timedelta
 from flask import (
     Flask,
@@ -48,14 +48,15 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
+logger = logging.getLogger(__name__)
+
+
 try:  # pragma: no cover - Import wird separat getestet
     import lgpio as GPIO
 except ImportError:  # pragma: no cover - Verhalten wird in Tests geprüft
     GPIO = None  # type: ignore[assignment]
     GPIO_AVAILABLE = False
-    logging.getLogger(__name__).warning(
-        "lgpio konnte nicht importiert werden, GPIO-Funktionen deaktiviert."
-    )
+    logger.warning("lgpio konnte nicht importiert werden, GPIO-Funktionen deaktiviert.")
 else:
     GPIO_AVAILABLE = True
 
@@ -112,6 +113,99 @@ def _ensure_pygame_music_interface() -> None:
 
 
 _ensure_pygame_music_interface()
+
+
+try:  # pragma: no cover - optional Import, Backend-Task liefert Implementierungen
+    import network_settings as _network_settings_module
+except ImportError:  # pragma: no cover - Verhalten wird in Tests geprüft
+    _network_settings_module = None
+    _load_network_settings_impl = None
+    _save_network_settings_impl = None
+else:
+    _load_network_settings_impl = getattr(
+        _network_settings_module, "load_network_settings", None
+    )
+    if not callable(_load_network_settings_impl):
+        _load_network_settings_impl = None
+
+    _save_network_settings_impl = getattr(
+        _network_settings_module, "save_network_settings", None
+    )
+    if not callable(_save_network_settings_impl):
+        _save_network_settings_impl = None
+
+
+NETWORK_SETTINGS_DEFAULTS: Dict[str, str] = {
+    "mode": "dhcp",
+    "ipv4_address": "",
+    "ipv4_prefix": "",
+    "ipv4_gateway": "",
+    "dns_servers": "",
+    "hostname": "",
+    "local_domain": "",
+}
+
+
+def _load_network_settings_for_template(interface: str) -> Dict[str, str]:
+    """Lädt Netzwerkeinstellungen und wandelt sie für das Template auf."""
+
+    defaults = dict(NETWORK_SETTINGS_DEFAULTS)
+    loader = _load_network_settings_impl
+    if loader is None:
+        return defaults
+
+    try:
+        candidate = loader(interface)
+    except Exception:  # pragma: no cover - robustes Fallback
+        logger.warning(
+            "Netzwerkeinstellungen für %s konnten nicht geladen werden.", interface, exc_info=True
+        )
+        return defaults
+
+    if candidate is None:
+        normalized: Dict[str, Any] = {}
+    elif isinstance(candidate, dict):
+        normalized = candidate
+    elif is_dataclass(candidate):
+        normalized = asdict(candidate)
+    elif hasattr(candidate, "to_dict") and callable(getattr(candidate, "to_dict")):
+        try:
+            normalized = candidate.to_dict()  # type: ignore[assignment]
+        except Exception:  # pragma: no cover - resiliente Konvertierung
+            logger.warning(
+                "Netzwerkeinstellungen-Objekt konnte nicht in ein Dict konvertiert werden.",
+                exc_info=True,
+            )
+            normalized = {}
+    else:
+        normalized = {}
+
+    result = defaults.copy()
+    for key in defaults:
+        value = normalized.get(key)
+        if value is None:
+            continue
+        if key == "mode":
+            if isinstance(value, bytes):
+                value = value.decode(errors="ignore")
+            if isinstance(value, str):
+                lowered = value.strip().lower()
+                if lowered in {"manual", "static", "static_ipv4", "manual_ipv4"}:
+                    result["mode"] = "manual"
+                elif lowered == "dhcp":
+                    result["mode"] = "dhcp"
+                elif lowered:
+                    result["mode"] = lowered
+            continue
+        if isinstance(value, (list, tuple, set)):
+            rendered = ", ".join(
+                str(item).strip() for item in value if str(item).strip()
+            )
+            result[key] = rendered
+        else:
+            result[key] = str(value)
+
+    return result
 
 
 def _read_disable_sudo_flag() -> bool:
@@ -4091,6 +4185,8 @@ def index():
             "rtc_candidates_display": rtc_state["effective_addresses_display"],
         }
     )
+    network_settings = _load_network_settings_for_template("wlan0")
+
     auto_reboot_settings = {
         "enabled": get_setting("auto_reboot_enabled") == "1",
         "mode": get_setting(
@@ -4140,6 +4236,7 @@ def index():
         hardware_button_actions=HARDWARE_BUTTON_ACTIONS,
         hardware_button_action_labels=HARDWARE_BUTTON_ACTION_LABELS,
         default_button_debounce_ms=DEFAULT_BUTTON_DEBOUNCE_MS,
+        network_settings=network_settings,
     )
 
 
@@ -4149,6 +4246,10 @@ def _hardware_button_redirect_url() -> str:
 
 def _amplifier_settings_redirect_url() -> str:
     return url_for("index") + "#amplifier-settings"
+
+
+def _network_settings_redirect_url() -> str:
+    return url_for("index") + "#network-settings"
 
 
 def _parse_hardware_button_form(form) -> Tuple[Optional[dict], List[str]]:
@@ -4779,6 +4880,62 @@ def save_auto_reboot_settings():
         "Automatischer Neustart aktiviert." if enabled else "Automatischer Neustart deaktiviert."
     )
     return redirect(url_for("index"))
+
+
+@app.route("/network/settings", methods=["POST"])
+@login_required
+def save_network_settings():
+    redirect_url = _network_settings_redirect_url()
+    mode_raw = (request.form.get("mode") or "dhcp").strip().lower()
+    mode = "manual" if mode_raw in {"manual", "static", "static_ipv4"} else "dhcp"
+
+    manual_values = {
+        "ipv4_address": (request.form.get("ipv4_address") or "").strip(),
+        "ipv4_prefix": (request.form.get("ipv4_prefix") or "").strip(),
+        "ipv4_gateway": (request.form.get("ipv4_gateway") or "").strip(),
+        "dns_servers": (request.form.get("dns_servers") or "").strip(),
+        "hostname": (request.form.get("hostname") or "").strip(),
+        "local_domain": (request.form.get("local_domain") or "").strip(),
+    }
+
+    payload: Dict[str, Any] = {"mode": mode, **manual_values}
+
+    if mode != "manual":
+        for key in ("ipv4_address", "ipv4_prefix", "ipv4_gateway", "dns_servers"):
+            payload[key] = ""
+
+    if _save_network_settings_impl is None:
+        flash(
+            "Das Speichern der Netzwerkeinstellungen ist aktuell nicht verfügbar.",
+            "network_settings",
+        )
+        return redirect(redirect_url)
+
+    try:
+        result = _save_network_settings_impl("wlan0", payload)
+    except NotImplementedError:
+        flash(
+            "Das Speichern der Netzwerkeinstellungen ist noch nicht implementiert.",
+            "network_settings",
+        )
+        return redirect(redirect_url)
+    except Exception:
+        logger.error("Fehler beim Speichern der Netzwerkeinstellungen", exc_info=True)
+        flash(
+            "Beim Speichern der Netzwerkeinstellungen ist ein Fehler aufgetreten.",
+            "network_settings",
+        )
+        return redirect(redirect_url)
+
+    if result is False:
+        flash(
+            "Netzwerkeinstellungen konnten nicht übernommen werden.",
+            "network_settings",
+        )
+    else:
+        flash("Netzwerkeinstellungen wurden aktualisiert.", "network_settings")
+
+    return redirect(redirect_url)
 
 
 @app.route("/settings/amplifier_pin", methods=["POST"])
