@@ -361,6 +361,116 @@ def test_write_network_settings_dhcp_removes_client_block(network_module, tmp_pa
     assert len(backups) == 1
 
 
+def test_normalize_network_settings_prepares_without_write(network_module, tmp_path: Path):
+    conf = tmp_path / "dhcpcd.conf"
+    original_content = [
+        "# Header",
+        "interface wlan0",
+        "static ip_address=10.0.0.10/24",
+        "static routers=10.0.0.1",
+    ]
+    _write_conf(conf, original_content)
+
+    result = network_module.normalize_network_settings(
+        "wlan0",
+        {
+            "mode": "manual",
+            "ipv4_address": "192.168.50.2",
+            "ipv4_prefix": "24",
+            "ipv4_gateway": "192.168.50.1",
+            "dns_servers": "1.1.1.1 8.8.8.8",
+            "local_domain": "lab.lan",
+        },
+        conf,
+    )
+
+    assert result.requires_update is True
+    assert result.normalized == {
+        "mode": "manual",
+        "ipv4_address": "192.168.50.2",
+        "ipv4_prefix": "24",
+        "ipv4_gateway": "192.168.50.1",
+        "dns_servers": "1.1.1.1, 8.8.8.8",
+        "local_domain": "lab.lan",
+    }
+    assert conf.read_text(encoding="utf-8").splitlines() == original_content
+    assert result.backup_path is not None
+    assert result.backup_path.exists()
+
+
+def test_write_network_settings_restores_on_failure(network_module, tmp_path: Path, monkeypatch):
+    conf = tmp_path / "dhcpcd.conf"
+    _write_conf(
+        conf,
+        [
+            "interface wlan0",
+            "static ip_address=10.0.0.10/24",
+            "static routers=10.0.0.1",
+        ],
+    )
+
+    settings = {
+        "mode": "manual",
+        "ipv4_address": "192.168.60.2",
+        "ipv4_prefix": "24",
+        "ipv4_gateway": "192.168.60.1",
+        "dns_servers": "9.9.9.9",
+        "local_domain": "studio.local",
+    }
+
+    result = network_module.normalize_network_settings("wlan0", settings, conf)
+    original_text = conf.read_text(encoding="utf-8")
+
+    original_write = network_module._write_lines
+
+    def failing_write(path: Path, lines: Iterable[str], *, create_backup: bool = True):
+        original_write(path, lines, create_backup=create_backup)
+        raise OSError("simulierter Fehler")
+
+    monkeypatch.setattr(network_module, "_write_lines", failing_write)
+
+    with pytest.raises(OSError):
+        network_module.write_network_settings(
+            "wlan0",
+            settings,
+            conf,
+            normalized_result=result,
+        )
+
+    assert conf.read_text(encoding="utf-8") == original_text
+
+
+def test_write_network_settings_restores_when_file_missing(network_module, tmp_path: Path, monkeypatch):
+    conf = tmp_path / "dhcpcd.conf"
+
+    settings = {
+        "mode": "manual",
+        "ipv4_address": "192.168.70.2",
+        "ipv4_prefix": "24",
+        "ipv4_gateway": "192.168.70.1",
+        "dns_servers": "4.4.4.4",
+        "local_domain": "demo.lan",
+    }
+
+    result = network_module.normalize_network_settings("wlan0", settings, conf)
+
+    original_write = network_module._write_lines
+
+    def failing_write(path: Path, lines: Iterable[str], *, create_backup: bool = True):
+        original_write(path, lines, create_backup=create_backup)
+        raise OSError("simulierter Fehler")
+
+    monkeypatch.setattr(network_module, "_write_lines", failing_write)
+
+    with pytest.raises(OSError):
+        network_module.write_network_settings(
+            "wlan0",
+            settings,
+            conf,
+            normalized_result=result,
+        )
+
+    assert not conf.exists()
 # ---------------------------------------------------------------------------
 # Flask-Client-Tests
 
@@ -432,9 +542,37 @@ def test_network_settings_post_dhcp(monkeypatch, client):
 
     captured: Dict[str, Any] = {}
 
-    def fake_write(interface: str, payload: Mapping[str, str]):
+    normalized_result = app_module.NormalizedNetworkSettings(
+        interface="wlan0",
+        normalized={
+            "mode": "dhcp",
+            "ipv4_address": "",
+            "ipv4_prefix": "",
+            "ipv4_gateway": "",
+            "dns_servers": "",
+            "local_domain": "",
+        },
+        original_lines=[],
+        new_lines=[],
+        dhcpcd_path=Path("/tmp/dhcpcd.conf"),
+        backup_path=None,
+        original_exists=False,
+    )
+
+    def fake_normalize(interface: str, payload: Mapping[str, str]):
+        assert interface == "wlan0"
+        captured["normalized_payload"] = dict(payload)
+        return normalized_result
+
+    def fake_write(
+        interface: str,
+        payload: Mapping[str, str],
+        *,
+        normalized_result: Any = None,
+    ):
         captured["interface"] = interface
         captured["payload"] = dict(payload)
+        assert normalized_result is normalized_result_obj
         return {
             "mode": "dhcp",
             "ipv4_address": "",
@@ -444,6 +582,8 @@ def test_network_settings_post_dhcp(monkeypatch, client):
             "local_domain": "",
         }
 
+    normalized_result_obj = normalized_result
+    monkeypatch.setattr(app_module, "_normalize_network_settings", fake_normalize)
     monkeypatch.setattr(app_module, "_write_network_settings", fake_write)
     monkeypatch.setattr(app_module, "_get_current_hostname", lambda: "audio-pi")
 
@@ -499,6 +639,7 @@ def test_network_settings_post_dhcp(monkeypatch, client):
         "local_domain": "",
         "hostname": "audio-pi",
     }
+    assert captured["normalized_payload"] == captured["payload"]
     assert host_updates == [("audio-pi", "")]
     assert command_calls == []
 
@@ -509,18 +650,39 @@ def test_network_settings_post_static_triggers_hostnamectl(monkeypatch, client):
 
     payloads: List[Mapping[str, str]] = []
 
-    def fake_write(interface: str, payload: Mapping[str, str]):
-        payloads.append(dict(payload))
-        assert interface == "wlan0"
-        return {
+    normalized_result = app_module.NormalizedNetworkSettings(
+        interface="wlan0",
+        normalized={
             "mode": "manual",
             "ipv4_address": "192.168.20.5",
             "ipv4_prefix": "24",
             "ipv4_gateway": "192.168.20.1",
             "dns_servers": "1.1.1.1, 8.8.4.4",
             "local_domain": "studio.lan",
-        }
+        },
+        original_lines=["# alt"],
+        new_lines=["# alt", "interface wlan0"],
+        dhcpcd_path=Path("/tmp/dhcpcd.conf"),
+        backup_path=Path("/tmp/dhcpcd.conf.bak"),
+        original_exists=True,
+    )
 
+    def fake_normalize(interface: str, payload: Mapping[str, str]):
+        payloads.append(dict(payload))
+        return normalized_result
+
+    def fake_write(
+        interface: str,
+        payload: Mapping[str, str],
+        *,
+        normalized_result: Any = None,
+    ):
+        assert interface == "wlan0"
+        assert normalized_result is normalized_result_obj
+        return dict(normalized_result_obj.normalized)
+
+    normalized_result_obj = normalized_result
+    monkeypatch.setattr(app_module, "_normalize_network_settings", fake_normalize)
     monkeypatch.setattr(app_module, "_write_network_settings", fake_write)
     monkeypatch.setattr(app_module, "_get_current_hostname", lambda: "old-host")
 
@@ -594,10 +756,15 @@ def test_network_settings_post_static_invalid_ip(monkeypatch, client):
     test_client, app_module = client
     _login(test_client)
 
-    def fake_write(interface: str, payload: Mapping[str, str]):
+    def fake_normalize(interface: str, payload: Mapping[str, str]):
         raise app_module.NetworkConfigError("Ungültige IPv4-Adresse oder Präfix.")
 
-    monkeypatch.setattr(app_module, "_write_network_settings", fake_write)
+    monkeypatch.setattr(app_module, "_normalize_network_settings", fake_normalize)
+
+    def fail_write(*args, **kwargs):
+        raise AssertionError("write sollte nicht aufgerufen werden")
+
+    monkeypatch.setattr(app_module, "_write_network_settings", fail_write)
     monkeypatch.setattr(app_module, "privileged_command", lambda *args: list(args))
 
     response = csrf_post(
@@ -617,3 +784,102 @@ def test_network_settings_post_static_invalid_ip(monkeypatch, client):
 
     assert response.status_code == 200
     assert b"Ung\xc3\xbcltige IPv4-Adresse oder Pr\xc3\xa4fix." in response.data
+
+
+def test_network_settings_rollback_on_setting_failure(monkeypatch, client, tmp_path: Path):
+    test_client, app_module = client
+    _login(test_client)
+
+    conf = tmp_path / "dhcpcd.conf"
+    _write_conf(
+        conf,
+        [
+            "# Kommentar",
+            "interface wlan0",
+            "static ip_address=10.0.0.5/24",
+            "static routers=10.0.0.1",
+            "static domain_name_servers=1.1.1.1",
+        ],
+    )
+    original_content = conf.read_text(encoding="utf-8")
+
+    import importlib
+
+    netmod = importlib.import_module("network_config")
+
+    def real_normalize(interface: str, payload: Mapping[str, str]):
+        return netmod.normalize_network_settings(interface, dict(payload), conf)
+
+    def real_write(
+        interface: str,
+        payload: Mapping[str, str],
+        *,
+        normalized_result=None,
+    ):
+        return netmod.write_network_settings(
+            interface,
+            dict(payload),
+            conf,
+            normalized_result=normalized_result,
+        )
+
+    def real_restore(normalized_result):
+        return netmod.restore_network_backup(normalized_result)
+
+    monkeypatch.setattr(app_module, "_normalize_network_settings", real_normalize)
+    monkeypatch.setattr(app_module, "_write_network_settings", real_write)
+    monkeypatch.setattr(app_module, "_restore_network_backup", real_restore)
+    monkeypatch.setattr(app_module, "_get_current_hostname", lambda: "audio-pi")
+
+    host_updates: List[Tuple[str, str]] = []
+
+    def fake_update_hosts(hostname: str, local_domain: str):
+        host_updates.append((hostname, local_domain))
+        return True
+
+    monkeypatch.setattr(app_module, "_update_hosts_file", fake_update_hosts)
+
+    class DummyResult:
+        def __init__(self):
+            self.returncode = 0
+            self.stdout = ""
+            self.stderr = ""
+
+    monkeypatch.setattr(app_module, "privileged_command", lambda *args: list(args))
+    monkeypatch.setattr(
+        app_module.subprocess,
+        "run",
+        lambda *args, **kwargs: DummyResult(),
+    )
+
+    set_calls: List[Tuple[str, str]] = []
+
+    def failing_set(key, value):
+        set_calls.append((key, value))
+        raise RuntimeError("db failure")
+
+    monkeypatch.setattr(app_module, "set_setting", failing_set)
+
+    response = csrf_post(
+        test_client,
+        "/network_settings",
+        data={
+            "mode": "manual",
+            "ipv4_address": "192.168.80.5",
+            "ipv4_prefix": "24",
+            "ipv4_gateway": "192.168.80.1",
+            "dns_servers": "1.1.1.1 8.8.8.8",
+            "hostname": "studio-pi",
+            "local_domain": "studio.lan",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert (
+        b"Beim Aktualisieren der Einstellungen ist ein Fehler aufgetreten. \xc3\x84nderungen wurden zur\xc3\xbcckgesetzt."
+        in response.data
+    )
+    assert conf.read_text(encoding="utf-8") == original_content
+    assert host_updates == [("studio-pi", "studio.lan")]
+    assert len(set_calls) == 1
