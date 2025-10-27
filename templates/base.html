@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
+    {% if current_user.is_authenticated %}
     <nav>
         <a href="{{ url_for('index') }}">Home</a>
         <a href="{{ url_for('logs') }}">Logs</a>
@@ -21,6 +22,12 @@
         </form>
         <a href="{{ url_for('logout') }}">Logout</a>
     </nav>
+    {% else %}
+    <div class="guest-navigation">
+        <p>Bitte melden Sie sich an, um alle Funktionen zu nutzen.</p>
+        <a href="{{ url_for('login') }}" class="btn">Zum Login</a>
+    </div>
+    {% endif %}
     {% block flashes %}
         {% with messages = get_flashed_messages() %}
             {% if messages %}
