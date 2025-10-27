@@ -5604,7 +5604,9 @@ TIME_SYNC_INTERNET_SETTING_KEY = "time_sync_internet_default"
 
 def perform_internet_time_sync():
     success = False
-    messages = []
+    messages: List[str] = []
+    pending_success_message: Optional[str] = None
+    cleanup_failed = False
     disable_command = privileged_command("timedatectl", "set-ntp", "false")
     enable_command = privileged_command("timedatectl", "set-ntp", "true")
     restart_command = privileged_command(
@@ -5679,7 +5681,7 @@ def perform_internet_time_sync():
             )
             messages.append("RTC konnte nicht aktualisiert werden")
         else:
-            messages.append("Zeit vom Internet synchronisiert")
+            pending_success_message = "Zeit vom Internet synchronisiert"
             success = True
     finally:
         if disable_completed and not enable_completed:
@@ -5712,6 +5714,7 @@ def perform_internet_time_sync():
                     messages.append(
                         "timedatectl konnte NTP nach dem Sync nicht wieder aktivieren (siehe Logs für Details)"
                     )
+                cleanup_failed = True
                 success = False
             except FileNotFoundError as exc:
                 primary_command = exc.filename or _extract_primary_command(enable_command)
@@ -5722,6 +5725,7 @@ def perform_internet_time_sync():
                 messages.append(
                     f"Kommando '{primary_command}' nicht gefunden, NTP konnte nach dem Sync nicht reaktiviert werden"
                 )
+                cleanup_failed = True
                 success = False
             except Exception as exc:  # pragma: no cover - unerwartete Fehler
                 logging.warning(
@@ -5731,6 +5735,7 @@ def perform_internet_time_sync():
                 messages.append(
                     "timedatectl konnte NTP nach dem Sync nicht wieder aktivieren (unerwarteter Fehler, bitte Logs prüfen)"
                 )
+                cleanup_failed = True
                 success = False
         if enable_completed and not restart_completed:
             try:
@@ -5763,6 +5768,7 @@ def perform_internet_time_sync():
                     messages.append(
                         "systemd-timesyncd konnte nicht neu gestartet werden (siehe Logs für Details)"
                     )
+                cleanup_failed = True
                 success = False
             except FileNotFoundError as exc:
                 primary_command = exc.filename or _extract_primary_command(restart_command)
@@ -5773,6 +5779,7 @@ def perform_internet_time_sync():
                 messages.append(
                     f"Kommando '{primary_command}' nicht gefunden, systemd-timesyncd konnte nicht neu gestartet werden"
                 )
+                cleanup_failed = True
                 success = False
             except Exception as exc:  # pragma: no cover - unerwartete Fehler
                 logging.warning(
@@ -5782,7 +5789,15 @@ def perform_internet_time_sync():
                 messages.append(
                     "systemd-timesyncd konnte nicht neu gestartet werden (unerwarteter Fehler, bitte Logs prüfen)"
                 )
+                cleanup_failed = True
                 success = False
+    if success and not cleanup_failed and pending_success_message:
+        messages.append(pending_success_message)
+    elif pending_success_message and pending_success_message in messages and (
+        not success or cleanup_failed
+    ):
+        # Sicherheitsnetz, falls zukünftige Änderungen die Nachricht früher hinzufügen
+        messages = [msg for msg in messages if msg != pending_success_message]
     return success, messages
 
 
