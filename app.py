@@ -6017,6 +6017,8 @@ def perform_internet_time_sync():
                 exc,
             )
             messages.append("RTC konnte nicht aktualisiert werden (I²C-Schreibfehler)")
+            success = False
+            success_message = None
         except (RTCUnavailableError, UnsupportedRTCError) as exc:
             logging.warning(
                 "RTC konnte nach dem Internet-Sync nicht gesetzt werden: %s", exc
