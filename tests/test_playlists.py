@@ -220,3 +220,31 @@ def test_add_to_playlist_happy_path(client):
     assert response.status_code == 200
     assert "Datei zur Playlist hinzugefügt" in body
     assert _get_playlist_files(app_module) == [(playlist_id, file_id)]
+
+
+def test_add_to_playlist_rejects_duplicates(client):
+    test_client, app_module = client
+    _login(test_client, app_module)
+
+    playlist_id = _insert_playlist(app_module)
+    file_id = _insert_audio_file(app_module)
+
+    first_response = csrf_post(
+        test_client,
+        "/add_to_playlist",
+        data={"playlist_id": str(playlist_id), "file_id": str(file_id)},
+        follow_redirects=True,
+    )
+    assert first_response.status_code == 200
+
+    duplicate_response = csrf_post(
+        test_client,
+        "/add_to_playlist",
+        data={"playlist_id": str(playlist_id), "file_id": str(file_id)},
+        follow_redirects=True,
+    )
+
+    duplicate_body = duplicate_response.get_data(as_text=True)
+    assert duplicate_response.status_code == 200
+    assert "Diese Datei ist bereits in der Playlist vorhanden." in duplicate_body
+    assert _get_playlist_files(app_module) == [(playlist_id, file_id)]
