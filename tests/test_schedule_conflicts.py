@@ -1,6 +1,6 @@
 import os
 import importlib
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from flask import get_flashed_messages
@@ -242,7 +242,11 @@ def test_once_schedule_remains_pending_when_playback_busy(monkeypatch):
     app.schedule_job(schedule_id)
 
     row = app.cursor.execute(
-        "SELECT executed FROM schedules WHERE id=?", (schedule_id,)
+        "SELECT executed, time FROM schedules WHERE id=?", (schedule_id,)
     ).fetchone()
     assert row["executed"] == 0
+    rescheduled_at = app.parse_once_datetime(row["time"])
+    assert rescheduled_at >= schedule_time + timedelta(
+        seconds=app.ONCE_SCHEDULE_RETRY_DELAY_SECONDS - 1
+    )
     assert load_calls["count"] == 1

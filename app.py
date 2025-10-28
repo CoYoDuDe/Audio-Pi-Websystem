@@ -611,6 +611,7 @@ CONFIGURED_AMPLIFIER_GPIO_PIN: Optional[int] = None
 VERZOEGERUNG_SEC = 5
 DEFAULT_BUTTON_DEBOUNCE_MS = 150
 DEFAULT_MAX_SCHEDULE_DELAY_SECONDS = 60
+ONCE_SCHEDULE_RETRY_DELAY_SECONDS = 30
 DAC_SINK_SETTING_KEY = "dac_sink_name"
 DAC_SINK_LABEL_SETTING_KEY = "dac_sink_label"
 DEFAULT_DAC_SINK_FALLBACK = "alsa_output.platform-soc_107c000000_sound.stereo-fallback"
@@ -3422,12 +3423,32 @@ def schedule_job(schedule_id):
                     (schedule_id,),
                 )
                 conn.commit()
+            load_schedules()
         else:
             logging.info(
                 "Zeitplan %s konnte nicht ausgeführt werden – Wiedergabe nicht gestartet",
                 schedule_id,
             )
-        load_schedules()
+            if pygame_available and pygame.mixer.music.get_busy():
+                retry_time_local = datetime.now(LOCAL_TZ) + timedelta(
+                    seconds=ONCE_SCHEDULE_RETRY_DELAY_SECONDS
+                )
+                retry_time_value = retry_time_local.replace(tzinfo=None).isoformat(
+                    timespec="seconds"
+                )
+                with get_db_connection() as (conn, cursor):
+                    cursor.execute(
+                        "UPDATE schedules SET time=? WHERE id=?",
+                        (retry_time_value, schedule_id),
+                    )
+                    conn.commit()
+                logging.info(
+                    "Verschiebe einmaligen Zeitplan %s auf %s wegen laufender Wiedergabe",
+                    schedule_id,
+                    retry_time_local.isoformat(),
+                )
+                load_schedules()
+        return
 
 
 def skip_past_once_schedules():
