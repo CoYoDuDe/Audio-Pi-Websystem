@@ -4,6 +4,7 @@
 <h2>Login</h2>
 <form method="POST" class="form-card stack-sm max-w-28">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="next" value="{{ next_value }}">
     <label for="login-username">Benutzername:</label>
     <input id="login-username" type="text" name="username" autocomplete="username" required>
     <label for="login-password">Passwort:</label>
