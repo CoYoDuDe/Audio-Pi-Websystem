@@ -641,18 +641,73 @@
     <section id="schedules" class="dashboard-section dashboard-section--audio">
         <article class="dashboard-card stack-lg">
             <h3>Zeitpläne</h3>
+    {% set has_schedule_files = files_all | length > 0 %}
+    {% set has_schedule_playlists = playlists_all | length > 0 %}
+    {% if has_schedule_files %}
+        {% set schedule_initial_item_type = 'file' %}
+        {% set schedule_initial_item_id = files_all[0]['id'] %}
+    {% elif has_schedule_playlists %}
+        {% set schedule_initial_item_type = 'playlist' %}
+        {% set schedule_initial_item_id = playlists_all[0]['id'] %}
+    {% else %}
+        {% set schedule_initial_item_type = 'file' %}
+        {% set schedule_initial_item_id = none %}
+    {% endif %}
     <form action="{{ url_for('add_schedule') }}" method="POST" class="stack-sm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label for="item-type" class="form-field">
             Elementtyp
             <select name="item_type" id="item-type">
-                <option value="file">Datei</option>
-                <option value="playlist">Playlist</option>
+                <option value="file" {% if schedule_initial_item_type == 'file' %}selected{% endif %}>Datei</option>
+                <option value="playlist" {% if schedule_initial_item_type == 'playlist' %}selected{% endif %}>Playlist</option>
             </select>
         </label>
         <label for="item-select" class="form-field">
             Element auswählen
-            <select name="item_id" id="item-select"></select>
+            <select
+                name="item_id"
+                id="item-select"
+                data-initial-type="{{ schedule_initial_item_type }}"
+            >
+                <option
+                    value=""
+                    data-item-type="file"
+                    data-placeholder="true"
+                    {% if not has_schedule_files %}data-default="true"{% endif %}
+                    {% if schedule_initial_item_type == 'file' and schedule_initial_item_id is none %}selected{% endif %}
+                >
+                    -- Datei wählen --
+                </option>
+                {% for file in files_all %}
+                <option
+                    value="{{ file.id }}"
+                    data-item-type="file"
+                    {% if loop.first %}data-default="true"{% endif %}
+                    {% if schedule_initial_item_type == 'file' and file.id == schedule_initial_item_id %}selected{% endif %}
+                >
+                    {{ file.filename }}
+                </option>
+                {% endfor %}
+                <option
+                    value=""
+                    data-item-type="playlist"
+                    data-placeholder="true"
+                    {% if not has_schedule_playlists %}data-default="true"{% endif %}
+                    {% if schedule_initial_item_type == 'playlist' and schedule_initial_item_id is none %}selected{% endif %}
+                >
+                    -- Playlist wählen --
+                </option>
+                {% for playlist in playlists_all %}
+                <option
+                    value="{{ playlist.id }}"
+                    data-item-type="playlist"
+                    {% if loop.first %}data-default="true"{% endif %}
+                    {% if schedule_initial_item_type == 'playlist' and playlist.id == schedule_initial_item_id %}selected{% endif %}
+                >
+                    {{ playlist.name }}
+                </option>
+                {% endfor %}
+            </select>
         </label>
         <label for="schedule-time" class="form-field">
             Startzeitpunkt
@@ -806,18 +861,47 @@
             : null;
         const manualHint = networkForm ? networkForm.querySelector('[data-manual-hint]') : null;
 
-        function populate() {
-            if (!itemSelect || !typeSelect) {
+        function updateItemSelectOptions() {
+            if (!itemSelect) {
                 return;
             }
-            const items = typeSelect.value === 'playlist' ? playlists : audioFiles;
-            const label = typeSelect.value === 'playlist' ? 'Playlist' : 'Datei';
-            itemSelect.innerHTML = `<option value="">-- ${label} wählen --</option>`;
-            for (const item of items) {
-                const opt = document.createElement('option');
-                opt.value = item.id;
-                opt.textContent = item.name || item.filename;
-                itemSelect.appendChild(opt);
+            const currentType = typeSelect ? typeSelect.value : itemSelect.dataset.initialType || 'file';
+            const items = currentType === 'playlist' ? playlists : audioFiles;
+            const hasItems = Array.isArray(items) && items.length > 0;
+            const options = Array.from(itemSelect.options || []);
+            let firstVisibleOption = null;
+            let defaultVisibleOption = null;
+            let needsSelectionUpdate = itemSelect.selectedIndex === -1;
+
+            for (const option of options) {
+                const optionType = option.dataset ? option.dataset.itemType : undefined;
+                const isPlaceholder = option.dataset ? option.dataset.placeholder === 'true' : false;
+                const matchesType = !optionType || optionType === currentType;
+                option.hidden = !matchesType;
+                if (matchesType) {
+                    if (isPlaceholder && option.dataset) {
+                        option.dataset.default = hasItems ? 'false' : option.dataset.default || 'true';
+                    }
+                    if (!firstVisibleOption && !option.disabled) {
+                        firstVisibleOption = option;
+                    }
+                    if (!defaultVisibleOption && option.dataset && option.dataset.default === 'true') {
+                        defaultVisibleOption = option;
+                    }
+                }
+                if (!matchesType && option.selected) {
+                    option.selected = false;
+                    needsSelectionUpdate = true;
+                }
+            }
+
+            if (needsSelectionUpdate || itemSelect.selectedIndex === -1) {
+                const fallbackOption = defaultVisibleOption && !defaultVisibleOption.hidden && !defaultVisibleOption.disabled
+                    ? defaultVisibleOption
+                    : firstVisibleOption;
+                if (fallbackOption) {
+                    fallbackOption.selected = true;
+                }
             }
         }
 
@@ -903,7 +987,7 @@
         }
 
         if (typeSelect) {
-            typeSelect.addEventListener('change', populate);
+            typeSelect.addEventListener('change', updateItemSelectOptions);
         }
         if (repeatSelect) {
             repeatSelect.addEventListener('change', updateDateRangeVisibility);
@@ -923,7 +1007,7 @@
             });
         }
 
-        populate();
+        updateItemSelectOptions();
         updateDateRangeVisibility();
         updateAutoRebootWeekdayVisibility();
         if (autoRebootModeSelect) {
