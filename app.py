@@ -4803,9 +4803,12 @@ def play_now(item_type, item_id):
         return redirect(url_for("index"))
 
     delay = VERZOEGERUNG_SEC
-    threading.Thread(
-        target=play_item, args=(item_id, normalized_type, delay, False)
-    ).start()
+    thread = threading.Thread(
+        target=play_item,
+        args=(item_id, normalized_type, delay, False),
+    )
+    setattr(thread, "daemon", True)
+    thread.start()
     flash("Abspielen gestartet")
     return redirect(url_for("index"))
 
