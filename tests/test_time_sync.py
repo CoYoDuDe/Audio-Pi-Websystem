@@ -199,6 +199,61 @@ def test_sync_time_handles_timesyncd_failure(monkeypatch, client):
     assert called_set_rtc is False
 
 
+def test_sync_time_succeeds_without_rtc(monkeypatch, client):
+    client, app_module = client
+    _login(client)
+
+    recorded_commands = []
+
+    def fake_run(cmd, *args, **kwargs):
+        assert kwargs.get("check") is True
+        assert kwargs.get("capture_output") is True
+        assert kwargs.get("text") is True
+        recorded_commands.append(list(cmd))
+        return app_module.subprocess.CompletedProcess(cmd, 0, "", "")
+
+    def fake_set_rtc(_dt):
+        raise app_module.RTCUnavailableError("no rtc present")
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(app_module, "set_rtc", fake_set_rtc)
+
+    success, messages = app_module.perform_internet_time_sync()
+
+    disable_command = app_module.privileged_command(
+        "timedatectl", "set-ntp", "false"
+    )
+    enable_command = app_module.privileged_command(
+        "timedatectl", "set-ntp", "true"
+    )
+    restart_command = app_module.privileged_command(
+        "systemctl", "restart", "systemd-timesyncd"
+    )
+
+    assert success is True
+    assert disable_command in recorded_commands
+    assert enable_command in recorded_commands
+    assert restart_command in recorded_commands
+    assert any("RTC" in message for message in messages)
+    assert any(
+        "Zeit vom Internet synchronisiert" in message for message in messages
+    )
+
+    response = csrf_post(
+        client,
+        "/set_time",
+        data={
+            "datetime": "2024-01-01T12:00:00",
+            "sync_internet": "1",
+        },
+        follow_redirects=False,
+        source_url="/set_time",
+    )
+
+    assert response.status_code in (302, 303)
+    assert response.headers["Location"].endswith("/")
+
+
 def test_sync_time_does_not_flash_success_on_restart_failure(monkeypatch, client):
     client, app_module = client
     _login(client)

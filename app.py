@@ -6007,22 +6007,21 @@ def perform_internet_time_sync():
         logging.error("Unerwarteter Fehler bei der Zeit-Synchronisation: %s", exc)
         messages.append("Fehler bei der Synchronisation")
     else:
+        success = True
+        success_message = "Zeit vom Internet synchronisiert"
         try:
             set_rtc(datetime.now())
         except RTCWriteError as exc:
-            logging.error(
+            logging.warning(
                 "RTC konnte nach dem Internet-Sync nicht geschrieben werden: %s",
                 exc,
             )
             messages.append("RTC konnte nicht aktualisiert werden (I²C-Schreibfehler)")
         except (RTCUnavailableError, UnsupportedRTCError) as exc:
-            logging.error(
+            logging.warning(
                 "RTC konnte nach dem Internet-Sync nicht gesetzt werden: %s", exc
             )
             messages.append("RTC konnte nicht aktualisiert werden")
-        else:
-            success_message = "Zeit vom Internet synchronisiert"
-            success = True
     finally:
         if disable_completed and not enable_completed:
             try:
@@ -6278,9 +6277,8 @@ def set_time():
                     flash("RTC konnte nicht gesetzt werden (I²C-Schreibfehler)")
                     return redirect(url_for("set_time"))
                 except (RTCUnavailableError, UnsupportedRTCError) as exc:
-                    logging.error("RTC konnte nicht gesetzt werden: %s", exc)
+                    logging.warning("RTC konnte nicht gesetzt werden: %s", exc)
                     flash("RTC nicht verfügbar oder wird nicht unterstützt")
-                    return redirect(url_for("set_time"))
                 flash("Datum und Uhrzeit gesetzt")
                 if sync_checkbox or request.form.get("sync_internet_action"):
                     sync_success, messages = perform_internet_time_sync()
