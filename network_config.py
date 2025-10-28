@@ -55,7 +55,12 @@ def _backup_file(path: Path) -> Optional[Path]:
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     backup_name = f"{path.name}.bak.{timestamp}"
     backup_path = path.with_name(backup_name)
-    shutil.copy2(path, backup_path)
+    try:
+        shutil.copy2(path, backup_path)
+    except Exception as exc:
+        raise NetworkConfigError(
+            "Fehler beim Schreiben der Netzwerkkonfiguration: Backup konnte nicht erstellt werden."
+        ) from exc
     return backup_path
 
 
@@ -229,7 +234,9 @@ def _validate_dns_servers(raw: str) -> Tuple[List[ipaddress.IPv4Address], str]:
     return servers, normalized
 
 
-def _validate_domain(value: str) -> str:
+def validate_local_domain(value: str) -> str:
+    """Validiert und normalisiert einen lokalen Domain-Namen."""
+
     value = value.strip().lower()
     if not value:
         return ""
@@ -242,12 +249,18 @@ def _validate_domain(value: str) -> str:
         if len(label) > 63:
             raise NetworkConfigError("Domain-Label überschreitet 63 Zeichen.")
         if label.startswith("-") or label.endswith("-"):
-            raise NetworkConfigError("Domain-Label darf nicht mit Bindestrich beginnen oder enden.")
+            raise NetworkConfigError(
+                "Domain-Label darf nicht mit Bindestrich beginnen oder enden."
+            )
         if not HOST_LABEL_RE.fullmatch(label):
             raise NetworkConfigError(
                 "Domain-Label enthält unzulässige Zeichen (nur a-z, 0-9 und Bindestriche erlaubt)."
             )
     return value
+
+
+def _validate_domain(value: str) -> str:
+    return validate_local_domain(value)
 
 
 def validate_hostname(hostname: str) -> str:
@@ -430,7 +443,7 @@ def normalize_network_settings(
         iface = _validate_ipv4_interface(ipv4_address, ipv4_prefix)
         gateway = _validate_gateway(ipv4_gateway, iface)
         dns_servers, dns_normalized = _validate_dns_servers(dns_servers_raw)
-        local_domain = _validate_domain(local_domain_raw)
+        local_domain = validate_local_domain(local_domain_raw)
 
         block = _build_client_block(interface, iface, gateway, dns_servers, local_domain)
         if lines and lines[-1].strip():
@@ -498,15 +511,6 @@ def write_network_settings(
     if backup_path is None and result.original_exists:
         backup_path = _backup_file(dhcpcd_path)
         result.backup_path = backup_path
-    if lines != original_lines:
-        try:
-            _write_lines(dhcpcd_path, lines, create_backup=True)
-        except NetworkConfigError:
-            raise
-        except Exception as exc:
-            raise NetworkConfigError(
-                "Fehler beim Schreiben der Netzwerkkonfiguration: %s" % exc
-            ) from exc
 
     try:
         _write_lines(dhcpcd_path, result.new_lines, create_backup=False)
@@ -560,7 +564,7 @@ def update_hosts_file(
     hosts_path: Path = Path("/etc/hosts"),
 ) -> bool:
     hostname = validate_hostname(hostname)
-    local_domain = _validate_domain(local_domain)
+    local_domain = validate_local_domain(local_domain)
 
     lines = _read_lines(hosts_path)
     if not lines:

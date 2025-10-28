@@ -285,7 +285,7 @@ def test_write_network_settings_restores_backup_on_failure(
     backups_before = list(conf.parent.glob("dhcpcd.conf.bak.*"))
     assert backups_before == []
 
-    def failing_chmod(path, mode):
+    def failing_chmod(path, mode, **kwargs):
         raise OSError("chmod fehlgeschlagen")
 
     monkeypatch.setattr(network_module.os, "chmod", failing_chmod)
@@ -642,6 +642,91 @@ def test_network_settings_post_dhcp(monkeypatch, client):
     assert captured["normalized_payload"] == captured["payload"]
     assert host_updates == [("audio-pi", "")]
     assert command_calls == []
+
+
+def test_network_settings_post_dhcp_keeps_local_domain(monkeypatch, client):
+    test_client, app_module = client
+    _login(test_client)
+
+    normalized_result = app_module.NormalizedNetworkSettings(
+        interface="wlan0",
+        normalized={
+            "mode": "dhcp",
+            "ipv4_address": "",
+            "ipv4_prefix": "",
+            "ipv4_gateway": "",
+            "dns_servers": "",
+            "local_domain": "",
+        },
+        original_lines=[],
+        new_lines=[],
+        dhcpcd_path=Path("/tmp/dhcpcd.conf"),
+        backup_path=None,
+        original_exists=False,
+    )
+
+    payload_capture: Dict[str, Any] = {}
+
+    def fake_normalize(interface: str, payload: Mapping[str, str]):
+        assert interface == "wlan0"
+        payload_capture["normalized_payload"] = dict(payload)
+        return normalized_result
+
+    def fake_write(
+        interface: str,
+        payload: Mapping[str, str],
+        *,
+        normalized_result: Any = None,
+    ):
+        assert interface == "wlan0"
+        payload_capture["write_payload"] = dict(payload)
+        assert normalized_result is normalized_result_obj
+        return dict(normalized_result_obj.normalized)
+
+    normalized_result_obj = normalized_result
+    monkeypatch.setattr(app_module, "_normalize_network_settings", fake_normalize)
+    monkeypatch.setattr(app_module, "_write_network_settings", fake_write)
+    monkeypatch.setattr(app_module, "_get_current_hostname", lambda: "audio-pi")
+
+    host_updates: List[Tuple[str, str]] = []
+
+    def fake_update_hosts(hostname: str, local_domain: str):
+        host_updates.append((hostname, local_domain))
+        return True
+
+    monkeypatch.setattr(app_module, "_update_hosts_file", fake_update_hosts)
+
+    stored_settings: Dict[str, str] = {}
+
+    def fake_set_setting(key: str, value: str) -> None:
+        stored_settings[key] = value
+
+    monkeypatch.setattr(app_module, "set_setting", fake_set_setting)
+
+    domain_input = "My-Lab.LAN"
+    expected_domain = app_module._validate_local_domain(domain_input)
+
+    response = csrf_post(
+        test_client,
+        "/network_settings",
+        data={
+            "mode": "dhcp",
+            "hostname": "audio-pi",
+            "ipv4_address": "",
+            "ipv4_prefix": "",
+            "ipv4_gateway": "",
+            "dns_servers": "",
+            "local_domain": domain_input,
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"DHCP-Konfiguration aktiviert." in response.data
+    assert payload_capture["normalized_payload"]["local_domain"] == ""
+    assert payload_capture["write_payload"]["local_domain"] == ""
+    assert host_updates == [("audio-pi", expected_domain)]
+    assert stored_settings.get("network_local_domain") == expected_domain
 
 
 def test_network_settings_post_static_triggers_hostnamectl(monkeypatch, client):
