@@ -6206,11 +6206,12 @@ def set_time():
         set_setting(TIME_SYNC_INTERNET_SETTING_KEY, "1" if sync_checkbox else "0")
         if not time_str:
             flash("Ungültiges Datums-/Zeitformat")
-            return redirect(url_for("index"))
+            return redirect(url_for("set_time"))
         try:
             dt = datetime.fromisoformat(time_str.replace("Z", "+00:00"))
         except ValueError:
             flash("Ungültiges Datums-/Zeitformat")
+            return redirect(url_for("set_time"))
         else:
             time_value = dt.strftime("%Y-%m-%d %H:%M:%S")
             command = privileged_command("timedatectl", "set-time", time_value)
@@ -6231,6 +6232,7 @@ def set_time():
                 flash(
                     f"Kommando '{primary_command}' wurde nicht gefunden. Systemzeit konnte nicht gesetzt werden."
                 )
+                return redirect(url_for("set_time"))
             except subprocess.CalledProcessError as exc:
                 failing_command = exc.cmd if exc.cmd else command
                 primary_command = _extract_primary_command(failing_command or [])
@@ -6259,6 +6261,7 @@ def set_time():
                     flash(
                         f"Ausführung von '{executed_command}' ist fehlgeschlagen. Systemzeit konnte nicht gesetzt werden."
                     )
+                return redirect(url_for("set_time"))
             except Exception as exc:  # Fallback, um unerwartete Fehler abzufangen
                 logging.exception(
                     "Unerwarteter Fehler beim Setzen der Systemzeit (%s): %s",
@@ -6266,21 +6269,25 @@ def set_time():
                     exc,
                 )
                 flash("Unerwarteter Fehler beim Setzen der Systemzeit.")
+                return redirect(url_for("set_time"))
             else:
                 try:
                     set_rtc(dt)
                 except RTCWriteError as exc:
                     logging.error("RTC konnte nicht geschrieben werden: %s", exc)
                     flash("RTC konnte nicht gesetzt werden (I²C-Schreibfehler)")
+                    return redirect(url_for("set_time"))
                 except (RTCUnavailableError, UnsupportedRTCError) as exc:
                     logging.error("RTC konnte nicht gesetzt werden: %s", exc)
                     flash("RTC nicht verfügbar oder wird nicht unterstützt")
-                else:
-                    flash("Datum und Uhrzeit gesetzt")
-                    if sync_checkbox or request.form.get("sync_internet_action"):
-                        _, messages = perform_internet_time_sync()
-                        for message in messages:
-                            flash(message)
+                    return redirect(url_for("set_time"))
+                flash("Datum und Uhrzeit gesetzt")
+                if sync_checkbox or request.form.get("sync_internet_action"):
+                    sync_success, messages = perform_internet_time_sync()
+                    for message in messages:
+                        flash(message)
+                    if not sync_success:
+                        return redirect(url_for("set_time"))
         return redirect(url_for("index"))
     return render_template(
         "set_time.html",
