@@ -4739,14 +4739,39 @@ def create_playlist():
 @app.route("/add_to_playlist", methods=["POST"])
 @login_required
 def add_to_playlist():
-    playlist_id = request.form["playlist_id"]
-    file_id = request.form["file_id"]
+    raw_playlist_id = (request.form.get("playlist_id") or "").strip()
+    raw_file_id = (request.form.get("file_id") or "").strip()
+
+    try:
+        playlist_id = int(raw_playlist_id)
+        file_id = int(raw_file_id)
+    except (TypeError, ValueError):
+        flash("Ungültige Playlist- oder Datei-ID.")
+        return redirect(url_for("index"))
+
     with get_db_connection() as (conn, cursor):
-        cursor.execute(
-            "INSERT INTO playlist_files (playlist_id, file_id) VALUES (?, ?)",
-            (playlist_id, file_id),
-        )
+        cursor.execute("SELECT 1 FROM playlists WHERE id=?", (playlist_id,))
+        if cursor.fetchone() is None:
+            flash("Playlist wurde nicht gefunden.")
+            return redirect(url_for("index"))
+
+        cursor.execute("SELECT 1 FROM audio_files WHERE id=?", (file_id,))
+        if cursor.fetchone() is None:
+            flash("Audiodatei wurde nicht gefunden.")
+            return redirect(url_for("index"))
+
+        try:
+            cursor.execute(
+                "INSERT INTO playlist_files (playlist_id, file_id) VALUES (?, ?)",
+                (playlist_id, file_id),
+            )
+        except sqlite3.IntegrityError as exc:
+            conn.rollback()
+            flash(f"Datei konnte nicht zur Playlist hinzugefügt werden: {exc}")
+            return redirect(url_for("index"))
+
         conn.commit()
+
     flash("Datei zur Playlist hinzugefügt")
     return redirect(url_for("index"))
 
