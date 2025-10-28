@@ -102,3 +102,74 @@ def test_set_time_handles_called_process_error(monkeypatch, client):
     assert expected_message.encode("utf-8") in response.data
     assert b"Datum und Uhrzeit gesetzt" not in response.data
     assert set_rtc_called is False
+    assert response.request.path == "/set_time"
+
+
+def test_set_time_redirects_to_index_on_success(monkeypatch, client):
+    client, app_module = client
+    _login(client)
+
+    set_rtc_called = False
+
+    def fake_set_rtc(dt):
+        nonlocal set_rtc_called
+        set_rtc_called = True
+
+    def fake_run(cmd, *args, **kwargs):
+        if isinstance(cmd, (list, tuple)) and list(cmd)[:2] == [
+            "timedatectl",
+            "set-time",
+        ]:
+            assert kwargs.get("check") is True
+        return app_module.subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(app_module, "set_rtc", fake_set_rtc)
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+
+    response = csrf_post(
+        client,
+        "/set_time",
+        data={"datetime": "2024-01-01T12:00:00"},
+        follow_redirects=False,
+        source_url="/set_time",
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/")
+    assert set_rtc_called is True
+
+
+def test_set_time_failed_internet_sync_stays_on_form(monkeypatch, client):
+    client, app_module = client
+    _login(client)
+
+    monkeypatch.setattr(app_module, "set_rtc", lambda dt: None)
+
+    def fake_run(cmd, *args, **kwargs):
+        if isinstance(cmd, (list, tuple)) and list(cmd)[:2] == [
+            "timedatectl",
+            "set-time",
+        ]:
+            assert kwargs.get("check") is True
+        return app_module.subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        app_module,
+        "perform_internet_time_sync",
+        lambda: (False, ["Fehler bei der Synchronisation"]),
+    )
+
+    response = csrf_post(
+        client,
+        "/set_time",
+        data={
+            "datetime": "2024-01-01T12:00:00",
+            "sync_internet_action": "1",
+        },
+        follow_redirects=True,
+        source_url="/set_time",
+    )
+
+    assert b"Fehler bei der Synchronisation" in response.data
+    assert response.request.path == "/set_time"
