@@ -41,6 +41,17 @@ class NetworkConfigError(Exception):
         self.user_message = message
 
 
+@dataclass
+class HostsUpdateResult:
+    """Repräsentiert das Ergebnis einer ``/etc/hosts``-Aktualisierung."""
+
+    hosts_path: Path
+    changed: bool
+    backup_path: Optional[Path]
+    original_exists: bool
+    original_lines: List[str]
+
+
 def _read_lines(path: Path) -> List[str]:
     try:
         content = path.read_text(encoding="utf-8")
@@ -562,13 +573,16 @@ def update_hosts_file(
     hostname: str,
     local_domain: str = "",
     hosts_path: Path = Path("/etc/hosts"),
-) -> bool:
+) -> HostsUpdateResult:
     hostname = validate_hostname(hostname)
     local_domain = validate_local_domain(local_domain)
 
     lines = _read_lines(hosts_path)
     if not lines:
         lines = []
+    original_lines = list(lines)
+    original_exists = hosts_path.exists()
+
     new_entry_parts = ["127.0.1.1", hostname]
     if local_domain:
         new_entry_parts.append(f"{hostname}.{local_domain}")
@@ -593,4 +607,48 @@ def update_hosts_file(
             break
     if not replaced:
         lines.append(new_entry)
-    return _write_lines(hosts_path, lines, create_backup=True)
+
+    if list(lines) == original_lines:
+        return HostsUpdateResult(
+            hosts_path=hosts_path,
+            changed=False,
+            backup_path=None,
+            original_exists=original_exists,
+            original_lines=original_lines,
+        )
+
+    backup_path: Optional[Path] = None
+    if original_exists:
+        backup_path = _backup_file(hosts_path)
+
+    _write_lines(hosts_path, lines, create_backup=False)
+
+    return HostsUpdateResult(
+        hosts_path=hosts_path,
+        changed=True,
+        backup_path=backup_path,
+        original_exists=original_exists,
+        original_lines=original_lines,
+    )
+
+
+def restore_hosts_state(result: HostsUpdateResult) -> None:
+    """Setzt ``/etc/hosts`` auf den ursprünglichen Zustand zurück."""
+
+    if not result.changed:
+        return
+
+    hosts_path = result.hosts_path
+
+    if result.backup_path and result.backup_path.exists():
+        shutil.copy2(result.backup_path, hosts_path)
+        return
+
+    if result.original_exists:
+        _write_lines(hosts_path, result.original_lines, create_backup=False)
+        return
+
+    try:
+        hosts_path.unlink()
+    except FileNotFoundError:
+        return

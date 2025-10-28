@@ -591,7 +591,13 @@ def test_network_settings_post_dhcp(monkeypatch, client):
 
     def fake_update_hosts(hostname: str, local_domain: str):
         host_updates.append((hostname, local_domain))
-        return True
+        return app_module.HostsUpdateResult(
+            hosts_path=Path("/tmp/hosts"),
+            changed=False,
+            backup_path=None,
+            original_exists=True,
+            original_lines=[],
+        )
 
     monkeypatch.setattr(app_module, "_update_hosts_file", fake_update_hosts)
 
@@ -692,7 +698,13 @@ def test_network_settings_post_dhcp_keeps_local_domain(monkeypatch, client):
 
     def fake_update_hosts(hostname: str, local_domain: str):
         host_updates.append((hostname, local_domain))
-        return True
+        return app_module.HostsUpdateResult(
+            hosts_path=Path("/tmp/hosts"),
+            changed=True,
+            backup_path=None,
+            original_exists=True,
+            original_lines=["127.0.1.1\taudio-pi"],
+        )
 
     monkeypatch.setattr(app_module, "_update_hosts_file", fake_update_hosts)
 
@@ -776,7 +788,13 @@ def test_network_settings_post_static_triggers_hostnamectl(monkeypatch, client):
 
     def fake_update_hosts(hostname: str, local_domain: str):
         host_updates.append((hostname, local_domain))
-        return True
+        return app_module.HostsUpdateResult(
+            hosts_path=Path("/tmp/hosts"),
+            changed=True,
+            backup_path=Path("/tmp/hosts.bak"),
+            original_exists=True,
+            original_lines=["127.0.1.1\told-host"],
+        )
 
     monkeypatch.setattr(app_module, "_update_hosts_file", fake_update_hosts)
 
@@ -890,7 +908,13 @@ def test_network_settings_triggers_dhcpcd_restart_on_change(monkeypatch, client)
 
     def fake_update_hosts(hostname: str, local_domain: str):
         host_updates.append((hostname, local_domain))
-        return True
+        return app_module.HostsUpdateResult(
+            hosts_path=Path("/tmp/hosts"),
+            changed=True,
+            backup_path=None,
+            original_exists=True,
+            original_lines=["127.0.1.1\taudio-pi"],
+        )
 
     monkeypatch.setattr(app_module, "_update_hosts_file", fake_update_hosts)
 
@@ -986,7 +1010,13 @@ def test_network_settings_skips_restart_when_not_needed(monkeypatch, client):
 
     def fake_update_hosts(hostname: str, local_domain: str):
         host_updates.append((hostname, local_domain))
-        return True
+        return app_module.HostsUpdateResult(
+            hosts_path=Path("/tmp/hosts"),
+            changed=True,
+            backup_path=None,
+            original_exists=True,
+            original_lines=["127.0.1.1\taudio-pi"],
+        )
 
     monkeypatch.setattr(app_module, "_update_hosts_file", fake_update_hosts)
 
@@ -1062,6 +1092,90 @@ def test_network_settings_post_static_invalid_ip(monkeypatch, client):
     assert b"Ung\xc3\xbcltige IPv4-Adresse oder Pr\xc3\xa4fix." in response.data
 
 
+def test_network_settings_write_failure_keeps_hostname_and_hosts(monkeypatch, client, tmp_path: Path):
+    test_client, app_module = client
+    _login(test_client)
+
+    normalized_result = app_module.NormalizedNetworkSettings(
+        interface="wlan0",
+        normalized={
+            "mode": "manual",
+            "ipv4_address": "192.168.40.2",
+            "ipv4_prefix": "24",
+            "ipv4_gateway": "192.168.40.1",
+            "dns_servers": "1.1.1.1, 8.8.8.8",
+            "local_domain": "",
+        },
+        original_lines=[],
+        new_lines=["interface wlan0"],
+        dhcpcd_path=tmp_path / "dhcpcd.conf",
+        backup_path=None,
+        original_exists=False,
+    )
+
+    def fake_normalize(interface: str, payload: Mapping[str, str]):
+        assert interface == "wlan0"
+        return normalized_result
+
+    def failing_write(interface: str, payload: Mapping[str, str], *, normalized_result=None):
+        raise RuntimeError("write failed")
+
+    monkeypatch.setattr(app_module, "_normalize_network_settings", fake_normalize)
+    monkeypatch.setattr(app_module, "_write_network_settings", failing_write)
+    monkeypatch.setattr(app_module, "_get_current_hostname", lambda: "current-host")
+
+    hosts_path = tmp_path / "hosts"
+    original_hosts_content = "127.0.1.1\tcurrent-host\n"
+    hosts_path.write_text(original_hosts_content, encoding="utf-8")
+
+    host_updates: List[Tuple[str, str]] = []
+
+    def fake_update_hosts(hostname: str, local_domain: str):
+        host_updates.append((hostname, local_domain))
+        hosts_path.write_text("127.0.1.1\tmodified\n", encoding="utf-8")
+        return app_module.HostsUpdateResult(
+            hosts_path=hosts_path,
+            changed=True,
+            backup_path=None,
+            original_exists=True,
+            original_lines=["127.0.1.1\tcurrent-host"],
+        )
+
+    monkeypatch.setattr(app_module, "_update_hosts_file", fake_update_hosts)
+    monkeypatch.setattr(app_module, "privileged_command", lambda *args: list(args))
+
+    original_run = app_module.subprocess.run
+
+    def guard_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd[:2] == ["hostnamectl", "set-hostname"]:
+            raise AssertionError("hostnamectl darf bei Schreibfehlern nicht ausgeführt werden")
+        return original_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(app_module.subprocess, "run", guard_run)
+
+    response = csrf_post(
+        test_client,
+        "/network_settings",
+        data={
+            "mode": "manual",
+            "ipv4_address": "192.168.40.2",
+            "ipv4_prefix": "24",
+            "ipv4_gateway": "192.168.40.1",
+            "dns_servers": "1.1.1.1 8.8.8.8",
+            "hostname": "new-host",
+            "local_domain": "",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert (
+        b"Beim Speichern der Netzwerkeinstellungen ist ein Fehler aufgetreten." in response.data
+    )
+    assert hosts_path.read_text(encoding="utf-8") == original_hosts_content
+    assert host_updates == []
+
+
 def test_network_settings_rollback_on_setting_failure(monkeypatch, client, tmp_path: Path):
     test_client, app_module = client
     _login(test_client)
@@ -1111,7 +1225,13 @@ def test_network_settings_rollback_on_setting_failure(monkeypatch, client, tmp_p
 
     def fake_update_hosts(hostname: str, local_domain: str):
         host_updates.append((hostname, local_domain))
-        return True
+        return app_module.HostsUpdateResult(
+            hosts_path=Path("/tmp/hosts"),
+            changed=True,
+            backup_path=None,
+            original_exists=True,
+            original_lines=["127.0.1.1\taudio-pi"],
+        )
 
     monkeypatch.setattr(app_module, "_update_hosts_file", fake_update_hosts)
 

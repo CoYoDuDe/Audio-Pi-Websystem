@@ -1,6 +1,7 @@
 import builtins
 import importlib
 import sys
+from pathlib import Path
 
 
 def test_rtc_initialization_without_smbus(monkeypatch):
@@ -18,6 +19,11 @@ def test_rtc_initialization_without_smbus(monkeypatch):
 
     sys.modules.pop("app", None)
     sys.modules.pop("smbus", None)
+
+    repo_root = Path(__file__).resolve().parents[1]
+    repo_root_str = str(repo_root)
+    if repo_root_str not in sys.path:
+        sys.path.insert(0, repo_root_str)
 
     app_module = importlib.import_module("app")
 
