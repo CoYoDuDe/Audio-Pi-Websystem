@@ -1831,7 +1831,11 @@ else:
     cursor = None
 
 # Scheduler
-LOCAL_TZ = datetime.now().astimezone().tzinfo
+def _current_local_time() -> datetime:
+    return datetime.now().astimezone()
+
+
+LOCAL_TZ = _current_local_time().tzinfo
 scheduler = BackgroundScheduler(timezone=LOCAL_TZ)
 _BACKGROUND_SERVICES_LOCK = threading.RLock()
 _BACKGROUND_SERVICES_STARTED = False
@@ -1871,6 +1875,55 @@ def _to_local_naive(dt):
     if aware_dt is None:
         return None
     return aware_dt.replace(tzinfo=None)
+
+
+def refresh_local_timezone(*, reconfigure_scheduler: bool = True):
+    """Synchronisiert LOCAL_TZ mit dem System und aktualisiert den Scheduler."""
+
+    global LOCAL_TZ, scheduler, _BACKGROUND_SERVICES_STARTED
+
+    tzset = getattr(time, "tzset", None)
+    if callable(tzset):
+        try:
+            tzset()
+        except Exception:
+            logging.warning(
+                "Aktualisierung der lokalen Zeitzone via time.tzset() fehlgeschlagen.",
+                exc_info=True,
+            )
+
+    new_tz = _current_local_time().tzinfo or timezone.utc
+    timezone_changed = new_tz is not LOCAL_TZ and new_tz != LOCAL_TZ
+    LOCAL_TZ = new_tz
+
+    if timezone_changed and reconfigure_scheduler:
+        try:
+            scheduler.configure(timezone=LOCAL_TZ)
+        except Exception:
+            logging.exception(
+                "Scheduler konnte nicht auf die neue Zeitzone umgestellt werden."
+            )
+            try:
+                if getattr(scheduler, "running", False):
+                    scheduler.shutdown(wait=False)
+            except Exception:
+                logging.warning(
+                    "Laufender Scheduler konnte vor der Neuinitialisierung nicht gestoppt werden.",
+                    exc_info=True,
+                )
+            try:
+                scheduler = BackgroundScheduler(timezone=LOCAL_TZ)
+            except Exception:
+                logging.exception(
+                    "Neuer Scheduler konnte nach Zeitzonenwechsel nicht initialisiert werden."
+                )
+            else:
+                _BACKGROUND_SERVICES_STARTED = False
+
+    return LOCAL_TZ
+
+
+refresh_local_timezone()
 
 
 def _format_schedule_time_for_display(time_str, repeat):
@@ -3549,6 +3602,7 @@ def skip_past_once_schedules():
 
 
 def load_schedules():
+    refresh_local_timezone()
     try:
         auto_reboot_job_existed = scheduler.get_job(AUTO_REBOOT_JOB_ID) is not None
     except Exception:
@@ -6540,6 +6594,7 @@ def _wait_for_system_clock_synchronization() -> Tuple[bool, Optional[str]]:
 
 
 def perform_internet_time_sync():
+    refresh_local_timezone()
     success = False
     messages: List[str] = []
     success_message: Optional[str] = None
@@ -6812,6 +6867,7 @@ def _is_checked(value):
 @app.route("/set_time", methods=["GET", "POST"])
 @login_required
 def set_time():
+    refresh_local_timezone()
     stored_sync_default = _is_checked(get_setting(TIME_SYNC_INTERNET_SETTING_KEY, "0"))
     if request.method == "POST":
         time_str = request.form.get("datetime")
@@ -6910,6 +6966,7 @@ def set_time():
                     flash(
                         "Warnung: RTC nicht verfügbar oder wird nicht unterstützt. Systemzeit wurde gesetzt, aber nicht auf die RTC geschrieben."
                     )
+                refresh_local_timezone()
                 flash("Datum und Uhrzeit gesetzt")
                 if sync_checkbox or request.form.get("sync_internet_action"):
                     sync_success, messages = perform_internet_time_sync()
