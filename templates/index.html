@@ -643,16 +643,54 @@
             <h3>Zeitpläne</h3>
     <form action="{{ url_for('add_schedule') }}" method="POST" class="stack-sm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% set schedule_defaults = namespace(item_type=None, item_id=None) %}
+        {% if files_all %}
+            {% set schedule_defaults.item_type = 'file' %}
+            {% set schedule_defaults.item_id = files_all[0].id %}
+        {% elif playlists_all %}
+            {% set schedule_defaults.item_type = 'playlist' %}
+            {% set schedule_defaults.item_id = playlists_all[0].id %}
+        {% endif %}
         <label for="item-type" class="form-field">
             Elementtyp
             <select name="item_type" id="item-type">
-                <option value="file">Datei</option>
-                <option value="playlist">Playlist</option>
+                <option value="file" {% if schedule_defaults.item_type != 'playlist' %}selected{% endif %}>Datei</option>
+                <option value="playlist" {% if schedule_defaults.item_type == 'playlist' %}selected{% endif %}>Playlist</option>
             </select>
         </label>
         <label for="item-select" class="form-field">
             Element auswählen
-            <select name="item_id" id="item-select"></select>
+            <select
+                name="item_id"
+                id="item-select"
+                data-default-type="{{ schedule_defaults.item_type or '' }}"
+                data-placeholder-file="-- Datei wählen --"
+                data-placeholder-playlist="-- Playlist wählen --"
+            >
+                <option value="" data-role="placeholder" {% if schedule_defaults.item_type is none %}selected{% endif %}>
+                    {% if schedule_defaults.item_type == 'playlist' %}
+                        -- Playlist wählen --
+                    {% elif schedule_defaults.item_type == 'file' %}
+                        -- Datei wählen --
+                    {% else %}
+                        -- Element auswählen --
+                    {% endif %}
+                </option>
+                {% if files_all %}
+                <optgroup label="Dateien" data-item-type="file">
+                    {% for file in files_all %}
+                    <option value="{{ file.id }}" data-item-type="file" {% if schedule_defaults.item_type == 'file' and schedule_defaults.item_id == file.id %}selected{% endif %}>{{ file.filename }}</option>
+                    {% endfor %}
+                </optgroup>
+                {% endif %}
+                {% if playlists_all %}
+                <optgroup label="Playlists" data-item-type="playlist">
+                    {% for playlist in playlists_all %}
+                    <option value="{{ playlist.id }}" data-item-type="playlist" {% if schedule_defaults.item_type == 'playlist' and schedule_defaults.item_id == playlist.id %}selected{% endif %}>{{ playlist.name }}</option>
+                    {% endfor %}
+                </optgroup>
+                {% endif %}
+            </select>
         </label>
         <label for="schedule-time" class="form-field">
             Startzeitpunkt
@@ -781,8 +819,6 @@
 
     <script>
     document.addEventListener('DOMContentLoaded', function () {
-        const audioFiles = {{ files_all | tojson }};
-        const playlists = {{ playlists_all | tojson }};
         const itemSelect = document.getElementById('item-select');
         const typeSelect = document.getElementById('item-type');
         const repeatSelect = document.getElementById('repeat-select');
@@ -806,18 +842,61 @@
             : null;
         const manualHint = networkForm ? networkForm.querySelector('[data-manual-hint]') : null;
 
-        function populate() {
-            if (!itemSelect || !typeSelect) {
+        function updateItemSelectOptions() {
+            if (!itemSelect) {
                 return;
             }
-            const items = typeSelect.value === 'playlist' ? playlists : audioFiles;
-            const label = typeSelect.value === 'playlist' ? 'Playlist' : 'Datei';
-            itemSelect.innerHTML = `<option value="">-- ${label} wählen --</option>`;
-            for (const item of items) {
-                const opt = document.createElement('option');
-                opt.value = item.id;
-                opt.textContent = item.name || item.filename;
-                itemSelect.appendChild(opt);
+            const selectedType = typeSelect ? typeSelect.value : itemSelect.dataset.defaultType || 'file';
+            const placeholderOption = itemSelect.querySelector('option[data-role="placeholder"]');
+            const placeholderLabel =
+                selectedType === 'playlist'
+                    ? itemSelect.dataset.placeholderPlaylist || '-- Playlist wählen --'
+                    : itemSelect.dataset.placeholderFile || '-- Datei wählen --';
+
+            if (placeholderOption) {
+                placeholderOption.textContent = placeholderLabel;
+            }
+
+            const optionGroups = itemSelect.querySelectorAll('optgroup[data-item-type]');
+            optionGroups.forEach((group) => {
+                const matches = group.dataset.itemType === selectedType;
+                group.hidden = !matches;
+                group.disabled = !matches;
+            });
+
+            const options = itemSelect.querySelectorAll('option[data-item-type]');
+            const visibleOptions = [];
+            options.forEach((option) => {
+                const matches = option.dataset.itemType === selectedType;
+                option.hidden = !matches;
+                option.disabled = !matches;
+                if (matches) {
+                    visibleOptions.push(option);
+                } else if (option.selected) {
+                    option.selected = false;
+                }
+            });
+
+            if (visibleOptions.length === 0) {
+                if (placeholderOption) {
+                    placeholderOption.disabled = false;
+                    placeholderOption.hidden = false;
+                    placeholderOption.selected = true;
+                }
+                return;
+            }
+
+            if (placeholderOption) {
+                placeholderOption.disabled = true;
+                placeholderOption.hidden = true;
+                if (placeholderOption.selected) {
+                    placeholderOption.selected = false;
+                }
+            }
+
+            const alreadySelected = visibleOptions.find((option) => option.selected);
+            if (!alreadySelected) {
+                visibleOptions[0].selected = true;
             }
         }
 
@@ -903,7 +982,7 @@
         }
 
         if (typeSelect) {
-            typeSelect.addEventListener('change', populate);
+            typeSelect.addEventListener('change', updateItemSelectOptions);
         }
         if (repeatSelect) {
             repeatSelect.addEventListener('change', updateDateRangeVisibility);
@@ -923,7 +1002,7 @@
             });
         }
 
-        populate();
+        updateItemSelectOptions();
         updateDateRangeVisibility();
         updateAutoRebootWeekdayVisibility();
         if (autoRebootModeSelect) {
