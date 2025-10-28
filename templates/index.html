@@ -3,6 +3,8 @@
 {% block page_heading %}Audio Pi Websteuerung{% endblock %}
 {% block flashes %}{% endblock %}
 {% block content %}
+{% set files_all = files_all | default([], true) %}
+{% set playlists_all = playlists_all | default([], true) %}
 {% set flashed_messages = get_flashed_messages(with_categories=true) %}
 {% set flash_groups = namespace(general=[], network=[]) %}
 {% for category, message in flashed_messages %}
@@ -852,6 +854,11 @@
         <span class="page-link disabled">&raquo;</span>
         {% endif %}
     </nav>
+
+    <script>
+    const audioFiles = {{ files_all | tojson }};
+    const playlists = {{ playlists_all | tojson }};
+    </script>
 
     <script>
     document.addEventListener('DOMContentLoaded', function () {
