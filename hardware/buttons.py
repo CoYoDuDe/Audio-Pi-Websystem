@@ -252,7 +252,10 @@ class ButtonMonitor:
         elif assignment.pull == "down":
             flags |= GPIO.SET_PULL_DOWN
 
-        GPIO.gpio_claim_input(self._handle, flags, assignment.pin)
+        # Laut offizieller lgpio-Referenz (https://abyz.me.uk/lg/py_lgpio.html#gpio_claim_input)
+        # lautet die Signatur gpio_claim_input(handle, line, flags). Daher muss der Pin als
+        # zweites Argument übergeben werden und die Flags folgen als drittes Argument.
+        GPIO.gpio_claim_input(self._handle, assignment.pin, flags)
         level = GPIO.gpio_read(self._handle, assignment.pin)
         logging.debug(
             "GPIO-Button-Monitor: Button '%s' auf Pin %s initialer Pegel %s",
