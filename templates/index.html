@@ -206,6 +206,10 @@
                 Starte einen neuen Scan nach verfügbaren Netzwerken. Die Ergebnisse werden auf einer separaten
                 Seite angezeigt und können zum Verbinden mit einem WLAN genutzt werden.
             </p>
+            <p class="hint">
+                Hinweis: Für eine Verbindung muss die SSID einen sichtbaren Namen enthalten. Leere Eingaben oder
+                reine Leerzeichen werden serverseitig abgewiesen.
+            </p>
             <form action="{{ url_for('wlan_scan') }}" method="post" class="form-card stack-sm max-w-20">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn align-self-start">Scan starten</button>
