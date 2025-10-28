@@ -199,6 +199,32 @@ def test_wlan_connect_open_network(client, monkeypatch):
     assert all(call[5] != "psk" for call in set_network_calls)
 
 
+def test_wlan_connect_missing_ssid_redirects_with_flash(client, monkeypatch):
+    flask_client, app_module = client
+
+    def fail_run(*args, **kwargs):
+        pytest.fail("wpa_cli darf bei fehlender SSID nicht aufgerufen werden")
+
+    _login_admin(flask_client)
+    monkeypatch.setattr(app_module.subprocess, "run", fail_run)
+
+    response = csrf_post(
+        flask_client,
+        "/wlan_connect",
+        data={"password": "secretpass"},
+        follow_redirects=False,
+        source_url="/change_password",
+    )
+
+    assert response.status_code == 302
+    assert "Location" in response.headers
+
+    with flask_client.session_transaction() as session:
+        flashes = session.get("_flashes", [])
+
+    assert ("warning", "SSID darf nicht leer sein.") in flashes
+
+
 def test_wlan_connect_all_space_passphrase(client, monkeypatch):
     flask_client, app_module = client
     calls = []
