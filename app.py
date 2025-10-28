@@ -6278,7 +6278,9 @@ def set_time():
                     return redirect(url_for("set_time"))
                 except (RTCUnavailableError, UnsupportedRTCError) as exc:
                     logging.warning("RTC konnte nicht gesetzt werden: %s", exc)
-                    flash("RTC nicht verfügbar oder wird nicht unterstützt")
+                    flash(
+                        "Warnung: RTC nicht verfügbar oder wird nicht unterstützt. Systemzeit wurde gesetzt, aber nicht auf die RTC geschrieben."
+                    )
                 flash("Datum und Uhrzeit gesetzt")
                 if sync_checkbox or request.form.get("sync_internet_action"):
                     sync_success, messages = perform_internet_time_sync()
