@@ -65,6 +65,34 @@ def _get_playlist_names(app_module):
     return [row["name"] for row in rows]
 
 
+def _insert_playlist(app_module, name="Test Playlist"):
+    with app_module.get_db_connection() as (conn, cursor):
+        cursor.execute("INSERT INTO playlists (name) VALUES (?)", (name,))
+        playlist_id = cursor.lastrowid
+        conn.commit()
+    return playlist_id
+
+
+def _insert_audio_file(app_module, filename="track.mp3", duration=120):
+    with app_module.get_db_connection() as (conn, cursor):
+        cursor.execute(
+            "INSERT INTO audio_files (filename, duration_seconds) VALUES (?, ?)",
+            (filename, duration),
+        )
+        file_id = cursor.lastrowid
+        conn.commit()
+    return file_id
+
+
+def _get_playlist_files(app_module):
+    with app_module.get_db_connection() as (conn, cursor):
+        cursor.execute(
+            "SELECT playlist_id, file_id FROM playlist_files ORDER BY rowid"
+        )
+        rows = cursor.fetchall()
+    return [(row["playlist_id"], row["file_id"]) for row in rows]
+
+
 def test_create_playlist_trims_name(client):
     test_client, app_module = client
     _login(test_client, app_module)
@@ -114,3 +142,81 @@ def test_create_playlist_rejects_too_long_name(client):
     assert response.status_code == 200
     assert "Playlist-Name darf maximal 100 Zeichen lang sein" in body
     assert _get_playlist_names(app_module) == []
+
+
+def test_add_to_playlist_rejects_non_integer_ids(client):
+    test_client, app_module = client
+    _login(test_client, app_module)
+
+    playlist_id = _insert_playlist(app_module)
+    file_id = _insert_audio_file(app_module)
+
+    response = csrf_post(
+        test_client,
+        "/add_to_playlist",
+        data={"playlist_id": "abc", "file_id": str(file_id)},
+        follow_redirects=True,
+    )
+
+    body = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "Ungültige Playlist- oder Datei-ID." in body
+    assert _get_playlist_files(app_module) == []
+
+
+def test_add_to_playlist_requires_existing_playlist(client):
+    test_client, app_module = client
+    _login(test_client, app_module)
+
+    file_id = _insert_audio_file(app_module)
+
+    response = csrf_post(
+        test_client,
+        "/add_to_playlist",
+        data={"playlist_id": "999", "file_id": str(file_id)},
+        follow_redirects=True,
+    )
+
+    body = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "Playlist wurde nicht gefunden." in body
+    assert _get_playlist_files(app_module) == []
+
+
+def test_add_to_playlist_requires_existing_file(client):
+    test_client, app_module = client
+    _login(test_client, app_module)
+
+    playlist_id = _insert_playlist(app_module)
+
+    response = csrf_post(
+        test_client,
+        "/add_to_playlist",
+        data={"playlist_id": str(playlist_id), "file_id": "999"},
+        follow_redirects=True,
+    )
+
+    body = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "Audiodatei wurde nicht gefunden." in body
+    assert _get_playlist_files(app_module) == []
+
+
+def test_add_to_playlist_happy_path(client):
+    test_client, app_module = client
+    _login(test_client, app_module)
+
+    playlist_id = _insert_playlist(app_module)
+    file_id = _insert_audio_file(app_module)
+
+    response = csrf_post(
+        test_client,
+        "/add_to_playlist",
+        data={"playlist_id": str(playlist_id), "file_id": str(file_id)},
+        follow_redirects=True,
+    )
+
+    body = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "Datei zur Playlist hinzugefügt" in body
+    assert _get_playlist_files(app_module) == [(playlist_id, file_id)]
