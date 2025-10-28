@@ -5435,14 +5435,26 @@ def save_schedule_default_volume():
     return redirect(url_for("index"))
 
 
+def _get_form_value(name: str, *, to_lower: bool = False) -> str:
+    """Liest einen Formularwert, entfernt führende/abschließende Leerzeichen und normalisiert optional."""
+
+    raw_value = request.form.get(name, "")
+    if raw_value is None:
+        raw_value = ""
+    normalized = raw_value.strip()
+    if to_lower:
+        normalized = normalized.lower()
+    return normalized
+
+
 @app.route("/schedule", methods=["POST"])
 @login_required
 def add_schedule():
-    volume_raw = (request.form.get("volume_percent") or "").strip()
-    item_type = (request.form.get("item_type", "") or "").strip()
-    item_id = (request.form.get("item_id", "") or "").strip()
-    time_str = (request.form.get("time", "") or "").strip()  # Erwarte Format YYYY-MM-DDTHH:MM
-    repeat = (request.form.get("repeat", "") or "").strip()
+    volume_raw = _get_form_value("volume_percent")
+    item_type = _get_form_value("item_type", to_lower=True)
+    item_id = _get_form_value("item_id")
+    time_str = _get_form_value("time")  # Erwarte Format YYYY-MM-DDTHH:MM
+    repeat = _get_form_value("repeat", to_lower=True)
     if not item_type or not item_id or not time_str or not repeat:
         flash("Zeitplan konnte nicht hinzugefügt werden: Erforderliche Felder fehlen.")
         return redirect(url_for("index"))
