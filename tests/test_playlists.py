@@ -27,6 +27,11 @@ def client(tmp_path, monkeypatch):
     importlib.reload(app_module)
     app_module.pygame.mixer.music.get_busy = lambda: False
 
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    app_module.UPLOAD_FOLDER = str(upload_dir)
+    app_module.app.config["UPLOAD_FOLDER"] = str(upload_dir)
+
     try:
         with app_module.app.test_client() as test_client:
             yield test_client, app_module
@@ -91,6 +96,22 @@ def _get_playlist_files(app_module):
         )
         rows = cursor.fetchall()
     return [(row["playlist_id"], row["file_id"]) for row in rows]
+
+
+def _get_playlist_entries_with_position(app_module):
+    with app_module.get_db_connection() as (conn, cursor):
+        cursor.execute(
+            """
+            SELECT playlist_id, file_id, position
+            FROM playlist_files
+            ORDER BY playlist_id, position, rowid
+            """
+        )
+        rows = cursor.fetchall()
+    return [
+        (row["playlist_id"], row["file_id"], row["position"])
+        for row in rows
+    ]
 
 
 def test_create_playlist_trims_name(client):
@@ -248,3 +269,85 @@ def test_add_to_playlist_rejects_duplicates(client):
     assert duplicate_response.status_code == 200
     assert "Diese Datei ist bereits in der Playlist vorhanden." in duplicate_body
     assert _get_playlist_files(app_module) == [(playlist_id, file_id)]
+
+
+def test_add_to_playlist_assigns_incremental_positions(client):
+    test_client, app_module = client
+    _login(test_client, app_module)
+
+    playlist_id = _insert_playlist(app_module)
+    first_file = _insert_audio_file(app_module, filename="first_track.mp3")
+    second_file = _insert_audio_file(app_module, filename="second_track.mp3")
+
+    for file_id in (first_file, second_file):
+        response = csrf_post(
+            test_client,
+            "/add_to_playlist",
+            data={"playlist_id": str(playlist_id), "file_id": str(file_id)},
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+
+    entries = _get_playlist_entries_with_position(app_module)
+    assert entries == [
+        (playlist_id, first_file, 0),
+        (playlist_id, second_file, 1),
+    ]
+
+
+def test_play_item_respects_playlist_positions(client, monkeypatch):
+    test_client, app_module = client
+    _login(test_client, app_module)
+
+    playlist_id = _insert_playlist(app_module)
+    first_file = _insert_audio_file(app_module, filename="b_title.mp3")
+    second_file = _insert_audio_file(app_module, filename="a_title.mp3")
+
+    for file_id in (first_file, second_file):
+        response = csrf_post(
+            test_client,
+            "/add_to_playlist",
+            data={"playlist_id": str(playlist_id), "file_id": str(file_id)},
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+
+    upload_dir = Path(app_module.app.config["UPLOAD_FOLDER"])
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    for filename in ("b_title.mp3", "a_title.mp3"):
+        (upload_dir / filename).write_bytes(b"test")
+
+    processed_files = []
+
+    def fake_prepare(file_path, temp_path):
+        processed_files.append(Path(file_path).name)
+        Path(temp_path).write_bytes(b"0")
+        return True
+
+    playback_state = {"busy": False}
+
+    def fake_play():
+        playback_state["busy"] = True
+
+    def fake_get_busy():
+        if playback_state["busy"]:
+            playback_state["busy"] = False
+            return True
+        return False
+
+    monkeypatch.setattr(app_module, "_prepare_audio_for_playback", fake_prepare)
+    monkeypatch.setattr(app_module.pygame.mixer.music, "load", lambda _: None)
+    monkeypatch.setattr(app_module.pygame.mixer.music, "play", lambda: fake_play())
+    monkeypatch.setattr(app_module.pygame.mixer.music, "get_busy", fake_get_busy)
+    monkeypatch.setattr(app_module, "set_sink", lambda sink: True)
+    monkeypatch.setattr(app_module, "activate_amplifier", lambda: None)
+    monkeypatch.setattr(app_module, "deactivate_amplifier", lambda: None)
+    monkeypatch.setattr(app_module, "is_bt_connected", lambda: False)
+    monkeypatch.setattr(app_module, "resume_bt_audio", lambda: None)
+    monkeypatch.setattr(app_module, "load_loopback", lambda: None)
+    monkeypatch.setattr(app_module.time, "sleep", lambda *_, **__: None)
+
+    play_result = app_module.play_item(playlist_id, "playlist", delay=0, is_schedule=False)
+
+    assert play_result is True
+    assert processed_files == ["b_title.mp3", "a_title.mp3"]

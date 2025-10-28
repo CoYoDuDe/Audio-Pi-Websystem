@@ -1515,8 +1515,47 @@ def initialize_database():
             """CREATE TABLE IF NOT EXISTS playlists (id INTEGER PRIMARY KEY, name TEXT)"""
         )
         cursor.execute(
-            """CREATE TABLE IF NOT EXISTS playlist_files (playlist_id INTEGER, file_id INTEGER)"""
+            """
+            CREATE TABLE IF NOT EXISTS playlist_files (
+                playlist_id INTEGER,
+                file_id INTEGER,
+                position INTEGER DEFAULT 0
+            )
+            """
         )
+        cursor.execute("PRAGMA table_info(playlist_files)")
+        playlist_file_columns = {row[1] for row in cursor.fetchall()}
+        if "position" not in playlist_file_columns:
+            cursor.execute(
+                "ALTER TABLE playlist_files ADD COLUMN position INTEGER DEFAULT 0"
+            )
+            playlist_file_columns.add("position")
+        if "position" in playlist_file_columns:
+            cursor.execute(
+                "SELECT COUNT(*) FROM playlist_files WHERE position IS NULL"
+            )
+            needs_position_migration = bool(cursor.fetchone()[0])
+            if needs_position_migration:
+                cursor.execute(
+                    """
+                    SELECT rowid AS rowid, playlist_id
+                    FROM playlist_files
+                    ORDER BY playlist_id, rowid
+                    """
+                )
+                rows = cursor.fetchall()
+                next_positions: Dict[int, int] = {}
+                for row in rows:
+                    playlist_id_value = int(row["playlist_id"])
+                    next_position = next_positions.get(playlist_id_value, 0)
+                    cursor.execute(
+                        "UPDATE playlist_files SET position=? WHERE rowid=?",
+                        (next_position, row["rowid"]),
+                    )
+                    next_positions[playlist_id_value] = next_position + 1
+            cursor.execute(
+                "UPDATE playlist_files SET position = 0 WHERE position IS NULL"
+            )
         cursor.execute(
             """
             DELETE FROM playlist_files
@@ -3596,7 +3635,7 @@ def play_item(item_id, item_type, delay, is_schedule=False, volume_percent=100):
                         FROM playlist_files pf
                         JOIN audio_files f ON pf.file_id = f.id
                         WHERE pf.playlist_id=?
-                        ORDER BY f.filename
+                        ORDER BY pf.position ASC, pf.rowid ASC
                         """,
                         (item_id,),
                     )
@@ -5131,10 +5170,24 @@ def add_to_playlist():
             flash("Audiodatei wurde nicht gefunden.")
             return redirect(url_for("index"))
 
+        cursor.execute(
+            "SELECT COALESCE(MAX(position), -1) FROM playlist_files WHERE playlist_id=?",
+            (playlist_id,),
+        )
+        max_position_row = cursor.fetchone()
+        max_position_value = max_position_row[0] if max_position_row else -1
+        try:
+            next_position = int(max_position_value) + 1
+        except (TypeError, ValueError):
+            next_position = 0
+
         try:
             cursor.execute(
-                "INSERT INTO playlist_files (playlist_id, file_id) VALUES (?, ?)",
-                (playlist_id, file_id),
+                """
+                INSERT INTO playlist_files (playlist_id, file_id, position)
+                VALUES (?, ?, ?)
+                """,
+                (playlist_id, file_id, next_position),
             )
         except sqlite3.IntegrityError as exc:
             conn.rollback()
