@@ -28,7 +28,7 @@ import math
 import logging
 from collections import deque
 from dataclasses import dataclass, asdict, is_dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from flask import (
     Flask,
     render_template,
@@ -900,6 +900,7 @@ RTC_SUPPORTED_TYPES = {
 }
 RTC_MODULE_SETTING_KEY = "rtc_module_type"
 RTC_ADDRESS_SETTING_KEY = "rtc_addresses"
+RTC_LOCAL_OFFSET_SETTING_KEY = "rtc_last_local_offset_minutes"
 
 RTC_DEFAULT_CANDIDATE_ADDRESSES = RTC_SUPPORTED_TYPES["auto"]["default_addresses"]
 RTC_CANDIDATE_ADDRESSES: Tuple[int, ...] = RTC_DEFAULT_CANDIDATE_ADDRESSES
@@ -909,6 +910,7 @@ RTC_DETECTED_ADDRESS: Optional[int] = None
 RTC_FORCED_TYPE: Optional[str] = None
 RTC_MISSING_FLAG = False
 RTC_SYNC_STATUS = {"success": None, "last_error": None}
+RTC_LAST_LOCAL_OFFSET_MINUTES: Optional[int] = None
 RTC_KNOWN_ADDRESS_TYPES = {
     0x51: "pcf8563",
     0x57: "ds3231",
@@ -1080,6 +1082,58 @@ def _rtc_weekday_to_python(raw_weekday: int, rtc_type: str) -> int:
     raise UnsupportedRTCError(f"RTC-Typ '{rtc_type}' nicht unterstützt")
 
 
+def _persist_rtc_local_offset(offset: Optional[timedelta]) -> None:
+    global RTC_LAST_LOCAL_OFFSET_MINUTES
+
+    if offset is None:
+        RTC_LAST_LOCAL_OFFSET_MINUTES = None
+        if "set_setting" in globals():
+            try:
+                set_setting(RTC_LOCAL_OFFSET_SETTING_KEY, "")
+            except Exception:  # pragma: no cover - Einstellungen bleiben bestmöglich erhalten
+                logging.getLogger(__name__).debug(
+                    "RTC-Offset konnte nicht gespeichert werden.",
+                    exc_info=True,
+                )
+        return
+
+    minutes = int(offset.total_seconds() // 60)
+    RTC_LAST_LOCAL_OFFSET_MINUTES = minutes
+    if "set_setting" in globals():
+        try:
+            set_setting(RTC_LOCAL_OFFSET_SETTING_KEY, str(minutes))
+        except Exception:  # pragma: no cover - Einstellungen bleiben bestmöglich erhalten
+            logging.getLogger(__name__).debug(
+                "RTC-Offset %s Minuten konnte nicht gespeichert werden.",
+                minutes,
+                exc_info=True,
+            )
+
+
+def _load_rtc_local_offset_minutes() -> Optional[int]:
+    global RTC_LAST_LOCAL_OFFSET_MINUTES
+
+    if RTC_LAST_LOCAL_OFFSET_MINUTES is not None:
+        return RTC_LAST_LOCAL_OFFSET_MINUTES
+
+    if "get_setting" not in globals():
+        return None
+
+    raw_value = get_setting(RTC_LOCAL_OFFSET_SETTING_KEY, None)
+    if raw_value in (None, ""):
+        return None
+
+    try:
+        RTC_LAST_LOCAL_OFFSET_MINUTES = int(raw_value)
+    except (TypeError, ValueError):
+        logging.getLogger(__name__).debug(
+            "Gespeicherter RTC-Offset '%s' konnte nicht interpretiert werden.",
+            raw_value,
+        )
+        RTC_LAST_LOCAL_OFFSET_MINUTES = None
+    return RTC_LAST_LOCAL_OFFSET_MINUTES
+
+
 def read_rtc():
     if bus is None or not RTC_AVAILABLE or RTC_ADDRESS is None:
         raise RTCUnavailableError("RTC-Bus nicht initialisiert")
@@ -1119,6 +1173,7 @@ def read_rtc():
         hour,
         minute,
         second,
+        tzinfo=timezone.utc,
     )
     if dt_value.weekday() != weekday_python:
         logging.debug(
@@ -1126,7 +1181,20 @@ def read_rtc():
             weekday_raw,
             dt_value.weekday(),
         )
-    return dt_value
+    target_tz = LOCAL_TZ
+    offset_minutes = _load_rtc_local_offset_minutes()
+    if target_tz is None and offset_minutes is not None:
+        target_tz = timezone(timedelta(minutes=offset_minutes))
+    if target_tz is None:
+        return dt_value
+    try:
+        return dt_value.astimezone(target_tz)
+    except Exception:  # pragma: no cover - Fallback, falls lokale TZ ungültig ist
+        logging.getLogger(__name__).debug(
+            "RTC konnte nicht in lokale Zeitzone umgerechnet werden.",
+            exc_info=True,
+        )
+        return dt_value
 
 
 def set_rtc(dt):
@@ -1134,20 +1202,35 @@ def set_rtc(dt):
         raise RTCUnavailableError("RTC-Bus nicht initialisiert")
     address = RTC_DETECTED_ADDRESS or RTC_ADDRESS
     rtc_type = _determine_rtc_type(address)
-    second = dec_to_bcd(dt.second)
-    minute = dec_to_bcd(dt.minute)
-    hour = dec_to_bcd(dt.hour)
-    date = dec_to_bcd(dt.day)
-    weekday_value = _python_weekday_to_rtc(dt.weekday(), rtc_type)
+
+    local_dt = _ensure_local_timezone(dt)
+    if local_dt is None:
+        raise ValueError("Ungültiger Zeitstempel zum Setzen der RTC")
+    if local_dt.tzinfo is None:
+        fallback_tz = datetime.now().astimezone().tzinfo or timezone.utc
+        local_dt = local_dt.replace(tzinfo=fallback_tz)
+
+    try:
+        utc_dt = local_dt.astimezone(timezone.utc)
+    except Exception as exc:
+        raise ValueError("RTC-Zeit konnte nicht nach UTC konvertiert werden") from exc
+
+    _persist_rtc_local_offset(local_dt.utcoffset())
+
+    second = dec_to_bcd(utc_dt.second)
+    minute = dec_to_bcd(utc_dt.minute)
+    hour = dec_to_bcd(utc_dt.hour)
+    date = dec_to_bcd(utc_dt.day)
+    weekday_value = _python_weekday_to_rtc(utc_dt.weekday(), rtc_type)
     try:
         if rtc_type == "pcf8563":
-            month = dec_to_bcd(dt.month)
-            year = dec_to_bcd(dt.year - 2000)
+            month = dec_to_bcd(utc_dt.month)
+            year = dec_to_bcd(utc_dt.year - 2000)
             payload = [second, minute, hour, date, weekday_value, month, year]
             bus.write_i2c_block_data(address, 0x02, payload)
         elif rtc_type == "ds3231":
-            month_value = dec_to_bcd(dt.month)
-            year_value = dt.year
+            month_value = dec_to_bcd(utc_dt.month)
+            year_value = utc_dt.year
             century_bit = 0
             if year_value >= 2100:
                 century_bit = 0x80
@@ -1167,7 +1250,15 @@ def set_rtc(dt):
             raise UnsupportedRTCError(f"RTC-Typ '{rtc_type}' nicht unterstützt")
     except OSError as exc:
         raise RTCWriteError("Schreibzugriff auf die RTC ist fehlgeschlagen") from exc
-    logging.info(f'RTC gesetzt auf {dt.strftime("%Y-%m-%d %H:%M:%S")}')
+    try:
+        local_display = local_dt.astimezone(LOCAL_TZ) if LOCAL_TZ else local_dt
+    except Exception:  # pragma: no cover - robustes Logging
+        local_display = local_dt
+    logging.info(
+        "RTC gesetzt auf %s (UTC %s)",
+        local_display.strftime("%Y-%m-%d %H:%M:%S %Z"),
+        utc_dt.strftime("%Y-%m-%d %H:%M:%S"),
+    )
 
 
 def _update_rtc_sync_status(success: bool, error: Optional[str] = None) -> None:
@@ -1183,7 +1274,11 @@ def sync_rtc_to_system() -> bool:
         _update_rtc_sync_status(False, str(e))
         return False
 
-    set_time_value = rtc_time.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        local_rtc_time = rtc_time.astimezone(LOCAL_TZ or timezone.utc)
+    except Exception:
+        local_rtc_time = rtc_time
+    set_time_value = local_rtc_time.strftime("%Y-%m-%d %H:%M:%S")
     date_command = privileged_command("timedatectl", "set-time", set_time_value)
 
     try:
@@ -6284,7 +6379,10 @@ def perform_internet_time_sync():
         success = True
         success_message = "Zeit vom Internet synchronisiert"
         try:
-            set_rtc(datetime.now())
+            current_local_time = (
+                datetime.now(LOCAL_TZ) if LOCAL_TZ is not None else datetime.now().astimezone()
+            )
+            set_rtc(current_local_time)
         except RTCWriteError as exc:
             logging.warning(
                 "RTC konnte nach dem Internet-Sync nicht geschrieben werden: %s",
@@ -6486,7 +6584,22 @@ def set_time():
             flash("Ungültiges Datums-/Zeitformat")
             return redirect(url_for("set_time"))
         else:
-            time_value = dt.strftime("%Y-%m-%d %H:%M:%S")
+            local_dt = _ensure_local_timezone(dt)
+            if local_dt is None:
+                flash("Ungültiger Datums-/Zeitwert")
+                return redirect(url_for("set_time"))
+            if local_dt.tzinfo is None:
+                fallback_tz = datetime.now().astimezone().tzinfo or timezone.utc
+                local_dt = local_dt.replace(tzinfo=fallback_tz)
+            if LOCAL_TZ is not None:
+                try:
+                    local_dt = local_dt.astimezone(LOCAL_TZ)
+                except Exception:
+                    pass
+            else:
+                local_dt = local_dt.astimezone()
+
+            time_value = local_dt.strftime("%Y-%m-%d %H:%M:%S")
             command = privileged_command("timedatectl", "set-time", time_value)
             try:
                 subprocess.run(
@@ -6545,7 +6658,7 @@ def set_time():
                 return redirect(url_for("set_time"))
             else:
                 try:
-                    set_rtc(dt)
+                    set_rtc(local_dt)
                 except RTCWriteError as exc:
                     logging.error("RTC konnte nicht geschrieben werden: %s", exc)
                     flash("RTC konnte nicht gesetzt werden (I²C-Schreibfehler)")

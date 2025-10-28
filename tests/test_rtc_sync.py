@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
+from zoneinfo import ZoneInfo
 
 
 @pytest.fixture
@@ -31,7 +32,9 @@ def app_module(tmp_path, monkeypatch):
 
 
 def test_sync_rtc_logs_error_on_subprocess_failure(app_module, monkeypatch, caplog):
-    fake_time = datetime(2024, 1, 2, 3, 4, 5)
+    berlin = ZoneInfo("Europe/Berlin")
+    monkeypatch.setattr(app_module, "LOCAL_TZ", berlin)
+    fake_time = datetime(2024, 1, 2, 3, 4, 5, tzinfo=berlin)
     monkeypatch.setattr(app_module, "read_rtc", lambda: fake_time)
 
     executed_commands = []
@@ -67,8 +70,11 @@ def test_sync_rtc_logs_error_on_subprocess_failure(app_module, monkeypatch, capl
 
 
 def test_sync_rtc_failure_does_not_raise_system_exit(app_module, monkeypatch):
-    fake_time = datetime(2025, 5, 4, 3, 2, 1)
+    berlin = ZoneInfo("Europe/Berlin")
+    monkeypatch.setattr(app_module, "LOCAL_TZ", berlin)
+    fake_time = datetime(2025, 5, 4, 3, 2, 1, tzinfo=berlin)
     monkeypatch.setattr(app_module, "read_rtc", lambda: fake_time)
+
 
     def fake_run(cmd, *args, **kwargs):
         assert kwargs.get("check") is True
@@ -84,3 +90,57 @@ def test_sync_rtc_failure_does_not_raise_system_exit(app_module, monkeypatch):
     assert result is False
     assert app_module.RTC_SYNC_STATUS["success"] is False
     assert "Rückgabecode" in app_module.RTC_SYNC_STATUS["last_error"]
+
+
+def test_set_rtc_stores_winter_offset(app_module, monkeypatch):
+    berlin = ZoneInfo("Europe/Berlin")
+    monkeypatch.setattr(app_module, "LOCAL_TZ", berlin)
+    app_module.RTC_LAST_LOCAL_OFFSET_MINUTES = None
+
+    class DummyBus:
+        def __init__(self):
+            self.write_calls = []
+
+        def write_i2c_block_data(self, address, register, data):
+            self.write_calls.append((address, register, data))
+
+    dummy_bus = DummyBus()
+    app_module.bus = dummy_bus
+    app_module.RTC_AVAILABLE = True
+    app_module.RTC_ADDRESS = 0x68
+    app_module.RTC_DETECTED_ADDRESS = 0x68
+
+    winter_dt = datetime(2024, 1, 2, 3, 4, 5, tzinfo=berlin)
+    app_module.set_rtc(winter_dt)
+
+    assert dummy_bus.write_calls
+    _, _, payload = dummy_bus.write_calls[-1]
+    assert payload[2] == app_module.dec_to_bcd(2)
+    assert app_module.get_setting(app_module.RTC_LOCAL_OFFSET_SETTING_KEY) == "60"
+
+
+def test_set_rtc_stores_summer_offset(app_module, monkeypatch):
+    berlin = ZoneInfo("Europe/Berlin")
+    monkeypatch.setattr(app_module, "LOCAL_TZ", berlin)
+    app_module.RTC_LAST_LOCAL_OFFSET_MINUTES = None
+
+    class DummyBus:
+        def __init__(self):
+            self.write_calls = []
+
+        def write_i2c_block_data(self, address, register, data):
+            self.write_calls.append((address, register, data))
+
+    dummy_bus = DummyBus()
+    app_module.bus = dummy_bus
+    app_module.RTC_AVAILABLE = True
+    app_module.RTC_ADDRESS = 0x68
+    app_module.RTC_DETECTED_ADDRESS = 0x68
+
+    summer_dt = datetime(2024, 7, 2, 3, 4, 5, tzinfo=berlin)
+    app_module.set_rtc(summer_dt)
+
+    assert dummy_bus.write_calls
+    _, _, payload = dummy_bus.write_calls[-1]
+    assert payload[2] == app_module.dec_to_bcd(1)
+    assert app_module.get_setting(app_module.RTC_LOCAL_OFFSET_SETTING_KEY) == "120"
