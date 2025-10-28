@@ -130,3 +130,22 @@ def test_volume_missing_pactl_called_process_error(monkeypatch, client_with_sudo
     assert response.status_code == 200
     assert app_module._PACTL_MISSING_MESSAGE.encode("utf-8") in response.data
     assert b"Kommando &#39;pactl&#39; fehlgeschlagen (Code 1)." in response.data
+
+
+def test_audio_pi_alsactl_unit_uses_resolvable_execstart():
+    unit_path = Path(__file__).resolve().parents[1] / "scripts/systemd/audio-pi-alsactl.service"
+    contents = unit_path.read_text(encoding="utf-8").splitlines()
+    exec_lines = [line for line in contents if line.startswith("ExecStart=")]
+    assert exec_lines, "audio-pi-alsactl.service muss eine ExecStart-Zeile enthalten"
+    exec_command = exec_lines[0].split("=", 1)[1].strip()
+    assert exec_command, "ExecStart darf nicht leer sein"
+    exec_tokens = exec_command.split()
+    assert exec_tokens, "ExecStart muss ein auszuführendes Programm angeben"
+
+    binary_path = Path(exec_tokens[0])
+    assert binary_path.is_absolute(), "ExecStart muss einen absoluten Pfad verwenden"
+    assert binary_path.exists(), f"{binary_path} muss im Testsystem vorhanden sein"
+    if binary_path.name == "env":
+        assert len(exec_tokens) >= 2 and exec_tokens[1] == "alsactl", "Bei Verwendung von /usr/bin/env muss 'alsactl' folgen"
+    else:
+        assert binary_path.name == "alsactl", "Direkter ExecStart muss das alsactl-Binary referenzieren"
