@@ -285,7 +285,7 @@ def test_write_network_settings_restores_backup_on_failure(
     backups_before = list(conf.parent.glob("dhcpcd.conf.bak.*"))
     assert backups_before == []
 
-    def failing_chmod(path, mode):
+    def failing_chmod(path, mode, *args, **kwargs):
         raise OSError("chmod fehlgeschlagen")
 
     monkeypatch.setattr(network_module.os, "chmod", failing_chmod)
@@ -541,6 +541,7 @@ def test_network_settings_post_dhcp(monkeypatch, client):
     _login(test_client)
 
     captured: Dict[str, Any] = {}
+    set_calls: List[Tuple[str, str]] = []
 
     normalized_result = app_module.NormalizedNetworkSettings(
         interface="wlan0",
@@ -586,6 +587,7 @@ def test_network_settings_post_dhcp(monkeypatch, client):
     monkeypatch.setattr(app_module, "_normalize_network_settings", fake_normalize)
     monkeypatch.setattr(app_module, "_write_network_settings", fake_write)
     monkeypatch.setattr(app_module, "_get_current_hostname", lambda: "audio-pi")
+    monkeypatch.setattr(app_module, "set_setting", lambda key, value: set_calls.append((key, value)))
 
     host_updates: List[Tuple[str, str]] = []
 
@@ -622,7 +624,7 @@ def test_network_settings_post_dhcp(monkeypatch, client):
             "ipv4_prefix": "",
             "ipv4_gateway": "",
             "dns_servers": "",
-            "local_domain": "",
+            "local_domain": "LAN",
         },
         follow_redirects=True,
     )
@@ -636,12 +638,13 @@ def test_network_settings_post_dhcp(monkeypatch, client):
         "ipv4_prefix": "",
         "ipv4_gateway": "",
         "dns_servers": "",
-        "local_domain": "",
+        "local_domain": "lan",
         "hostname": "audio-pi",
     }
     assert captured["normalized_payload"] == captured["payload"]
-    assert host_updates == [("audio-pi", "")]
+    assert host_updates == [("audio-pi", "lan")]
     assert command_calls == []
+    assert ("network_local_domain", "lan") in set_calls
 
 
 def test_network_settings_post_static_triggers_hostnamectl(monkeypatch, client):

@@ -125,6 +125,7 @@ from network_config import (
     restore_network_backup as _restore_network_backup,
     update_hosts_file as _update_hosts_file,
     validate_hostname as _validate_hostname,
+    validate_local_domain as _validate_local_domain,
     write_network_settings as _write_network_settings,
 )
 
@@ -4944,6 +4945,16 @@ def save_network_settings():
         "local_domain": (request.form.get("local_domain") or "").strip(),
     }
 
+    try:
+        normalized_local_domain = _validate_local_domain(
+            manual_values.get("local_domain", "")
+        )
+    except NetworkConfigError as exc:
+        flash(str(exc), "network_settings")
+        return redirect(redirect_url)
+
+    manual_values["local_domain"] = normalized_local_domain
+
     payload: Dict[str, Any] = {"mode": mode, **manual_values}
 
     if mode != "manual":
@@ -4952,7 +4963,6 @@ def save_network_settings():
             "ipv4_prefix",
             "ipv4_gateway",
             "dns_servers",
-            "local_domain",
         ):
             payload[key] = ""
 
@@ -5031,7 +5041,7 @@ def save_network_settings():
     try:
         _update_hosts_file(
             hostname_to_store,
-            normalized_settings.get("local_domain", ""),
+            normalized_local_domain,
         )
     except NetworkConfigError as exc:
         flash(str(exc), "network_settings")
@@ -5068,6 +5078,8 @@ def save_network_settings():
             "network_settings",
         )
         return redirect(redirect_url)
+
+    normalized_settings["local_domain"] = normalized_local_domain
 
     settings_to_store: Dict[str, str] = dict(normalized_settings)
     settings_to_store["hostname"] = hostname_to_store
