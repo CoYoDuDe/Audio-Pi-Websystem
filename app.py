@@ -3449,7 +3449,16 @@ def schedule_job(schedule_id):
                 )
                 load_schedules()
             else:
-                load_schedules()
+                with get_db_connection() as (conn, cursor):
+                    cursor.execute(
+                        "UPDATE schedules SET executed=1 WHERE id=?",
+                        (schedule_id,),
+                    )
+                    conn.commit()
+                logging.info(
+                    "Markiere einmaligen Zeitplan %s nach fehlgeschlagener Wiedergabe als ausgeführt",
+                    schedule_id,
+                )
         return
 
 
