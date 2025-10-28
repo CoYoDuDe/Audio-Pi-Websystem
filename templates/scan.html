@@ -1,7 +1,20 @@
 {% extends 'base.html' %}
-{% block title %}WLAN Scan{% endblock %}
+{% block title %}WLAN-Scan{% endblock %}
+{% block page_heading %}WLAN-Scan{% endblock %}
 {% block content %}
-<h2>WLAN Netzwerke</h2>
-<pre>{{ networks }}</pre>
-<a href="{{ url_for('index') }}">Zurück</a>
+<section class="dashboard-section section-card">
+    <article class="dashboard-card stack-md">
+        <h2>Verfügbare WLAN-Netzwerke</h2>
+        <p class="hint">
+            Die untenstehenden Ergebnisse stammen aus dem zuletzt ausgelösten Scan. Du kannst jederzeit einen weiteren
+            Scan starten, um die Liste zu aktualisieren.
+        </p>
+        <form action="{{ url_for('wlan_scan') }}" method="post" class="form-card stack-sm max-w-20">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn align-self-start">Erneut scannen</button>
+        </form>
+        <pre>{{ networks }}</pre>
+        <a href="{{ url_for('index') }}" class="btn">Zurück zur Übersicht</a>
+    </article>
+</section>
 {% endblock %}

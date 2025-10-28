@@ -198,6 +198,17 @@
             </ul>
             {% endif %}
         </article>
+        <article class="dashboard-card stack-md">
+            <h3>WLAN-Scan</h3>
+            <p class="hint">
+                Starte einen neuen Scan nach verfügbaren Netzwerken. Die Ergebnisse werden auf einer separaten
+                Seite angezeigt und können zum Verbinden mit einem WLAN genutzt werden.
+            </p>
+            <form action="{{ url_for('wlan_scan') }}" method="post" class="form-card stack-sm max-w-20">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn align-self-start">Scan starten</button>
+            </form>
+        </article>
     </section>
 </div>
 
