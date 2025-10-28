@@ -509,9 +509,12 @@
         <article class="dashboard-card stack-lg">
             <div class="dashboard-subsection stack-sm">
                 <h3>Datei-Upload</h3>
-                <form action="{{ url_for('upload') }}" method="POST" enctype="multipart/form-data" class="stack-sm">
+                <form action="{{ url_for('upload') }}" method="POST" enctype="multipart/form-data" class="stack-sm file-upload-form">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <input type="file" name="file" required>
+                    <label class="form-field file-upload-label" for="file-upload">
+                        <span class="form-label">Datei auswählen</span>
+                        <input type="file" id="file-upload" name="file" class="file-upload-input" required>
+                    </label>
                     <button type="submit" class="btn">Upload</button>
                 </form>
             </div>

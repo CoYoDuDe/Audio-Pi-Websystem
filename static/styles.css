@@ -229,6 +229,18 @@ pre { background: #eee; padding: 1em; }
     gap: 0.25rem;
 }
 
+.file-upload-form .file-upload-label {
+    gap: 0.35rem;
+}
+
+.file-upload-form .file-upload-label .form-label {
+    font-weight: 600;
+}
+
+.file-upload-form .file-upload-input {
+    font: inherit;
+}
+
 .choice-inline {
     display: flex;
     align-items: center;
