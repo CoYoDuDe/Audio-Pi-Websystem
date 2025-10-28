@@ -231,6 +231,28 @@ def test_wlan_connect_all_space_passphrase(client, monkeypatch):
     assert password_call[6] == '"        "'
 
 
+def test_wlan_connect_rejects_empty_ssid(client, monkeypatch):
+    flask_client, app_module = client
+    calls = []
+
+    def fake_run_wpa_cli(*args, **kwargs):
+        calls.append(args)
+        return "OK"
+
+    _login_admin(flask_client)
+    monkeypatch.setattr(app_module, "_run_wpa_cli", fake_run_wpa_cli)
+
+    response = csrf_post(
+        flask_client,
+        "/wlan_connect",
+        data={"ssid": "   ", "password": "secretpass"},
+        follow_redirects=True,
+        source_url="/change_password",
+    )
+
+    assert b"SSID darf nicht leer sein" in response.data
+    assert calls == []
+
 
 def test_wlan_connect_rejects_short_passphrase(client, monkeypatch):
     flask_client, app_module = client

@@ -5821,8 +5821,14 @@ def _run_wpa_cli(
 @login_required
 def wlan_connect():
     ssid = request.form["ssid"]
+    normalized_ssid = ssid.strip()
+    if not normalized_ssid:
+        flash("SSID darf nicht leer sein.")
+        logging.warning("WLAN-Verbindungsversuch ohne gültige SSID abgebrochen.")
+        return redirect(url_for("index"))
+
     raw_password = request.form.get("password", "")
-    formatted_ssid = _format_ssid_for_wpa_cli(ssid)
+    formatted_ssid = _format_ssid_for_wpa_cli(normalized_ssid)
     is_open_network = raw_password == ""
     is_hex_psk = _is_hex_psk(raw_password)
 
@@ -5834,7 +5840,7 @@ def wlan_connect():
             )
             logging.warning(
                 "WLAN-Verbindung zu SSID '%s' abgebrochen: Passphrase-Länge %s unzulässig.",
-                ssid,
+                normalized_ssid,
                 len(raw_password),
             )
             return redirect(url_for("index"))
