@@ -4721,7 +4721,14 @@ def delete(file_id):
 @app.route("/create_playlist", methods=["POST"])
 @login_required
 def create_playlist():
-    name = request.form["name"]
+    name = (request.form.get("name") or "").strip()
+    max_length = current_app.config.get("PLAYLIST_NAME_MAX_LENGTH", 100)
+    if not name:
+        flash("Playlist-Name darf nicht leer sein")
+        return redirect(url_for("index"))
+    if len(name) > int(max_length):
+        flash(f"Playlist-Name darf maximal {int(max_length)} Zeichen lang sein")
+        return redirect(url_for("index"))
     with get_db_connection() as (conn, cursor):
         cursor.execute("INSERT INTO playlists (name) VALUES (?)", (name,))
         conn.commit()
