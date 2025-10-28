@@ -68,6 +68,15 @@ Verstärker-Pins automatisch auf Konflikte und fordert bei Überschneidungen zur
 
 ## Schnellstart
 
+**Systemabhängigkeiten (APT)**
+
+Für die Installation werden auf Debian/Ubuntu-Systemen die Pakete `python3`,
+`python3-pip`, `python3-venv`, `sqlite3` und `git` benötigt. `install.sh`
+überprüft die Verfügbarkeit automatisch und installiert fehlende Pakete mit
+`apt-get`. Dadurch funktionieren u. a. die Update-Funktionen der Weboberfläche
+auch auf Minimal-Images ohne vorinstalliertes `git` – das UI-Update kann somit
+direkt nach dem ersten Lauf ausgeführt werden.
+
 **1. System installieren**
 ```bash
 sudo bash install.sh
