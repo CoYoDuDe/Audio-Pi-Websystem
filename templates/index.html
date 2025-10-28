@@ -640,17 +640,29 @@
             <h3>Zeitpläne</h3>
     <form action="{{ url_for('add_schedule') }}" method="POST" class="stack-sm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <select name="item_type" id="item-type">
-            <option value="file">Datei</option>
-            <option value="playlist">Playlist</option>
-        </select>
-        <select name="item_id" id="item-select"></select>
-        <input type="datetime-local" name="time" required>
-        <select name="repeat" id="repeat-select">
-            <option value="daily">Täglich</option>
-            <option value="monthly">Monatlich</option>
-            <option value="once">Nur einmal</option>
-        </select>
+        <label for="item-type" class="form-field">
+            Elementtyp
+            <select name="item_type" id="item-type">
+                <option value="file">Datei</option>
+                <option value="playlist">Playlist</option>
+            </select>
+        </label>
+        <label for="item-select" class="form-field">
+            Element auswählen
+            <select name="item_id" id="item-select"></select>
+        </label>
+        <label for="schedule-time" class="form-field">
+            Startzeitpunkt
+            <input type="datetime-local" name="time" id="schedule-time" required>
+        </label>
+        <label for="repeat-select" class="form-field">
+            Wiederholung
+            <select name="repeat" id="repeat-select">
+                <option value="daily">Täglich</option>
+                <option value="monthly">Monatlich</option>
+                <option value="once">Nur einmal</option>
+            </select>
+        </label>
         <div id="date-range-fields" class="stack-sm is-hidden">
             <label class="form-field">
                 Startdatum
@@ -675,14 +687,18 @@
             >
             <span id="schedule-volume-value" class="inline-value">{{ schedule_volume_value }}%</span>
         </label>
-        <input
-            type="number"
-            name="delay"
-            value="{{ default_schedule_delay }}"
-            min="0"
-            max="{{ max_schedule_delay_seconds }}"
-            class="w-50"
-        > Sek. Verzögerung
+        <label for="schedule-delay" class="form-field">
+            Verzögerung (Sekunden)
+            <input
+                type="number"
+                name="delay"
+                id="schedule-delay"
+                value="{{ default_schedule_delay }}"
+                min="0"
+                max="{{ max_schedule_delay_seconds }}"
+                class="w-50"
+            >
+        </label>
         <button type="submit" class="btn">Hinzufügen</button>
     </form>
     <p class="hint">
