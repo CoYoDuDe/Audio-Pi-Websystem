@@ -41,6 +41,18 @@ class NetworkConfigError(Exception):
         self.user_message = message
 
 
+_PERMISSION_HINT_TEMPLATE = (
+    "Schreibrechte fehlen für '{target}'. Bitte das Installationsskript (install.sh) erneut ausführen "
+    "und den Schritt zur ACL-Vergabe für /etc/dhcpcd.conf, /etc/hosts, /etc/hostname sowie /etc/wpa_supplicant abschließen."
+)
+
+
+def _raise_permission_error(target: Path, exc: PermissionError) -> None:
+    """Übersetzt ``PermissionError`` in einen benutzerfreundlichen Fehler."""
+
+    raise NetworkConfigError(_PERMISSION_HINT_TEMPLATE.format(target=str(target))) from exc
+
+
 @dataclass
 class HostsUpdateResult:
     """Repräsentiert das Ergebnis einer ``/etc/hosts``-Aktualisierung."""
@@ -133,6 +145,8 @@ def _backup_file(path: Path) -> Optional[Path]:
             else:
                 return fallback_path
 
+        if isinstance(fallback_error, PermissionError):
+            _raise_permission_error(path, fallback_error)
         raise NetworkConfigError(
             "Fehler beim Schreiben der Netzwerkkonfiguration: Backup konnte nicht erstellt werden."
         ) from fallback_error
@@ -144,7 +158,10 @@ def _write_lines(path: Path, lines: Sequence[str], *, create_backup: bool = True
     if list(original_lines) == list(lines):
         return False
 
-    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except PermissionError as exc:
+        _raise_permission_error(path.parent, exc)
     mode: Optional[int] = None
     if path.exists():
         try:
@@ -162,19 +179,28 @@ def _write_lines(path: Path, lines: Sequence[str], *, create_backup: bool = True
 
     tmp_path: Optional[Path] = None
     try:
-        with tempfile.NamedTemporaryFile(
-            "w", delete=False, encoding="utf-8", dir=str(path.parent)
-        ) as tmp:
-            tmp.write(text)
-            tmp_path = Path(tmp.name)
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w", delete=False, encoding="utf-8", dir=str(path.parent)
+            ) as tmp:
+                tmp.write(text)
+                tmp_path = Path(tmp.name)
+        except PermissionError as exc:
+            _raise_permission_error(path.parent, exc)
 
         try:
             os.replace(tmp_path, path)
             tmp_path = None
             if mode is not None:
-                os.chmod(path, mode)
+                try:
+                    os.chmod(path, mode)
+                except PermissionError as exc:
+                    _raise_permission_error(path, exc)
             else:
-                os.chmod(path, 0o644)
+                try:
+                    os.chmod(path, 0o644)
+                except PermissionError as exc:
+                    _raise_permission_error(path, exc)
         except NetworkConfigError:
             raise
         except Exception as exc:
@@ -188,9 +214,13 @@ def _write_lines(path: Path, lines: Sequence[str], *, create_backup: bool = True
                     if backup_path.parent != path.parent:
                         _cleanup_backup_artifact(backup_path)
             if restore_error is not None:
+                if isinstance(restore_error, PermissionError):
+                    _raise_permission_error(path, restore_error)
                 raise NetworkConfigError(
                     "Fehler beim Wiederherstellen der ursprünglichen Netzwerkkonfiguration."
                 ) from restore_error
+            if isinstance(exc, PermissionError):
+                _raise_permission_error(path, exc)
             raise NetworkConfigError(
                 "Fehler beim Schreiben der Netzwerkkonfiguration."
             ) from exc

@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import importlib
+import os
+import shlex
 import shutil
 import sqlite3
+import subprocess
 import sys
+import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Tuple
@@ -397,6 +401,90 @@ def test_write_network_settings_invalid_domain(network_module, tmp_path: Path):
     assert "Domain" in str(excinfo.value)
     assert conf.read_text(encoding="utf-8").splitlines() == original_lines
     assert list(conf.parent.glob("dhcpcd.conf.bak.*")) == []
+
+
+def test_write_network_settings_permission_error_hint(
+    network_module, tmp_path: Path, monkeypatch
+):
+    su_binary = shutil.which("su")
+    if su_binary is None:
+        pytest.skip("'su' steht nicht zur Verfügung")
+
+    shared_dir = Path(tempfile.mkdtemp(prefix="network-permission-", dir="/tmp"))
+    conf_dir = shared_dir / "restricted"
+    conf_dir.mkdir()
+    conf = conf_dir / "dhcpcd.conf"
+    _write_conf(
+        conf,
+        [
+            "interface wlan0",
+            "static ip_address=10.0.0.5/24",
+            "static routers=10.0.0.1",
+        ],
+    )
+
+    os.chmod(conf_dir, 0o555)
+    os.chmod(conf, 0o444)
+
+    script_path = shared_dir / "permission_check.py"
+    script_path.write_text(
+        "from __future__ import annotations\n"
+        "import sys\n"
+        "from pathlib import Path\n"
+        "import network_config\n"
+        "conf_path = Path(sys.argv[1])\n"
+        "try:\n"
+        "    network_config.write_network_settings(\n"
+        "        'wlan0',\n"
+        "        {\n"
+        "            'mode': 'manual',\n"
+        "            'ipv4_address': '192.168.1.20',\n"
+        "            'ipv4_prefix': '24',\n"
+        "            'ipv4_gateway': '192.168.1.1',\n"
+        "            'dns_servers': '1.1.1.1 9.9.9.9',\n"
+        "            'local_domain': 'lan.local',\n"
+        "        },\n"
+        "        conf_path,\n"
+        "    )\n"
+        "except network_config.NetworkConfigError as exc:\n"
+        "    print(exc)\n"
+        "    sys.exit(0)\n"
+        "except Exception as exc:\n"
+        "    print(f'UNEXPECTED: {exc}', file=sys.stderr)\n"
+        "    sys.exit(2)\n"
+        "else:\n"
+        "    print('NO_ERROR', file=sys.stderr)\n"
+        "    sys.exit(1)\n",
+        encoding="utf-8",
+    )
+    os.chmod(script_path, 0o755)
+
+    repo_root = Path(__file__).resolve().parents[1]
+    try:
+        os.chmod(shared_dir, 0o755)
+        monkeypatch.chdir(shared_dir)
+        command = (
+            f"PYTHONPATH={shlex.quote(str(repo_root))} "
+            f"python3 {shlex.quote(str(script_path))} {shlex.quote(str(conf))}"
+        )
+        result = subprocess.run(
+            [su_binary, "nobody", "-s", "/bin/sh", "-c", command],
+            capture_output=True,
+            text=True,
+            cwd=str(shared_dir),
+            check=False,
+        )
+    finally:
+        os.chmod(conf_dir, 0o755)
+        os.chmod(conf, 0o644)
+        os.chmod(shared_dir, 0o755)
+        shutil.rmtree(shared_dir, ignore_errors=True)
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    message = result.stdout.strip()
+    assert message
+    assert str(conf) in message or str(conf_dir) in message
+    assert "Installationsskript" in message
 
 
 def test_write_network_settings_restores_backup_on_failure(
