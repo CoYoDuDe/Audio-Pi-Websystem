@@ -69,6 +69,19 @@ def _seed_files(app_module, count):
         return [row["id"] for row in cursor.fetchall()]
 
 
+def _create_playlist(app_module, name, file_ids):
+    with app_module.get_db_connection() as (conn, cursor):
+        cursor.execute("INSERT INTO playlists (name) VALUES (?)", (name,))
+        playlist_id = cursor.lastrowid
+        for file_id in file_ids:
+            cursor.execute(
+                "INSERT INTO playlist_files (playlist_id, file_id) VALUES (?, ?)",
+                (playlist_id, file_id),
+            )
+        conn.commit()
+        return playlist_id
+
+
 def _seed_schedules(app_module, count, file_ids):
     if not file_ids:
         raise ValueError("Es werden Audiodateien zur Erstellung von Zeitplänen benötigt")
@@ -135,4 +148,23 @@ def test_schedule_pagination_navigation(client):
     assert "Seite 2 von 2" in content
     assert "12 Zeitpläne gesamt" in content
     assert content.count('data-schedule-id="') == 2
+
+
+def test_schedule_form_has_server_rendered_options(client):
+    test_client, app_module = client
+    _login(test_client, app_module)
+    file_ids = _seed_files(app_module, 1)
+    playlist_id = _create_playlist(app_module, "Frühstück", file_ids)
+
+    response = test_client.get("/")
+    assert response.status_code == 200
+    content = response.get_data(as_text=True)
+
+    file_option_snippet = f'<option value="{file_ids[0]}" data-item-type="file"'
+    playlist_option_snippet = f'<option value="{playlist_id}" data-item-type="playlist"'
+
+    assert 'id="item-select"' in content
+    assert file_option_snippet in content
+    assert playlist_option_snippet in content
+    assert f'{file_option_snippet} selected' in content
 
