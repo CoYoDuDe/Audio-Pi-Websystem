@@ -410,7 +410,11 @@ lässt sich das Verhalten bei Bedarf weiter abstimmen.
   ausschließlich manuell über `systemctl start audio-pi-alsactl.service`
   ausgelöst wird. In sudo-freien Umgebungen nutzt die Web-UI diesen Helfer über
   Polkit, während Installationen mit `AUDIO_PI_DISABLE_SUDO=0` weiterhin direkt
-  `alsactl store` aufrufen. Bestandsinstallationen können nach dem Update einmalig
+  `alsactl store` aufrufen. Der Installer ersetzt beim Kopieren automatisch den
+  `ExecStart`-Befehl durch den gefundenen absoluten `alsactl`-Pfad oder setzt
+  ersatzweise `/usr/bin/env alsactl` inklusive
+  `Environment=PATH=/usr/sbin:/usr/bin:/bin`, damit die Unit ohne weitere
+  Nacharbeiten startet. Bestandsinstallationen können nach dem Update einmalig
   `sudo systemctl start audio-pi-alsactl.service` ausführen, um das persistente
   Mixer-Setup sofort zu übernehmen.
 - **wpa_cli- und Bluetooth-Berechtigungen:** Für den WLAN-Client-Workflow legt der

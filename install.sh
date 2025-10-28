@@ -1929,11 +1929,40 @@ sudo sed -i "s|^Group=.*|Group=$TARGET_GROUP|" /etc/systemd/system/audio-pi.serv
 echo "HTTP-Port ${CONFIGURED_FLASK_PORT} wurde in /etc/systemd/system/audio-pi.service hinterlegt."
 echo "Systemd-Dienst wird für Benutzer $TARGET_USER und Gruppe $TARGET_GROUP konfiguriert."
 if [ -f "$AUDIO_PI_ALSACTL_UNIT_TEMPLATE" ]; then
-    sudo install -o root -g root -m 0644 "$AUDIO_PI_ALSACTL_UNIT_TEMPLATE" "$AUDIO_PI_ALSACTL_UNIT_TARGET"
-    if sudo systemctl reset-failed audio-pi-alsactl.service >/dev/null 2>&1; then
-        echo "Status von audio-pi-alsactl.service zurückgesetzt."
+    ALSACTL_RESOLVED_PATH=$(command -v alsactl 2>/dev/null || true)
+    if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
+        if [ -n "$ALSACTL_RESOLVED_PATH" ]; then
+            echo "[Dry-Run] Würde audio-pi-alsactl.service mit ExecStart=${ALSACTL_RESOLVED_PATH} store bereitstellen."
+            echo "[Dry-Run] Environment=PATH bliebe unverändert, da 'alsactl' gefunden wurde."
+        else
+            echo "[Dry-Run] Würde audio-pi-alsactl.service mit ExecStart=/usr/bin/env alsactl store bereitstellen."
+            echo "[Dry-Run] Würde Environment=PATH=/usr/sbin:/usr/bin:/bin in die Unit einfügen."
+        fi
+        echo "[Dry-Run] One-Shot-Unit audio-pi-alsactl.service bliebe deaktiviert."
+    else
+        tmp_alsactl_unit=$(mktemp)
+        cp "$AUDIO_PI_ALSACTL_UNIT_TEMPLATE" "$tmp_alsactl_unit"
+        if [ -n "$ALSACTL_RESOLVED_PATH" ]; then
+            ALSACTL_RESOLVED_ESCAPED=$(printf '%s' "$ALSACTL_RESOLVED_PATH" | sed -e 's/[\\/&]/\\&/g')
+            sed -i "s|^ExecStart=.*|ExecStart=${ALSACTL_RESOLVED_ESCAPED} store|" "$tmp_alsactl_unit"
+            sed -i '/^Environment=PATH=/d' "$tmp_alsactl_unit"
+            echo "ExecStart der audio-pi-alsactl.service Unit auf ${ALSACTL_RESOLVED_PATH} gesetzt."
+        else
+            sed -i 's|^ExecStart=.*|ExecStart=/usr/bin/env alsactl store|' "$tmp_alsactl_unit"
+            if grep -q '^Environment=PATH=' "$tmp_alsactl_unit"; then
+                sed -i 's|^Environment=PATH=.*|Environment=PATH=/usr/sbin:/usr/bin:/bin|' "$tmp_alsactl_unit"
+            else
+                sed -i '/^ExecStart=/a Environment=PATH=/usr/sbin:/usr/bin:/bin' "$tmp_alsactl_unit"
+            fi
+            echo "Warnung: 'alsactl' wurde nicht gefunden – verwende /usr/bin/env und setze PATH für audio-pi-alsactl.service."
+        fi
+        sudo install -o root -g root -m 0644 "$tmp_alsactl_unit" "$AUDIO_PI_ALSACTL_UNIT_TARGET"
+        rm -f "$tmp_alsactl_unit"
+        if sudo systemctl reset-failed audio-pi-alsactl.service >/dev/null 2>&1; then
+            echo "Status von audio-pi-alsactl.service zurückgesetzt."
+        fi
+        echo "One-Shot-Unit audio-pi-alsactl.service aktualisiert (kein automatischer Start)."
     fi
-    echo "One-Shot-Unit audio-pi-alsactl.service aktualisiert (kein automatischer Start)."
 else
     echo "Warnung: One-Shot-Unit-Vorlage $AUDIO_PI_ALSACTL_UNIT_TEMPLATE nicht gefunden – persistente Lautstärke benötigt manuelle Pflege."
 fi
