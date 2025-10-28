@@ -1,5 +1,6 @@
 import importlib
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -123,3 +124,73 @@ def test_refresh_updates_scheduler_and_rtc_sync(monkeypatch, app_module):
     assert app_module.RTC_SYNC_STATUS["success"] is True
     assert len(refresh_calls) >= 2
     assert configure_calls[-1] == new_tz
+
+
+def test_timezone_monitor_detects_external_change(monkeypatch, app_module):
+    base_tz = timezone.utc
+    new_tz = timezone(timedelta(hours=2), name="UTC+02")
+    current_tz = {"value": base_tz}
+
+    real_datetime = datetime
+
+    class _FakeNow:
+        def __init__(self, tzinfo):
+            self.tzinfo = tzinfo
+
+        def astimezone(self, tz=None):
+            if tz is None:
+                return self
+            return real_datetime(2024, 1, 1, 12, 0, tzinfo=self.tzinfo).astimezone(tz)
+
+    class DateTimeProxy:
+        def __call__(self, *args, **kwargs):
+            return real_datetime(*args, **kwargs)
+
+        def __getattr__(self, name):
+            return getattr(real_datetime, name)
+
+        @staticmethod
+        def now(tz=None):
+            if tz is not None:
+                return real_datetime.now(tz)
+            return _FakeNow(current_tz["value"])
+
+    monkeypatch.setattr(app_module, "datetime", DateTimeProxy())
+
+    app_module.LOCAL_TZ = base_tz
+    app_module._timezone_monitor.interval = 0.05
+
+    state = {"calls": 0, "changed": False}
+
+    def fake_capture_signature():
+        if not state["changed"]:
+            state["calls"] += 1
+            if state["calls"] < 3:
+                return (("present", 1, 1), (0, None, None))
+            state["changed"] = True
+            current_tz["value"] = new_tz
+            return (("present", 2, 1), (0, None, None))
+        return (("present", 2, 1), (0, None, None))
+
+    monkeypatch.setattr(app_module._timezone_monitor, "_capture_signature", fake_capture_signature)
+
+    real_refresh = app_module.refresh_local_timezone
+    refresh_calls = []
+
+    def wrapped_refresh(*args, **kwargs):
+        refresh_calls.append((args, kwargs))
+        return real_refresh(*args, **kwargs)
+
+    monkeypatch.setattr(app_module, "refresh_local_timezone", wrapped_refresh)
+
+    app_module.start_background_services(force=True)
+
+    try:
+        deadline = time.time() + 2
+        while time.time() < deadline and app_module.LOCAL_TZ != new_tz:
+            time.sleep(0.05)
+    finally:
+        app_module.stop_background_services(wait=True)
+
+    assert refresh_calls, "Der Zeitzonenmonitor muss refresh_local_timezone() aufrufen."
+    assert app_module.LOCAL_TZ == new_tz
