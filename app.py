@@ -1897,26 +1897,57 @@ def refresh_local_timezone(*, reconfigure_scheduler: bool = True):
     LOCAL_TZ = new_tz
 
     if timezone_changed and reconfigure_scheduler:
+        scheduler_was_running = bool(getattr(scheduler, "running", False))
+        configure_succeeded = False
+
         try:
             scheduler.configure(timezone=LOCAL_TZ)
-        except Exception:
-            logging.exception(
-                "Scheduler konnte nicht auf die neue Zeitzone umgestellt werden."
-            )
+        except SchedulerAlreadyRunningError:
             try:
-                if getattr(scheduler, "running", False):
-                    scheduler.shutdown(wait=False)
+                scheduler.shutdown(wait=False)
+            except SchedulerNotRunningError:
+                scheduler_was_running = False
             except Exception:
+                scheduler_was_running = False
                 logging.warning(
                     "Laufender Scheduler konnte vor der Neuinitialisierung nicht gestoppt werden.",
                     exc_info=True,
                 )
+            else:
+                try:
+                    scheduler.configure(timezone=LOCAL_TZ)
+                except Exception:
+                    logging.exception(
+                        "Scheduler konnte nach dem Stoppen nicht auf die neue Zeitzone umgestellt werden."
+                    )
+                else:
+                    configure_succeeded = True
+        except Exception:
+            logging.exception(
+                "Scheduler konnte nicht auf die neue Zeitzone umgestellt werden."
+            )
+        else:
+            configure_succeeded = True
+
+        if not configure_succeeded:
             try:
                 scheduler = BackgroundScheduler(timezone=LOCAL_TZ)
             except Exception:
                 logging.exception(
                     "Neuer Scheduler konnte nach Zeitzonenwechsel nicht initialisiert werden."
                 )
+            else:
+                configure_succeeded = True
+
+        if scheduler_was_running:
+            if configure_succeeded:
+                try:
+                    scheduler.start()
+                except Exception:
+                    logging.exception(
+                        "Scheduler konnte nach Zeitzonenwechsel nicht erneut gestartet werden."
+                    )
+                    _BACKGROUND_SERVICES_STARTED = False
             else:
                 _BACKGROUND_SERVICES_STARTED = False
 
