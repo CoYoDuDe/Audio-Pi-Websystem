@@ -84,6 +84,8 @@ POLKIT_RULE_TEMPLATE="$SCRIPT_DIR/scripts/polkit/49-audio-pi.rules"
 POLKIT_RULE_TARGET="/etc/polkit-1/rules.d/49-audio-pi.rules"
 AUDIO_PI_ALSACTL_UNIT_TEMPLATE="$SCRIPT_DIR/scripts/systemd/audio-pi-alsactl.service"
 AUDIO_PI_ALSACTL_UNIT_TARGET="/etc/systemd/system/audio-pi-alsactl.service"
+AUDIO_PI_IPTABLES_UNIT_TEMPLATE="$SCRIPT_DIR/scripts/systemd/audio-pi-iptables-restore.service"
+AUDIO_PI_IPTABLES_UNIT_TARGET="/etc/systemd/system/audio-pi-iptables-restore.service"
 POLKIT_MANAGED_UNITS=(
     "audio-pi.service"
     "dnsmasq.service"
@@ -91,6 +93,7 @@ POLKIT_MANAGED_UNITS=(
     "systemd-timesyncd.service"
     "dhcpcd.service"
     "audio-pi-alsactl.service"
+    "audio-pi-iptables-restore.service"
 )
 POLKIT_MANAGED_UNITS_MESSAGE=$(printf '%s, ' "${POLKIT_MANAGED_UNITS[@]}")
 POLKIT_MANAGED_UNITS_MESSAGE=${POLKIT_MANAGED_UNITS_MESSAGE%, }
@@ -261,7 +264,7 @@ print_post_install_instructions() {
     if [ "$ap_configured" -eq 1 ]; then
         echo "Hinweis: WLAN-Access-Point ist aktiv."
         echo "Passe SSID/Passwort in /etc/hostapd/hostapd.conf sowie DHCP-Einstellungen in /etc/dnsmasq.d/audio-pi.conf an."
-        echo "Die NAT-Regeln sind in /etc/iptables.ipv4.nat und /etc/iptables/rules.v4 hinterlegt und werden beim Booten automatisch geladen."
+        echo "Die NAT-Regeln sind in /etc/iptables.ipv4.nat und /etc/iptables/rules.v4 hinterlegt und werden beim Booten über netfilter-persistent bzw. die Unit audio-pi-iptables-restore.service automatisch geladen."
         echo ""
     fi
     echo "Empfehlung nach Unit-Updates: sudo systemctl daemon-reload && sudo systemctl restart audio-pi.service"
@@ -1468,7 +1471,7 @@ fi
 apt_get install -y pulseaudio-module-bluetooth bluez-tools bluez
 
 # Hostapd & dnsmasq (WLAN AP)
-apt_get install -y hostapd dnsmasq wireless-tools iw wpasupplicant netfilter-persistent
+apt_get install -y hostapd dnsmasq wireless-tools iw wpasupplicant netfilter-persistent iptables-persistent
 
 create_hostapd_conf() {
     local default_ssid="AudioPiAP"
@@ -1692,6 +1695,7 @@ EOF
     local netfilter_rules_dir="/etc/iptables"
     local netfilter_rules_v4="${netfilter_rules_dir}/rules.v4"
     local netfilter_service="netfilter-persistent.service"
+    local fallback_service_name="audio-pi-iptables-restore.service"
     local need_fallback_service=0
 
     sudo mkdir -p "$netfilter_rules_dir"
@@ -1713,15 +1717,19 @@ EOF
     fi
 
     if [ "$need_fallback_service" -eq 1 ]; then
-        local iptables_restore_cmd
-        iptables_restore_cmd=$(command -v iptables-restore || echo "/sbin/iptables-restore")
-        local fallback_unit="/etc/systemd/system/audio-pi-iptables-restore.service"
-        sudo tee "$fallback_unit" >/dev/null <<EOF
+        if [ -f "$AUDIO_PI_IPTABLES_UNIT_TEMPLATE" ]; then
+            sudo install -m 644 "$AUDIO_PI_IPTABLES_UNIT_TEMPLATE" "$AUDIO_PI_IPTABLES_UNIT_TARGET"
+        else
+            echo "Warnung: Template ${AUDIO_PI_IPTABLES_UNIT_TEMPLATE} fehlt – generiere Unit-Datei dynamisch."
+            local iptables_restore_cmd
+            iptables_restore_cmd=$(command -v iptables-restore || echo "/usr/bin/env iptables-restore")
+            sudo tee "$AUDIO_PI_IPTABLES_UNIT_TARGET" >/dev/null <<EOF
 [Unit]
 Description=Restore Audio-Pi iptables NAT rules
 DefaultDependencies=no
 Before=network-pre.target
 Wants=network-pre.target
+ConditionPathExists=/etc/iptables.ipv4.nat
 
 [Service]
 Type=oneshot
@@ -1731,9 +1739,10 @@ RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
 EOF
+        fi
         sudo systemctl daemon-reload
-        sudo systemctl enable audio-pi-iptables-restore.service
-        echo "Fallback-Unit audio-pi-iptables-restore.service lädt die NAT-Regeln aus /etc/iptables.ipv4.nat beim Systemstart."
+        sudo systemctl enable "$fallback_service_name"
+        echo "Fallback-Unit ${fallback_service_name} lädt die NAT-Regeln aus /etc/iptables.ipv4.nat beim Systemstart."
         echo "Regeln sind zusätzlich unter ${netfilter_rules_v4} gespeichert."
     fi
 

@@ -1,0 +1,15 @@
+[Unit]
+Description=Restore Audio-Pi iptables NAT rules
+DefaultDependencies=no
+Before=network-pre.target
+Wants=network-pre.target
+ConditionPathExists=/etc/iptables.ipv4.nat
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env iptables-restore /etc/iptables.ipv4.nat
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+
