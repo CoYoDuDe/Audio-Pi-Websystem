@@ -3254,13 +3254,13 @@ def play_item(item_id, item_type, delay, is_schedule=False, volume_percent=100):
     global is_paused
     if not pygame_available:
         _notify_audio_unavailable("Wiedergabe kann nicht gestartet werden")
-        return
+        return False
     with play_lock:
         if pygame.mixer.music.get_busy():
             logging.info(
                 f"Skippe Wiedergabe für {item_type} {item_id}, da andere läuft"
             )
-            return
+            return False
         sink_switched = set_sink(DAC_SINK)
         if not sink_switched:
             logging.info(
@@ -3273,6 +3273,7 @@ def play_item(item_id, item_type, delay, is_schedule=False, volume_percent=100):
         tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
         temp_path = tmp_file.name
         tmp_file.close()
+        playback_started = False
         try:
             if item_type == "file":
                 with get_db_connection() as (conn, cursor):
@@ -3283,7 +3284,7 @@ def play_item(item_id, item_type, delay, is_schedule=False, volume_percent=100):
                     row = cursor.fetchone()
                 if not row:
                     logging.warning(f"Audio-Datei-ID {item_id} nicht gefunden")
-                    return
+                    return False
                 filename = row["filename"]
                 duration_seconds = row["duration_seconds"]
                 file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
@@ -3295,12 +3296,13 @@ def play_item(item_id, item_type, delay, is_schedule=False, volume_percent=100):
                                 flash("Audio-Datei nicht gefunden")
                         except Exception:
                             pass
-                    return
+                    return False
                 if not _prepare_audio_for_playback(file_path, temp_path):
-                    return
+                    return False
                 with _temporary_volume_scale(sanitized_volume):
                     pygame.mixer.music.load(temp_path)
                     pygame.mixer.music.play()
+                    playback_started = True
                     if duration_seconds is not None:
                         logging.info(
                             "Spiele Datei %s (%.2f s)", filename, duration_seconds
@@ -3321,6 +3323,12 @@ def play_item(item_id, item_type, delay, is_schedule=False, volume_percent=100):
                         (item_id,),
                     )
                     files = [dict(row) for row in cursor.fetchall()]
+                if not files:
+                    logging.info(
+                        "Playlist %s enthält keine Einträge – Wiedergabe übersprungen",
+                        item_id,
+                    )
+                    return False
                 with _temporary_volume_scale(sanitized_volume):
                     for file_info in files:
                         filename = file_info["filename"]
@@ -3336,9 +3344,12 @@ def play_item(item_id, item_type, delay, is_schedule=False, volume_percent=100):
                                     pass
                             continue
                         if not _prepare_audio_for_playback(file_path, temp_path):
-                            return
+                            if not playback_started:
+                                return False
+                            break
                         pygame.mixer.music.load(temp_path)
                         pygame.mixer.music.play()
+                        playback_started = True
                         if duration_seconds is not None:
                             logging.info(
                                 "Spiele Playlist-Datei %s (%.2f s)",
@@ -3348,6 +3359,11 @@ def play_item(item_id, item_type, delay, is_schedule=False, volume_percent=100):
                         is_paused = False
                         while pygame.mixer.music.get_busy():
                             time.sleep(1)
+                if not playback_started:
+                    return False
+            else:
+                logging.warning("Unbekannter Wiedergabetyp: %s", item_type)
+                return False
         finally:
             try:
                 os.remove(temp_path)
@@ -3363,6 +3379,7 @@ def play_item(item_id, item_type, delay, is_schedule=False, volume_percent=100):
             else:
                 deactivate_amplifier()
             logging.info("Wiedergabe beendet")
+        return playback_started
 
 
 # Scheduler-Logik
@@ -3390,15 +3407,27 @@ def schedule_job(schedule_id):
             sch["end_date"] or "offen",
         )
         return
-    play_item(item_id, item_type, delay, is_schedule=True, volume_percent=volume_percent)
+    playback_started = play_item(
+        item_id,
+        item_type,
+        delay,
+        is_schedule=True,
+        volume_percent=volume_percent,
+    )
     if repeat == "once":
-        with get_db_connection() as (conn, cursor):
-            cursor.execute(
-                "UPDATE schedules SET executed=1 WHERE id=?",
-                (schedule_id,),
+        if playback_started:
+            with get_db_connection() as (conn, cursor):
+                cursor.execute(
+                    "UPDATE schedules SET executed=1 WHERE id=?",
+                    (schedule_id,),
+                )
+                conn.commit()
+            load_schedules()
+        else:
+            logging.info(
+                "Zeitplan %s konnte nicht ausgeführt werden – Wiedergabe nicht gestartet",
+                schedule_id,
             )
-            conn.commit()
-        load_schedules()
 
 
 def skip_past_once_schedules():

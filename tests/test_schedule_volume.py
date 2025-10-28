@@ -233,6 +233,7 @@ def test_schedule_job_passes_volume_to_play_item(monkeypatch):
 
     def fake_play_item(item_id, item_type, delay, is_schedule=False, volume_percent=100):
         captured["args"] = (item_id, item_type, delay, is_schedule, volume_percent)
+        return True
 
     monkeypatch.setattr(app, "play_item", fake_play_item)
 

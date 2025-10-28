@@ -91,7 +91,11 @@ def test_recurring_schedule_runs_within_date_range(monkeypatch):
     today = datetime.now().date()
     schedule_id = _insert_recurring_schedule(today, today)
     calls = []
-    monkeypatch.setattr(app, 'play_item', lambda *args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr(
+        app,
+        'play_item',
+        lambda *args, **kwargs: calls.append((args, kwargs)) or True,
+    )
 
     app.schedule_job(schedule_id)
 
@@ -103,7 +107,11 @@ def test_recurring_schedule_skipped_after_end_date(monkeypatch):
     end_date = today - timedelta(days=1)
     schedule_id = _insert_recurring_schedule(today - timedelta(days=5), end_date)
     calls = []
-    monkeypatch.setattr(app, 'play_item', lambda *args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr(
+        app,
+        'play_item',
+        lambda *args, **kwargs: calls.append((args, kwargs)) or True,
+    )
 
     app.schedule_job(schedule_id)
 
@@ -117,7 +125,11 @@ def test_recurring_schedule_skipped_before_start(monkeypatch):
     start_date = today + timedelta(days=2)
     schedule_id = _insert_recurring_schedule(start_date, start_date + timedelta(days=10))
     calls = []
-    monkeypatch.setattr(app, 'play_item', lambda *args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr(
+        app,
+        'play_item',
+        lambda *args, **kwargs: calls.append((args, kwargs)) or True,
+    )
 
     app.schedule_job(schedule_id)
 
