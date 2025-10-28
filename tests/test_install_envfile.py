@@ -60,6 +60,9 @@ def test_install_dry_run_uses_env_file(tmp_path: Path) -> None:
     assert (
         "[Dry-Run] Würde Rechte per 'sudo chmod 0644 /etc/polkit-1/rules.d/49-audio-pi.rules' sicherstellen." in combined_output
     )
+    assert (
+        "[Dry-Run] Polkit-Regel würde folgende Units erlauben: audio-pi.service, dnsmasq.service, hostapd.service, systemd-timesyncd.service, dhcpcd.service, audio-pi-alsactl.service." in combined_output
+    )
     assert "Environment=\"FLASK_SECRET_KEY" not in combined_output
     assert 'if [ -f "/etc/audio-pi/audio-pi.env" ]; then . "/etc/audio-pi/audio-pi.env"; fi' in combined_output
 
@@ -105,3 +108,11 @@ def test_generate_secret_dry_run_reports_group(tmp_path: Path) -> None:
     assert expected_gpio in combined_output
     assert expected_bluetooth in combined_output
     assert expected_i2c in combined_output
+
+
+def test_polkit_template_contains_dhcpcd() -> None:
+    """Die Polkit-Regel muss dhcpcd.service mit Start/Stop/Restart abdecken."""
+
+    repo_root = Path(__file__).resolve().parents[1]
+    content = (repo_root / "scripts/polkit/49-audio-pi.rules").read_text(encoding="utf-8")
+    assert '"dhcpcd.service": ["start", "stop", "restart"]' in content
