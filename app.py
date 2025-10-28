@@ -5530,7 +5530,7 @@ def delete_schedule(sch_id):
     return redirect(url_for("index"))
 
 
-@app.route("/wlan_scan")
+@app.route("/wlan_scan", methods=["POST"])
 @login_required
 def wlan_scan():
     base_cmd = privileged_command("wpa_cli", "-i", "wlan0")

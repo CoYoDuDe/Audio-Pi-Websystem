@@ -60,6 +60,7 @@ def _load_app_module(monkeypatch, tmp_path):
     app_module = importlib.import_module("app")
     app_module.app.config["LOGIN_DISABLED"] = True
     app_module.app.config["UPLOAD_FOLDER"] = str(tmp_path / "uploads")
+    app_module.app.config["WTF_CSRF_ENABLED"] = False
 
     return app_module
 
@@ -150,7 +151,7 @@ def test_wlan_scan_missing_wpa_cli(monkeypatch, app_module, caplog):
     monkeypatch.setattr(app_module.subprocess, "run", fake_run)
 
     with caplog.at_level(logging.ERROR):
-        with app_module.app.test_request_context("/wlan_scan"):
+        with app_module.app.test_request_context("/wlan_scan", method="POST"):
             response = app_module.wlan_scan()
             flashes = get_flashed_messages()
 
@@ -174,7 +175,7 @@ def test_wlan_scan_wpa_cli_failure_exit_code(monkeypatch, app_module, caplog):
     monkeypatch.setattr(app_module.subprocess, "run", fake_run)
 
     with caplog.at_level(logging.ERROR):
-        with app_module.app.test_request_context("/wlan_scan"):
+        with app_module.app.test_request_context("/wlan_scan", method="POST"):
             response = app_module.wlan_scan()
             flashes = get_flashed_messages()
 
@@ -203,7 +204,7 @@ def test_wlan_scan_wpa_cli_fail_output(monkeypatch, app_module, caplog):
     monkeypatch.setattr(app_module.subprocess, "run", fake_run)
 
     with caplog.at_level(logging.ERROR):
-        with app_module.app.test_request_context("/wlan_scan"):
+        with app_module.app.test_request_context("/wlan_scan", method="POST"):
             response = app_module.wlan_scan()
             flashes = get_flashed_messages()
 
@@ -211,6 +212,51 @@ def test_wlan_scan_wpa_cli_fail_output(monkeypatch, app_module, caplog):
     assert expected_message in response
     assert flashes == [expected_message]
     assert any("FAIL" in record.message for record in caplog.records)
+
+
+def test_wlan_scan_get_not_allowed(app_module):
+    client = app_module.app.test_client()
+
+    response = client.get("/wlan_scan")
+
+    assert response.status_code == 405
+
+
+def test_wlan_scan_post_success(monkeypatch, app_module):
+    call_log = {"wpa_cli": [], "wifi_tool": None}
+
+    def fake_run_wpa_cli(args, expect_ok=True, **kwargs):
+        call_log["wpa_cli"].append(list(args))
+        return "OK"
+
+    def fake_run_wifi_tool(args, fallback_message, log_context, *, flash_on_error=False):
+        call_log["wifi_tool"] = {
+            "args": list(args),
+            "fallback": fallback_message,
+            "context": log_context,
+            "flash_on_error": flash_on_error,
+        }
+        return True, (
+            "Gefundene Netzwerke: 1\n"
+            "SSID: Testnetz\n"
+            "  Signal: -40 dBm @ 2412 MHz\n"
+            "  Flags: [WPA2]\n"
+            "  BSSID: 00:11:22:33:44:55"
+        )
+
+    monkeypatch.setattr(app_module, "_run_wpa_cli", fake_run_wpa_cli)
+    monkeypatch.setattr(app_module, "_run_wifi_tool", fake_run_wifi_tool)
+
+    client = app_module.app.test_client()
+    response = client.post("/wlan_scan")
+
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert "Gefundene Netzwerke: 1" in body
+    assert call_log["wpa_cli"]
+    assert call_log["wpa_cli"][0][-1] == "scan"
+    assert call_log["wifi_tool"] is not None
+    assert call_log["wifi_tool"]["args"][-1] == "scan_results"
 
 
 def test_run_wifi_tool_logs_command_not_found(monkeypatch, tmp_path, caplog):
@@ -230,7 +276,7 @@ def test_run_wifi_tool_logs_command_not_found(monkeypatch, tmp_path, caplog):
 
         fallback_message = "Scan nicht möglich, wpa_cli fehlt oder meldet einen Fehler"
 
-        with app_module.app.test_request_context("/wlan_scan"):
+        with app_module.app.test_request_context("/wlan_scan", method="POST"):
             with caplog.at_level(logging.ERROR):
                 success, output = app_module._run_wifi_tool(
                     ["sudo", "wpa_cli", "scan"],
