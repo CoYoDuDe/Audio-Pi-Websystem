@@ -3448,6 +3448,8 @@ def schedule_job(schedule_id):
                     retry_time_local.isoformat(),
                 )
                 load_schedules()
+            else:
+                load_schedules()
         return
 
 
