@@ -485,7 +485,7 @@ def enforce_initial_password_change():
     if endpoint is None:
         return None
 
-    allowed_endpoints = {"change_password", "logout"}
+    allowed_endpoints = {"change_password", "logout_route"}
     if endpoint == "static" or endpoint.startswith("static"):
         return None
 
@@ -4093,7 +4093,7 @@ def login():
     return render_template("login.html")
 
 
-@app.route("/logout")
+@app.route("/logout", methods=["POST"], endpoint="logout_route")
 @login_required
 def logout():
     logout_user()

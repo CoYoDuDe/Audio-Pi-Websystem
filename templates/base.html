@@ -20,7 +20,10 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn">Update</button>
         </form>
-        <a href="{{ url_for('logout') }}">Logout</a>
+        <form action="{{ url_for('logout_route') }}" method="post" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn">Logout</button>
+        </form>
     </nav>
     {% else %}
     <div class="guest-navigation">
