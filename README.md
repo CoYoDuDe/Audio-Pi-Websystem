@@ -585,13 +585,14 @@ wird, setzt das Skript die NAT-Regeln gemäß der offiziellen
 Raspberry-Pi-Anleitung für geroutete WLAN-Zugänge
 (["Configuring a Routed Wireless Access Point"](https://www.raspberrypi.com/documentation/computers/configuration.html#configuring-a-routed-wireless-access-point)).
 Die Regeln werden nach `/etc/iptables/rules.v4` und zusätzlich nach
-`/etc/iptables.ipv4.nat` geschrieben. Anschließend sorgt
-`netfilter-persistent` (aus dem Debian-Paket `netfilter-persistent`, siehe
-[Debian-Wiki: iptables-persistent/netfilter-persistent](https://wiki.debian.org/iptables))
-dafür, dass die gespeicherten Regeln beim Booten automatisch geladen werden.
-Falls das Paket wider Erwarten nicht zur Verfügung steht, erzeugt der Installer
-eine eigene systemd-Unit `audio-pi-iptables-restore.service`, die
-`iptables-restore` früh im Bootprozess ausführt. Damit bleiben die NAT-Regeln
+`/etc/iptables.ipv4.nat` geschrieben. Anschließend installiert der Installer
+`netfilter-persistent` **und** `iptables-persistent`
+(siehe [Debian-Wiki: iptables-persistent/netfilter-persistent](https://wiki.debian.org/iptables))
+und aktiviert den Dienst, sodass die gespeicherten Regeln beim Booten
+automatisch geladen werden. Falls das Paket wider Erwarten nicht zur Verfügung
+steht, kopiert das Setup die mitgelieferte systemd-Unit
+[`audio-pi-iptables-restore.service`](scripts/systemd/audio-pi-iptables-restore.service),
+die `iptables-restore` früh im Bootprozess ausführt. Damit bleiben die NAT-Regeln
 auch auf Systemen ohne `/etc/rc.local` zuverlässig aktiv.
 
 > 💡 Für automatisierte Setups lassen sich alle Access-Point-Parameter per
