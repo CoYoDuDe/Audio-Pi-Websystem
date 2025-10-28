@@ -1,5 +1,6 @@
 import os
 import importlib
+from datetime import datetime
 
 import pytest
 from flask import get_flashed_messages
@@ -205,3 +206,36 @@ def test_once_schedule_preserves_utc_timezone_information():
         stored_dt.isoformat(timespec="seconds")
         == original_dt.isoformat(timespec="seconds")
     )
+
+
+def test_once_schedule_remains_pending_when_playback_busy(monkeypatch):
+    schedule_time = datetime.now().replace(microsecond=0)
+    app.cursor.execute(
+        """
+        INSERT INTO schedules (
+            item_id,
+            item_type,
+            time,
+            repeat,
+            delay,
+            start_date,
+            end_date,
+            day_of_month,
+            executed
+        )
+        VALUES (?, 'file', ?, 'once', 0, NULL, NULL, NULL, 0)
+        """,
+        (99, schedule_time.strftime("%Y-%m-%d %H:%M:%S")),
+    )
+    schedule_id = app.cursor.lastrowid
+    app.conn.commit()
+
+    monkeypatch.setattr(app, "pygame_available", True)
+    monkeypatch.setattr(app.pygame.mixer.music, "get_busy", lambda: True)
+
+    app.schedule_job(schedule_id)
+
+    row = app.cursor.execute(
+        "SELECT executed FROM schedules WHERE id=?", (schedule_id,)
+    ).fetchone()
+    assert row["executed"] == 0

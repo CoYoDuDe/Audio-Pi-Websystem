@@ -46,7 +46,11 @@ def _wait_for_execution(event):
 
 def test_once_schedule_runs_after_delay(monkeypatch, managed_scheduler):
     executed = threading.Event()
-    monkeypatch.setattr(app, "play_item", lambda *args, **kwargs: executed.set())
+    monkeypatch.setattr(
+        app,
+        "play_item",
+        lambda *args, **kwargs: executed.set() or True,
+    )
 
     run_time = datetime.now() + timedelta(seconds=1)
     app.cursor.execute(
@@ -71,7 +75,11 @@ def test_once_schedule_runs_after_delay(monkeypatch, managed_scheduler):
 
 def test_recurring_schedule_runs_after_delay(monkeypatch, managed_scheduler):
     executed = threading.Event()
-    monkeypatch.setattr(app, "play_item", lambda *args, **kwargs: executed.set())
+    monkeypatch.setattr(
+        app,
+        "play_item",
+        lambda *args, **kwargs: executed.set() or True,
+    )
 
     target_time = datetime.now() + timedelta(seconds=1)
     app.cursor.execute(
