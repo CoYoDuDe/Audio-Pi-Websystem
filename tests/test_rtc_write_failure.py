@@ -81,10 +81,15 @@ def test_perform_internet_time_sync_handles_i2c_write_error(monkeypatch, app_mod
     _prepare_rtc_failure(app_module)
 
     commands = []
+    status_command = app_module.privileged_command(
+        "timedatectl", "show", "-p", "SystemClockSynchronized", "--value"
+    )
 
     def fake_run(cmd, *args, **kwargs):
         commands.append((cmd, kwargs))
         assert kwargs.get("check") is True
+        if cmd == status_command:
+            return app_module.subprocess.CompletedProcess(cmd, 0, "yes\n", "")
         return app_module.subprocess.CompletedProcess(cmd, 0)
 
     monkeypatch.setattr(app_module.subprocess, "run", fake_run)
