@@ -1735,13 +1735,12 @@ EOF
         sudo systemctl enable audio-pi-iptables-restore.service
         echo "Fallback-Unit audio-pi-iptables-restore.service lädt die NAT-Regeln aus /etc/iptables.ipv4.nat beim Systemstart."
         echo "Regeln sind zusätzlich unter ${netfilter_rules_v4} gespeichert."
-    fi
-
-    if [ -f /etc/rc.local ]; then
-        if ! sudo grep -q 'iptables-restore < /etc/iptables.ipv4.nat' /etc/rc.local; then
-            sudo sed -i 's|^exit 0||' /etc/rc.local
-            echo 'iptables-restore < /etc/iptables.ipv4.nat' | sudo tee -a /etc/rc.local >/dev/null
-            echo 'exit 0' | sudo tee -a /etc/rc.local >/dev/null
+        if [ -f /etc/rc.local ]; then
+            if ! sudo grep -q 'iptables-restore < /etc/iptables.ipv4.nat' /etc/rc.local; then
+                sudo sed -i 's|^exit 0||' /etc/rc.local
+                echo 'iptables-restore < /etc/iptables.ipv4.nat' | sudo tee -a /etc/rc.local >/dev/null
+                echo 'exit 0' | sudo tee -a /etc/rc.local >/dev/null
+            fi
         fi
     fi
 
