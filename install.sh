@@ -1101,7 +1101,7 @@ apt_get update
 apt_get upgrade -y
 
 # Python-Basics & PIP
-apt_get install -y python3 python3-pip python3-venv sqlite3
+apt_get install -y python3 python3-pip python3-venv sqlite3 git
 
 # I²C-Bindings für Python und Diagnose-Tools
 apt_get install -y python3-smbus i2c-tools
