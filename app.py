@@ -5503,20 +5503,20 @@ def add_schedule():
 
     with get_db_connection() as (conn, cursor):
         duration_seconds = _get_item_duration(cursor, item_type, item_id)
-        if duration_seconds is not None:
-            if first_occurrence_date is None and repeat != "once":
-                first_occurrence_date = parse_schedule_date(start_date_value)
-            if first_occurrence_date is not None:
-                if _has_schedule_conflict(
-                    cursor,
-                    new_schedule_record,
-                    duration_seconds,
-                    first_occurrence_date,
-                ):
-                    flash(
-                        "Zeitplan überschneidet sich mit einer bestehenden Wiedergabe"
-                    )
-                    return redirect(url_for("index"))
+        if duration_seconds is None:
+            flash("Ausgewähltes Element existiert nicht mehr.")
+            return redirect(url_for("index"))
+        if first_occurrence_date is None and repeat != "once":
+            first_occurrence_date = parse_schedule_date(start_date_value)
+        if first_occurrence_date is not None:
+            if _has_schedule_conflict(
+                cursor,
+                new_schedule_record,
+                duration_seconds,
+                first_occurrence_date,
+            ):
+                flash("Zeitplan überschneidet sich mit einer bestehenden Wiedergabe")
+                return redirect(url_for("index"))
         cursor.execute(
             """
             INSERT INTO schedules (
