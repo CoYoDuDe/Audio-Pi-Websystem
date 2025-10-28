@@ -1099,6 +1099,7 @@ if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
         echo "[Dry-Run] Würde Polkit-Regel für ${TARGET_USER} nach ${POLKIT_RULE_TARGET} (0644, root:root) kopieren."
         echo "[Dry-Run] Würde Rechte per 'sudo chmod 0644 ${POLKIT_RULE_TARGET}' sicherstellen."
         echo "[Dry-Run] Polkit-Regel würde folgende Units erlauben: ${POLKIT_MANAGED_UNITS_MESSAGE}."
+        echo "[Dry-Run] Polkit-Regel gestattet hostnamectl-Hostnameänderungen ohne sudo."
     else
         echo "[Dry-Run] Warnung: Polkit-Vorlage ${POLKIT_RULE_TEMPLATE} nicht gefunden – Berechtigungen manuell prüfen."
     fi
@@ -1852,6 +1853,7 @@ if [ -f "$POLKIT_RULE_TEMPLATE" ]; then
     sudo chmod 0644 "$POLKIT_RULE_TARGET"
     rm -f "$tmp_polkit"
     echo "Polkit-Regel erlaubt systemctl-Aktionen für: ${POLKIT_MANAGED_UNITS_MESSAGE}."
+    echo "Polkit-Regel gestattet hostnamectl-Hostnameänderungen ohne sudo."
     echo "Polkit-Regel für $TARGET_USER nach $POLKIT_RULE_TARGET installiert."
 else
     echo "Warnung: Polkit-Vorlage $POLKIT_RULE_TEMPLATE nicht gefunden – bitte Berechtigungen manuell prüfen."

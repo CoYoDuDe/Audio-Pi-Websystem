@@ -39,6 +39,15 @@ polkit.addRule(function(action, subject) {
         }
     }
 
+    var hostnameActions = [
+        "org.freedesktop.hostname1.set-static-hostname",
+        "org.freedesktop.hostname1.set-hostname",
+        "org.freedesktop.hostname1.set-chassis"
+    ];
+    if (hostnameActions.indexOf(actionId) >= 0) {
+        return polkit.Result.YES;
+    }
+
     if (actionId === "org.freedesktop.timedate1.set-time" ||
         actionId === "org.freedesktop.timedate1.set-ntp") {
         return polkit.Result.YES;
