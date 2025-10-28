@@ -640,7 +640,11 @@ und optionaler lokaler Domain ein.
 Schlägt einer der Schritte nach der Validierung fehl (Speichern der
 `dhcpcd.conf`, Aufruf von `hostnamectl` oder das Aktualisieren von
 `/etc/hosts`), setzt das System automatisch Hostname, Host-Datei und
-Konfigurationsbackup auf den vorherigen Stand zurück.
+Konfigurationsbackup auf den vorherigen Stand zurück. Zusätzlich laufen die
+`INSERT OR REPLACE`-Operationen für die zugehörigen Einstellungen jetzt in einer
+einzigen Datenbanktransaktion: schlägt der abschließende `COMMIT` fehl, werden
+sämtliche Änderungen mit `ROLLBACK` rückgängig gemacht, so dass keine
+Zwischenstände in der SQLite-Datenbank verbleiben.
 
 ### Netzwerk/Administration
 

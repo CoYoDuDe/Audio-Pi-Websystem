@@ -5500,8 +5500,18 @@ def save_network_settings():
     settings_to_store["hostname"] = hostname_to_store
 
     try:
-        for field, setting_key in NETWORK_SETTING_KEY_MAP.items():
-            set_setting(setting_key, settings_to_store.get(field, ""))
+        with get_db_connection() as (conn, cursor):
+            try:
+                for field, setting_key in NETWORK_SETTING_KEY_MAP.items():
+                    value = settings_to_store.get(field, "")
+                    cursor.execute(
+                        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                        (setting_key, "" if value is None else str(value)),
+                    )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
     except Exception:
         logger.error(
             "Die Netzwerkeinstellungen konnten nicht in der Datenbank gesichert werden.",

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import importlib
+import sqlite3
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Tuple
 
@@ -710,10 +712,49 @@ def test_network_settings_post_dhcp_keeps_local_domain(monkeypatch, client):
 
     stored_settings: Dict[str, str] = {}
 
-    def fake_set_setting(key: str, value: str) -> None:
-        stored_settings[key] = value
+    original_get_db_connection = app_module.get_db_connection
 
-    monkeypatch.setattr(app_module, "set_setting", fake_set_setting)
+    @contextmanager
+    def capture_get_db_connection():
+        with original_get_db_connection() as (conn, cursor):
+            original_execute = cursor.execute
+
+            def capturing_execute(sql: str, params=None):
+                if params and sql.strip().lower().startswith(
+                    "insert or replace into settings"
+                ):
+                    key, value = params
+                    stored_settings[key] = value
+                if params is None:
+                    return original_execute(sql)
+                return original_execute(sql, params)
+
+            class _CursorProxy:
+                def __init__(self, inner):
+                    self._inner = inner
+
+                def execute(self, sql: str, params=None):
+                    return capturing_execute(sql, params)
+
+                def __getattr__(self, item):
+                    return getattr(self._inner, item)
+
+            class _ConnectionProxy:
+                def __init__(self, inner, cursor_proxy):
+                    self._inner = inner
+                    self._cursor_proxy = cursor_proxy
+
+                def cursor(self):
+                    return self._cursor_proxy
+
+                def __getattr__(self, item):
+                    return getattr(self._inner, item)
+
+            cursor_proxy = _CursorProxy(cursor)
+            conn_proxy = _ConnectionProxy(conn, cursor_proxy)
+            yield conn_proxy, cursor_proxy
+
+    monkeypatch.setattr(app_module, "get_db_connection", capture_get_db_connection)
 
     domain_input = "My-Lab.LAN"
     expected_domain = app_module._validate_local_domain(domain_input)
@@ -1248,13 +1289,52 @@ def test_network_settings_rollback_on_setting_failure(monkeypatch, client, tmp_p
         lambda *args, **kwargs: DummyResult(),
     )
 
-    set_calls: List[Tuple[str, str]] = []
+    rollback_calls: List[bool] = []
+    original_get_db_connection = app_module.get_db_connection
 
-    def failing_set(key, value):
-        set_calls.append((key, value))
-        raise RuntimeError("db failure")
+    @contextmanager
+    def failing_get_db_connection():
+        with original_get_db_connection() as (conn, cursor):
+            original_execute = cursor.execute
+            original_rollback = conn.rollback
 
-    monkeypatch.setattr(app_module, "set_setting", failing_set)
+            def failing_execute(sql: str, params=None):
+                if sql.strip().lower().startswith("insert or replace into settings"):
+                    raise RuntimeError("db failure")
+                if params is None:
+                    return original_execute(sql)
+                return original_execute(sql, params)
+
+            class _CursorProxy:
+                def __init__(self, inner):
+                    self._inner = inner
+
+                def execute(self, sql: str, params=None):
+                    return failing_execute(sql, params)
+
+                def __getattr__(self, item):
+                    return getattr(self._inner, item)
+
+            class _ConnectionProxy:
+                def __init__(self, inner, cursor_proxy):
+                    self._inner = inner
+                    self._cursor_proxy = cursor_proxy
+
+                def cursor(self):
+                    return self._cursor_proxy
+
+                def rollback(self):
+                    rollback_calls.append(True)
+                    return original_rollback()
+
+                def __getattr__(self, item):
+                    return getattr(self._inner, item)
+
+            cursor_proxy = _CursorProxy(cursor)
+            conn_proxy = _ConnectionProxy(conn, cursor_proxy)
+            yield conn_proxy, cursor_proxy
+
+    monkeypatch.setattr(app_module, "get_db_connection", failing_get_db_connection)
 
     response = csrf_post(
         test_client,
@@ -1278,4 +1358,150 @@ def test_network_settings_rollback_on_setting_failure(monkeypatch, client, tmp_p
     )
     assert conf.read_text(encoding="utf-8") == original_content
     assert host_updates == [("studio-pi", "studio.lan")]
-    assert len(set_calls) == 1
+    assert rollback_calls == [True]
+
+
+def test_network_settings_commit_failure_rolls_back(monkeypatch, client, tmp_path: Path):
+    test_client, app_module = client
+    _login(test_client)
+
+    initial_values = {
+        "network_mode": "dhcp",
+        "network_ipv4_address": "10.0.0.5",
+        "network_ipv4_prefix": "24",
+        "network_ipv4_gateway": "10.0.0.1",
+        "network_dns_servers": "8.8.8.8",
+        "network_hostname": "audio-pi",
+        "network_local_domain": "initial.lan",
+    }
+    for key, value in initial_values.items():
+        app_module.set_setting(key, value)
+
+    normalized_payload = {
+        "mode": "manual",
+        "ipv4_address": "192.168.40.5",
+        "ipv4_prefix": "24",
+        "ipv4_gateway": "192.168.40.1",
+        "dns_servers": "9.9.9.9, 1.1.1.1",
+        "local_domain": "studio.lan",
+    }
+    normalized_result = app_module.NormalizedNetworkSettings(
+        interface="wlan0",
+        normalized=dict(normalized_payload),
+        original_lines=[],
+        new_lines=[],
+        dhcpcd_path=tmp_path / "dhcpcd.conf",
+        backup_path=None,
+        original_exists=False,
+    )
+
+    def fake_normalize(interface: str, payload: Mapping[str, str]):
+        assert interface == "wlan0"
+        return normalized_result
+
+    def fake_write(
+        interface: str,
+        payload: Mapping[str, str],
+        *,
+        normalized_result: Any = None,
+    ):
+        assert interface == "wlan0"
+        assert normalized_result is normalized_result_obj
+        return dict(normalized_payload)
+
+    normalized_result_obj = normalized_result
+    monkeypatch.setattr(app_module, "_normalize_network_settings", fake_normalize)
+    monkeypatch.setattr(app_module, "_write_network_settings", fake_write)
+    monkeypatch.setattr(app_module, "_get_current_hostname", lambda: "audio-pi")
+
+    hosts_result = app_module.HostsUpdateResult(
+        hosts_path=tmp_path / "hosts",
+        changed=True,
+        backup_path=None,
+        original_exists=True,
+        original_lines=["127.0.1.1\taudio-pi"],
+    )
+
+    host_updates: List[Tuple[str, str]] = []
+
+    def fake_update_hosts(hostname: str, local_domain: str):
+        host_updates.append((hostname, local_domain))
+        return hosts_result
+
+    monkeypatch.setattr(app_module, "_update_hosts_file", fake_update_hosts)
+
+    restored_hosts: List[app_module.HostsUpdateResult] = []
+
+    def fake_restore_hosts(result: app_module.HostsUpdateResult) -> None:
+        restored_hosts.append(result)
+
+    monkeypatch.setattr(app_module, "_restore_hosts_state", fake_restore_hosts)
+
+    backup_restores: List[app_module.NormalizedNetworkSettings] = []
+
+    def fake_restore_backup(result: app_module.NormalizedNetworkSettings) -> None:
+        backup_restores.append(result)
+
+    monkeypatch.setattr(app_module, "_restore_network_backup", fake_restore_backup)
+
+    rollback_calls: List[bool] = []
+    original_get_db_connection = app_module.get_db_connection
+
+    @contextmanager
+    def patched_get_db_connection():
+        with original_get_db_connection() as (conn, cursor):
+            original_rollback = conn.rollback
+
+            class _ConnectionProxy:
+                def __init__(self, inner_conn):
+                    self._inner = inner_conn
+
+                def commit(self):
+                    raise sqlite3.OperationalError("commit failed")
+
+                def rollback(self):
+                    rollback_calls.append(True)
+                    return original_rollback()
+
+                def __getattr__(self, item):
+                    return getattr(self._inner, item)
+
+            yield _ConnectionProxy(conn), cursor
+
+    monkeypatch.setattr(app_module, "get_db_connection", patched_get_db_connection)
+
+    response = csrf_post(
+        test_client,
+        "/network_settings",
+        data={
+            "mode": "manual",
+            "ipv4_address": "192.168.40.5",
+            "ipv4_prefix": "24",
+            "ipv4_gateway": "192.168.40.1",
+            "dns_servers": "9.9.9.9 1.1.1.1",
+            "hostname": "audio-pi",
+            "local_domain": "studio.lan",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert (
+        b"Beim Aktualisieren der Einstellungen ist ein Fehler aufgetreten. \xc3\x84nderungen wurden zur\xc3\xbcckgesetzt."
+        in response.data
+    )
+    assert host_updates == [("audio-pi", "studio.lan")]
+    assert restored_hosts == [hosts_result]
+    assert backup_restores == []
+    assert rollback_calls, "rollback sollte bei Commit-Fehlern ausgelöst werden"
+
+    with original_get_db_connection() as (conn, cursor):
+        rows = cursor.execute(
+            "SELECT key, value FROM settings WHERE key IN ({})".format(
+                ",".join("?" for _ in initial_values)
+            ),
+            tuple(initial_values.keys()),
+        ).fetchall()
+
+    stored_values = {row["key"]: row["value"] for row in rows}
+    assert stored_values == initial_values
