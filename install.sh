@@ -264,6 +264,7 @@ print_post_install_instructions() {
         echo "Die NAT-Regeln wurden nach /etc/iptables.ipv4.nat geschrieben und können dort angepasst werden."
         echo ""
     fi
+    echo "Empfehlung nach Unit-Updates: sudo systemctl daemon-reload && sudo systemctl restart audio-pi.service"
     echo ""
 }
 
