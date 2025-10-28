@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SERVICE = ROOT / "audio-pi.service"
 INSTALLER = ROOT / "install.sh"
+POLKIT_RULE = ROOT / "scripts" / "polkit" / "49-audio-pi.rules"
 
 ONLY_REQUIRED_CAPABILITY = "CAP_NET_BIND_SERVICE"
 REMOVED_CAPABILITIES = (
@@ -77,3 +78,15 @@ def test_installer_updates_readwrite_paths_list() -> None:
         '/etc/hostname /etc/wpa_supplicant /var/lib/dhcpcd"'
     )
     assert expected in script
+
+
+def test_polkit_rule_allows_hostname_changes() -> None:
+    """Die Polkit-Regel muss hostnamectl-Änderungen ohne sudo erlauben."""
+
+    rule_content = POLKIT_RULE.read_text(encoding="utf-8")
+    required_actions = (
+        "org.freedesktop.hostname1.set-static-hostname",
+        "org.freedesktop.hostname1.set-hostname",
+    )
+    for action in required_actions:
+        assert action in rule_content

@@ -631,7 +631,8 @@ Die Weboberfläche bündelt alle relevanten Werte für den Client-Betrieb von
   getrennt, intern auf eine durch Komma getrennte Darstellung normalisiert.
 - **Hostname & lokale Domain** – optional, aber ideal für eindeutige
   Hostnamen; Änderungen werden per `hostnamectl` geschrieben (siehe
-  [systemd-hostnamed Referenz](https://www.freedesktop.org/software/systemd/man/latest/hostnamectl.html)).
+  [systemd-hostnamed Referenz](https://www.freedesktop.org/software/systemd/man/latest/hostnamectl.html))
+  und laufen dank der Polkit-Regel ohne `sudo` durch.
 
 Inline-Kommentare in `dhcpcd.conf` (z. B. `static ip_address=192.168.10.5/24 # Büro`) werden beim
 Einlesen automatisch ausgeblendet. Dadurch landen im Formular ausschließlich bereinigte Werte, während
@@ -668,10 +669,13 @@ oder durch einen kompletten Reboot wieder gestartet werden. Für detaillierte
 Fehlersuche empfiehlt sich `journalctl -u dhcpcd`.
 
 > ⚠️ **Rechteverwaltung:** Die ausführende Benutzerkennung benötigt weiterhin
-> die passenden `sudo`-Rechte für `hostnamectl` und ggf. `dhcpcd`. Entsprechende
-> Regeln lassen sich in `/etc/sudoers` bzw. unter
-> `/etc/sudoers.d/` hinterlegen (siehe `sudoers(5)` in der offiziellen
-> Manpage: <https://man7.org/linux/man-pages/man5/sudoers.5.html>).
+> die passenden `sudo`-Rechte für netzwerknahe `systemctl`-Aufrufe wie
+> `restart dhcpcd`. Hostname-Anpassungen übernimmt `hostnamectl` jetzt durch
+> die Polkit-Regel direkt ohne zusätzliche `sudo`-Einträge. Nach Updates der
+> Units oder Polkit-Regeln empfiehlt sich weiterhin ein
+> `systemctl daemon-reload`, damit alle Dienste die neuen Einstellungen
+> übernehmen (siehe
+> [systemctl](https://www.freedesktop.org/software/systemd/man/latest/systemctl.html)).
 
 ## Tests
 
