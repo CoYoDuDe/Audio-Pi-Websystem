@@ -655,6 +655,14 @@
     {% endif %}
     <form action="{{ url_for('add_schedule') }}" method="POST" class="stack-sm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% set schedule_defaults = namespace(item_type=None, item_id=None) %}
+        {% if files_all %}
+            {% set schedule_defaults.item_type = 'file' %}
+            {% set schedule_defaults.item_id = files_all[0].id %}
+        {% elif playlists_all %}
+            {% set schedule_defaults.item_type = 'playlist' %}
+            {% set schedule_defaults.item_id = playlists_all[0].id %}
+        {% endif %}
         <label for="item-type" class="form-field">
             Elementtyp
             <select name="item_type" id="item-type">
@@ -836,8 +844,6 @@
 
     <script>
     document.addEventListener('DOMContentLoaded', function () {
-        const audioFiles = {{ files_all | tojson }};
-        const playlists = {{ playlists_all | tojson }};
         const itemSelect = document.getElementById('item-select');
         const typeSelect = document.getElementById('item-type');
         const repeatSelect = document.getElementById('repeat-select');
