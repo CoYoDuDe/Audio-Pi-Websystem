@@ -121,11 +121,13 @@ _ensure_pygame_music_interface()
 
 
 from network_config import (
+    HostsUpdateResult,
     NetworkConfigError,
     NormalizedNetworkSettings,
     get_current_hostname as _get_current_hostname,
     load_network_settings as _load_network_settings,
     normalize_network_settings as _normalize_network_settings,
+    restore_hosts_state as _restore_hosts_state,
     restore_network_backup as _restore_network_backup,
     update_hosts_file as _update_hosts_file,
     validate_hostname as _validate_hostname,
@@ -5272,6 +5274,8 @@ def save_network_settings():
 
     hostname_input = manual_values.get("hostname", "")
     hostname_to_store = current_hostname
+    hostname_candidate = current_hostname
+    hostname_change_required = False
     if hostname_input:
         try:
             hostname_candidate = _validate_hostname(hostname_input)
@@ -5280,62 +5284,8 @@ def save_network_settings():
             return redirect(redirect_url)
 
         if hostname_candidate != current_hostname:
-            command = privileged_command("hostnamectl", "set-hostname", hostname_candidate)
-            try:
-                result = subprocess.run(
-                    command,
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                )
-            except Exception:
-                logger.error("hostnamectl konnte nicht ausgeführt werden.", exc_info=True)
-                flash(
-                    "Hostname konnte nicht gesetzt werden (hostnamectl fehlgeschlagen).",
-                    "network_settings",
-                )
-                return redirect(redirect_url)
-
-            stdout_text = result.stdout
-            stderr_text = result.stderr
-            if _command_not_found(stderr_text, stdout_text, result.returncode):
-                primary_command = _extract_primary_command(command)
-                flash(
-                    f"{primary_command} ist nicht verfügbar. Hostname wurde nicht geändert.",
-                    "network_settings",
-                )
-                return redirect(redirect_url)
-            if result.returncode != 0:
-                logger.error(
-                    "hostnamectl fehlgeschlagen – Rückgabewert %s, stderr: %s",
-                    result.returncode,
-                    stderr_text,
-                )
-                flash(
-                    "Hostname konnte nicht gesetzt werden (hostnamectl meldete einen Fehler).",
-                    "network_settings",
-                )
-                return redirect(redirect_url)
-
-            hostname_to_store = hostname_candidate
-        else:
-            hostname_to_store = hostname_candidate
-
-    try:
-        _update_hosts_file(
-            hostname_to_store,
-            normalized_local_domain_input,
-        )
-    except NetworkConfigError as exc:
-        flash(str(exc), "network_settings")
-        return redirect(redirect_url)
-    except Exception:
-        logger.error("/etc/hosts konnte nicht aktualisiert werden.", exc_info=True)
-        flash(
-            "Die Host-Datei konnte nicht aktualisiert werden.",
-            "network_settings",
-        )
-        return redirect(redirect_url)
+            hostname_change_required = True
+        hostname_to_store = hostname_candidate
 
     try:
         normalized_settings = _write_network_settings(
@@ -5358,6 +5308,122 @@ def save_network_settings():
                 )
         flash(
             "Beim Speichern der Netzwerkeinstellungen ist ein Fehler aufgetreten. Änderungen wurden zurückgesetzt.",
+            "network_settings",
+        )
+        return redirect(redirect_url)
+
+    hosts_update_result: Optional[HostsUpdateResult] = None
+    hostname_changed = False
+
+    def _restore_hostname() -> None:
+        if not hostname_changed:
+            return
+        revert_command = privileged_command("hostnamectl", "set-hostname", current_hostname)
+        try:
+            revert_result = subprocess.run(
+                revert_command,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except Exception:
+            logger.error(
+                "Hostname konnte nach einem Fehler nicht zurückgesetzt werden.",
+                exc_info=True,
+            )
+            return
+
+        if _command_not_found(revert_result.stderr, revert_result.stdout, revert_result.returncode):
+            logger.error(
+                "hostnamectl ist nicht verfügbar. Hostname konnte nach Fehler nicht zurückgesetzt werden.",
+            )
+        elif revert_result.returncode != 0:
+            logger.error(
+                "hostnamectl meldete beim Zurücksetzen des Hostnamens einen Fehler (Code %s, stderr: %s)",
+                revert_result.returncode,
+                revert_result.stderr,
+            )
+
+    def _rollback_post_write() -> None:
+        if hosts_update_result is not None:
+            try:
+                _restore_hosts_state(hosts_update_result)
+            except Exception:
+                logger.error(
+                    "Backup der Host-Datei konnte nach einem Fehler nicht wiederhergestellt werden.",
+                    exc_info=True,
+                )
+        _restore_hostname()
+        if normalized_result.requires_update:
+            try:
+                _restore_network_backup(normalized_result)
+            except Exception:  # pragma: no cover - defensiv loggen
+                logger.error(
+                    "Backup der Netzwerkkonfiguration konnte nicht wiederhergestellt werden.",
+                    exc_info=True,
+                )
+
+    try:
+        if hostname_change_required:
+            command = privileged_command("hostnamectl", "set-hostname", hostname_candidate)
+            try:
+                result = subprocess.run(
+                    command,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+            except Exception:
+                logger.error("hostnamectl konnte nicht ausgeführt werden.", exc_info=True)
+                _rollback_post_write()
+                flash(
+                    "Hostname konnte nicht gesetzt werden (hostnamectl fehlgeschlagen).",
+                    "network_settings",
+                )
+                return redirect(redirect_url)
+
+            stdout_text = result.stdout
+            stderr_text = result.stderr
+            if _command_not_found(stderr_text, stdout_text, result.returncode):
+                primary_command = _extract_primary_command(command)
+                logger.error(
+                    "%s ist nicht verfügbar. Hostname konnte nicht geändert werden.",
+                    primary_command,
+                )
+                _rollback_post_write()
+                flash(
+                    f"{primary_command} ist nicht verfügbar. Hostname wurde nicht geändert.",
+                    "network_settings",
+                )
+                return redirect(redirect_url)
+            if result.returncode != 0:
+                logger.error(
+                    "hostnamectl fehlgeschlagen – Rückgabewert %s, stderr: %s",
+                    result.returncode,
+                    stderr_text,
+                )
+                _rollback_post_write()
+                flash(
+                    "Hostname konnte nicht gesetzt werden (hostnamectl meldete einen Fehler).",
+                    "network_settings",
+                )
+                return redirect(redirect_url)
+
+            hostname_changed = True
+
+        hosts_update_result = _update_hosts_file(
+            hostname_candidate,
+            normalized_local_domain_input,
+        )
+    except NetworkConfigError as exc:
+        _rollback_post_write()
+        flash(str(exc), "network_settings")
+        return redirect(redirect_url)
+    except Exception:
+        logger.error("/etc/hosts konnte nicht aktualisiert werden.", exc_info=True)
+        _rollback_post_write()
+        flash(
+            "Die Host-Datei konnte nicht aktualisiert werden.",
             "network_settings",
         )
         return redirect(redirect_url)
@@ -5441,14 +5507,7 @@ def save_network_settings():
             "Die Netzwerkeinstellungen konnten nicht in der Datenbank gesichert werden.",
             exc_info=True,
         )
-        if normalized_result.requires_update:
-            try:
-                _restore_network_backup(normalized_result)
-            except Exception:  # pragma: no cover - defensiv loggen
-                logger.error(
-                    "Backup der Netzwerkkonfiguration konnte nicht wiederhergestellt werden.",
-                    exc_info=True,
-                )
+        _rollback_post_write()
         flash(
             "Beim Aktualisieren der Einstellungen ist ein Fehler aufgetreten. Änderungen wurden zurückgesetzt.",
             "network_settings",

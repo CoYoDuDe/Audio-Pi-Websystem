@@ -704,12 +704,7 @@
                     -- Datei wählen --
                 </option>
                 {% for file in files_all %}
-                <option
-                    value="{{ file.id }}"
-                    data-item-type="file"
-                    {% if loop.first %}data-default="true"{% endif %}
-                    {% if schedule_initial_item_type == 'file' and file.id == schedule_initial_item_id %}selected{% endif %}
-                >
+                <option value="{{ file.id }}" data-item-type="file"{% if schedule_initial_item_type == 'file' and file.id == schedule_initial_item_id %} selected{% endif %}{% if loop.first %} data-default="true"{% endif %}>
                     {{ file.filename }}
                 </option>
                 {% endfor %}
@@ -723,12 +718,7 @@
                     -- Playlist wählen --
                 </option>
                 {% for playlist in playlists_all %}
-                <option
-                    value="{{ playlist.id }}"
-                    data-item-type="playlist"
-                    {% if loop.first %}data-default="true"{% endif %}
-                    {% if schedule_initial_item_type == 'playlist' and playlist.id == schedule_initial_item_id %}selected{% endif %}
-                >
+                <option value="{{ playlist.id }}" data-item-type="playlist"{% if schedule_initial_item_type == 'playlist' and playlist.id == schedule_initial_item_id %} selected{% endif %}{% if loop.first %} data-default="true"{% endif %}>
                     {{ playlist.name }}
                 </option>
                 {% endfor %}

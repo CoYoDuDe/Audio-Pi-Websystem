@@ -634,6 +634,11 @@ Access-Point-Block unangetastet bleibt. Nach erfolgreicher Validierung wird
 unterscheidet. Der anschließende `hosts`-Abgleich trägt `127.0.1.1` mit Hostname
 und optionaler lokaler Domain ein.
 
+Schlägt einer der Schritte nach der Validierung fehl (Speichern der
+`dhcpcd.conf`, Aufruf von `hostnamectl` oder das Aktualisieren von
+`/etc/hosts`), setzt das System automatisch Hostname, Host-Datei und
+Konfigurationsbackup auf den vorherigen Stand zurück.
+
 ### Netzwerk/Administration
 
 Änderungen an der Netzwerkkonfiguration lösen automatisch einen Neustart des
