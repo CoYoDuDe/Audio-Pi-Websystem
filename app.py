@@ -1840,6 +1840,7 @@ LOCAL_TZ = _current_local_time().tzinfo
 scheduler = BackgroundScheduler(timezone=LOCAL_TZ)
 _BACKGROUND_SERVICES_LOCK = threading.RLock()
 _BACKGROUND_SERVICES_STARTED = False
+_TIMEZONE_MONITOR_PATH = Path("/etc/localtime")
 AUTO_REBOOT_JOB_ID = "auto_reboot_job"
 AUTO_REBOOT_MISFIRE_GRACE_SECONDS = 300
 AUTO_REBOOT_WEEKDAYS = [
@@ -1898,6 +1899,15 @@ def refresh_local_timezone(*, reconfigure_scheduler: bool = True):
     timezone_changed = new_tz is not previous_tz and new_tz != previous_tz
     LOCAL_TZ = new_tz
 
+    if timezone_changed:
+        logging.info(
+            "Lokale Zeitzone aktualisiert: %s → %s",  # type: ignore[str-format]
+            previous_tz,
+            new_tz,
+        )
+    else:
+        logging.debug("Lokale Zeitzone unverändert: %s", new_tz)
+
     if reconfigure_scheduler and scheduler is not None:
         try:
             scheduler.configure(timezone=LOCAL_TZ)
@@ -1927,6 +1937,120 @@ def refresh_local_timezone(*, reconfigure_scheduler: bool = True):
 
 
 refresh_local_timezone()
+
+
+class _TimezoneChangeMonitor:
+    """Überwacht Systemzeitzonenänderungen und löst Aktualisierungen aus."""
+
+    def __init__(self, interval: float = 30.0) -> None:
+        self.interval = interval
+        self._stop_event = threading.Event()
+        self._lock = threading.Lock()
+        self._thread: Optional[threading.Thread] = None
+        self._last_signature = self._capture_signature()
+
+    def _capture_signature(self) -> Tuple[Tuple[str, Optional[int], Optional[int]], Tuple[int, Optional[int], Optional[int]]]:
+        """Ermittelt einen Fingerabdruck der aktuellen Zeitzonenkonfiguration."""
+
+        try:
+            stat_result = _TIMEZONE_MONITOR_PATH.stat()
+        except FileNotFoundError:
+            file_signature = ("missing", None, None)
+        except PermissionError:
+            logging.debug(
+                "Kein Zugriff auf %s zur Zeitzonenüberwachung möglich.",
+                _TIMEZONE_MONITOR_PATH,
+            )
+            file_signature = ("denied", None, None)
+        except Exception:
+            logging.warning(
+                "Fehler beim Lesen von %s für Zeitzonenüberwachung.",
+                _TIMEZONE_MONITOR_PATH,
+                exc_info=True,
+            )
+            file_signature = ("error", None, None)
+        else:
+            mtime_ns = getattr(stat_result, "st_mtime_ns", None)
+            if mtime_ns is None:
+                mtime_ns = int(stat_result.st_mtime * 1_000_000_000)
+            file_signature = ("present", mtime_ns, stat_result.st_size)
+
+        altzone = getattr(time, "altzone", None)
+        daylight = getattr(time, "daylight", None)
+        tz_signature = (time.timezone, altzone, daylight)
+        return (file_signature, tz_signature)
+
+    def _run(self) -> None:
+        logging.debug("Thread zur Zeitzonenüberwachung gestartet.")
+        while not self._stop_event.wait(self.interval):
+            signature = self._capture_signature()
+            if signature != self._last_signature:
+                logging.info(
+                    "Änderung der Systemzeitzone erkannt – aktualisiere lokale Einstellungen."
+                )
+                self._last_signature = signature
+                try:
+                    refresh_local_timezone()
+                except Exception:
+                    logging.exception(
+                        "Aktualisierung der lokalen Zeitzone nach Änderung fehlgeschlagen."
+                    )
+        logging.debug("Thread zur Zeitzonenüberwachung beendet.")
+
+    def start(self) -> bool:
+        with self._lock:
+            if self._thread and self._thread.is_alive():
+                logging.debug("Zeitzonenüberwachung läuft bereits – Start übersprungen.")
+                return False
+
+            self._stop_event.clear()
+            self._last_signature = self._capture_signature()
+            thread = threading.Thread(
+                target=self._run,
+                name="TimezoneChangeMonitor",
+                daemon=True,
+            )
+            self._thread = thread
+            thread.start()
+
+        logging.info(
+            "Zeitzonen-Monitor gestartet (Intervall %.1f s).",
+            self.interval,
+        )
+        return True
+
+    def stop(self, *, join: bool = False) -> bool:
+        with self._lock:
+            thread = self._thread
+            if not thread:
+                return False
+            self._stop_event.set()
+            self._thread = None
+
+        if join:
+            thread.join()
+
+        logging.info("Zeitzonen-Monitor gestoppt.")
+        return True
+
+
+def _create_timezone_monitor() -> _TimezoneChangeMonitor:
+    interval_env = os.getenv("TIMEZONE_MONITOR_INTERVAL")
+    if interval_env:
+        try:
+            interval = float(interval_env)
+        except ValueError:
+            logging.warning(
+                "Ungültiger Wert für TIMEZONE_MONITOR_INTERVAL (%s) – verwende Standard.",
+                interval_env,
+            )
+            interval = 30.0
+    else:
+        interval = 30.0
+    return _TimezoneChangeMonitor(interval=interval)
+
+
+_timezone_monitor = _create_timezone_monitor()
 
 
 def _format_schedule_time_for_display(time_str, repeat):
@@ -3765,11 +3889,15 @@ def start_background_services(*, force: bool = False) -> bool:
     global _BACKGROUND_SERVICES_STARTED
 
     start_helpers = False
+    start_monitor = False
 
     with _BACKGROUND_SERVICES_LOCK:
         if _BACKGROUND_SERVICES_STARTED and not force:
             logging.debug("Hintergrunddienste bereits gestartet – kein erneuter Start.")
             return False
+
+        if force:
+            _timezone_monitor.stop(join=True)
 
         skip_past_once_schedules()
         load_schedules()
@@ -3782,7 +3910,11 @@ def start_background_services(*, force: bool = False) -> bool:
             logging.debug("Scheduler läuft bereits – Start übersprungen.")
         _BACKGROUND_SERVICES_STARTED = True
         start_helpers = True
+        start_monitor = True
         logging.info("Hintergrunddienste initialisiert.")
+
+    if start_monitor:
+        _timezone_monitor.start()
 
     if start_helpers and not TESTING:
         if force:
@@ -3816,6 +3948,8 @@ def stop_background_services(*, wait: bool = False) -> bool:
 
         if was_running:
             logging.info("Hintergrunddienste gestoppt.")
+
+    _timezone_monitor.stop(join=wait)
 
     if helpers_were_active:
         _stop_bt_audio_monitor_thread()
