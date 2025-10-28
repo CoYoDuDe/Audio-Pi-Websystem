@@ -10,6 +10,7 @@ import types
 import glob
 import shlex
 import socket
+import uuid
 from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.schedulers.base import (
@@ -4647,8 +4648,30 @@ def upload():
         return redirect(url_for("index"))
     if file and allowed_file(file.filename):
         filename = secure_filename(file.filename)
+        fallback_applied = False
+        if not filename:
+            fallback_enabled = bool(app.config.get("ENABLE_FILENAME_FALLBACK"))
+            if not fallback_enabled:
+                flash("Ungültiger Dateiname, Upload verworfen")
+                return redirect(url_for("index"))
+
+            original_suffix = Path(file.filename).suffix
+            extension = (
+                original_suffix[1:].lower()
+                if original_suffix.startswith(".")
+                else original_suffix.lower()
+            )
+            if extension and extension in ALLOWED_EXTENSIONS:
+                filename = f"{uuid.uuid4().hex}.{extension}"
+                fallback_applied = True
+            else:
+                flash("Ungültiger Dateiname, Upload verworfen")
+                return redirect(url_for("index"))
+
         upload_folder = Path(app.config["UPLOAD_FOLDER"])
         file_path = upload_folder / filename
+        flash_messages = []
+
         if file_path.exists():
             base, ext = os.path.splitext(filename)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -4662,13 +4685,19 @@ def upload():
                 if not candidate_path.exists():
                     filename = candidate
                     file_path = candidate_path
-                    flash(
+                    flash_messages.append(
                         f"Dateiname bereits vorhanden, gespeichert als {filename} (Versuch {attempt})"
                     )
                     break
                 attempt += 1
         else:
-            flash("Datei hochgeladen")
+            flash_messages.append("Datei hochgeladen")
+
+        if fallback_applied:
+            flash_messages.insert(0, f"Ungültiger Dateiname, gespeichert als {filename}")
+
+        for message in flash_messages:
+            flash(message)
         file.save(str(file_path))
         try:
             sound = AudioSegment.from_file(str(file_path))

@@ -161,6 +161,51 @@ def test_upload_same_second_does_not_overwrite(client, monkeypatch):
     assert {"song.mp3", expected_second, expected_third} == db_names
 
 
+def test_upload_rejects_empty_secure_filename(client, monkeypatch):
+    client, upload_dir, app_module = client
+
+    login_data = {"username": "admin", "password": "password"}
+    response = csrf_post(client, "/login", data=login_data, follow_redirects=True)
+    assert response.status_code == 200
+
+    change_response = csrf_post(
+        client,
+        "/change_password",
+        data={"old_password": "password", "new_password": "password1234"},
+        follow_redirects=True,
+        source_url="/change_password",
+    )
+    assert b"Passwort ge\xc3\xa4ndert" in change_response.data
+
+    original_secure = app_module.secure_filename
+
+    problematic_name = "***.mp3"
+
+    def fake_secure(name):
+        if name == problematic_name:
+            return ""
+        return original_secure(name)
+
+    monkeypatch.setattr(app_module, "secure_filename", fake_secure)
+
+    data = {"file": (io.BytesIO(b"data"), problematic_name)}
+
+    response = csrf_post(client, "/upload", data=data, follow_redirects=True)
+
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert "Ungültiger Dateiname" in body
+    assert list(upload_dir.iterdir()) == []
+
+    conn = sqlite3.connect(app_module.DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM audio_files")
+    count = cursor.fetchone()[0]
+    conn.close()
+
+    assert count == 0
+
+
 def test_upload_rejects_too_large_file(client):
     client, upload_dir, app_module = client
 
