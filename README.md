@@ -630,6 +630,13 @@ Die Weboberfläche bündelt alle relevanten Werte für den Client-Betrieb von
   Hostnamen; Änderungen werden per `hostnamectl` geschrieben (siehe
   [systemd-hostnamed Referenz](https://www.freedesktop.org/software/systemd/man/latest/hostnamectl.html)).
 
+Inline-Kommentare in `dhcpcd.conf` (z. B. `static ip_address=192.168.10.5/24 # Büro`) werden beim
+Einlesen automatisch ausgeblendet. Dadurch landen im Formular ausschließlich bereinigte Werte, während
+bestehende Kommentarzeilen oder andere Hinweise in der Datei unverändert erhalten bleiben. Beim
+Speichern schreibt Audio-Pi lediglich die aktualisierten Werte zurück; kommentierte Zeilen außerhalb
+der betroffenen Direktiven bleiben bestehen und führen nicht mehr zu fehlerhaften Angaben in der
+Konfiguration.
+
 Beim Speichern ruft Flask `write_network_settings` auf, erzeugt bei Bedarf eine
 Backup-Datei und schreibt nur die Client-Sektion von `dhcpcd.conf`, während der
 Access-Point-Block unangetastet bleibt. Nach erfolgreicher Validierung wird

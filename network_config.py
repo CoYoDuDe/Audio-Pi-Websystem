@@ -176,6 +176,15 @@ def _strip_static_directives(lines: Iterable[str], interface: str) -> List[str]:
     return result
 
 
+def _strip_inline_comment(value: str) -> str:
+    """Entfernt optionale Inline-Kommentare ("# …") aus einem Wert."""
+
+    comment_pos = value.find("#")
+    if comment_pos == -1:
+        return value.strip()
+    return value[:comment_pos].strip()
+
+
 def _split_dns_values(raw: str) -> List[str]:
     values = [part for part in DNS_VALUE_SPLIT_RE.split(raw) if part]
     return values
@@ -388,20 +397,27 @@ def _parse_interface_block(block: Sequence[str]) -> Dict[str, str]:
         key = key.strip()
         value = value.strip()
         if key == "static ip_address":
+            clean_value = _strip_inline_comment(value)
+            if not clean_value:
+                continue
             result["mode"] = "manual"
-            if "/" in value:
-                address, prefix = value.split("/", 1)
+            if "/" in clean_value:
+                address, prefix = clean_value.split("/", 1)
                 result["ipv4_address"] = address.strip()
                 result["ipv4_prefix"] = prefix.strip()
             else:
-                result["ipv4_address"] = value
+                result["ipv4_address"] = clean_value
         elif key == "static routers":
-            result["ipv4_gateway"] = value.split()[0]
+            clean_value = _strip_inline_comment(value)
+            if not clean_value:
+                continue
+            result["ipv4_gateway"] = clean_value.split()[0]
         elif key == "static domain_name_servers":
-            dns_values = _split_dns_values(value)
+            clean_value = _strip_inline_comment(value)
+            dns_values = _split_dns_values(clean_value)
             result["dns_servers"] = ", ".join(dns_values)
         elif key == "static domain_name":
-            result["local_domain"] = value
+            result["local_domain"] = _strip_inline_comment(value)
     return result
 
 

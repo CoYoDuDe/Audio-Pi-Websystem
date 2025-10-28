@@ -77,6 +77,55 @@ def test_load_network_settings_static_block(network_module, tmp_path: Path, monk
     }
 
 
+def test_load_network_settings_inline_comments(network_module, tmp_path: Path, monkeypatch):
+    conf = tmp_path / "dhcpcd.conf"
+    _write_conf(
+        conf,
+        [
+            "interface wlan0",
+            "static ip_address=192.168.50.20/24   # primäre Adresse",
+            "static routers=192.168.50.1    # Gateway",
+            "static domain_name_servers=9.9.9.9  1.1.1.1   # bevorzugte DNS",
+            "static domain_name=lan.example   # Kommentar",
+        ],
+    )
+
+    monkeypatch.setattr(
+        network_module,
+        "get_current_hostname",
+        lambda hostname_path=Path("/etc/hostname"): "studio-pi",
+    )
+
+    settings = network_module.load_network_settings("wlan0", conf)
+
+    assert settings == {
+        "mode": "manual",
+        "ipv4_address": "192.168.50.20",
+        "ipv4_prefix": "24",
+        "ipv4_gateway": "192.168.50.1",
+        "dns_servers": "9.9.9.9, 1.1.1.1",
+        "local_domain": "lan.example",
+        "hostname": "studio-pi",
+    }
+
+    written = network_module.write_network_settings("wlan0", settings, conf)
+
+    assert written == {
+        "mode": "manual",
+        "ipv4_address": "192.168.50.20",
+        "ipv4_prefix": "24",
+        "ipv4_gateway": "192.168.50.1",
+        "dns_servers": "9.9.9.9, 1.1.1.1",
+        "local_domain": "lan.example",
+    }
+
+    lines = conf.read_text(encoding="utf-8").splitlines()
+    assert "static domain_name_servers=9.9.9.9 1.1.1.1" in lines
+    assert "static domain_name=lan.example" in lines or all(
+        not line.strip().startswith("static domain_name=") for line in lines
+    )
+
+
 def test_load_network_settings_defaults_for_missing_block(
     network_module, tmp_path: Path, monkeypatch
 ):
