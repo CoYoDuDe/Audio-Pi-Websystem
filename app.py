@@ -5362,6 +5362,72 @@ def save_network_settings():
         )
         return redirect(redirect_url)
 
+    if normalized_result.requires_update:
+        restart_command = privileged_command("systemctl", "restart", "dhcpcd")
+        if is_sudo_disabled():
+            logger.info(
+                "sudo ist deaktiviert – versuche Neustart von dhcpcd ohne erhöhte Rechte."
+            )
+            flash(
+                "Hinweis: sudo ist deaktiviert, der Neustart von dhcpcd erfolgt ohne erhöhte Rechte.",
+                "network_settings",
+            )
+        try:
+            restart_result = subprocess.run(
+                restart_command,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            primary_command = _extract_primary_command(restart_command)
+            logger.error(
+                "Neustart von dhcpcd fehlgeschlagen – %s ist nicht verfügbar.",
+                primary_command,
+            )
+            flash(
+                "Der Netzwerkdienst konnte nicht neu gestartet werden (systemctl nicht gefunden).",
+                "network_settings",
+            )
+        except Exception:
+            logger.error(
+                "Neustart von dhcpcd nach Konfigurationsänderung fehlgeschlagen.",
+                exc_info=True,
+            )
+            flash(
+                "Der Netzwerkdienst konnte nicht neu gestartet werden. Bitte prüfe die Systemlogs.",
+                "network_settings",
+            )
+        else:
+            stdout_text = restart_result.stdout
+            stderr_text = restart_result.stderr
+            if _command_not_found(stderr_text, stdout_text, restart_result.returncode):
+                primary_command = _extract_primary_command(restart_command)
+                logger.error(
+                    "Neustart von dhcpcd fehlgeschlagen – %s ist nicht verfügbar.",
+                    primary_command,
+                )
+                flash(
+                    f"{primary_command} ist nicht verfügbar. Bitte starte den Netzwerkdienst manuell.",
+                    "network_settings",
+                )
+            elif restart_result.returncode != 0:
+                logger.error(
+                    "systemctl restart dhcpcd meldete einen Fehler (Code %s, stderr: %s)",
+                    restart_result.returncode,
+                    stderr_text,
+                )
+                flash(
+                    "Der Netzwerkdienst konnte nicht neu gestartet werden. Bitte prüfe die Systemlogs.",
+                    "network_settings",
+                )
+            else:
+                logger.info("dhcpcd wurde nach Änderung der Netzwerkkonfiguration neu gestartet.")
+                flash(
+                    "Der Netzwerkdienst (dhcpcd) wurde neu gestartet.",
+                    "network_settings",
+                )
+
     normalized_settings["local_domain"] = normalized_local_domain_input
 
     settings_to_store: Dict[str, str] = dict(normalized_settings)

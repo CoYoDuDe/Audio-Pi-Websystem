@@ -770,6 +770,7 @@ def test_network_settings_post_static_triggers_hostnamectl(monkeypatch, client):
     monkeypatch.setattr(app_module, "_normalize_network_settings", fake_normalize)
     monkeypatch.setattr(app_module, "_write_network_settings", fake_write)
     monkeypatch.setattr(app_module, "_get_current_hostname", lambda: "old-host")
+    monkeypatch.setattr(app_module, "is_sudo_disabled", lambda: False)
 
     host_updates: List[Tuple[str, str]] = []
 
@@ -796,10 +797,14 @@ def test_network_settings_post_static_triggers_hostnamectl(monkeypatch, client):
             self.stderr = ""
 
     run_calls: List[List[str]] = []
+    restart_calls: List[List[str]] = []
 
     def fake_run(cmd, *args, **kwargs):
         if isinstance(cmd, list) and cmd[:2] == ["hostnamectl", "set-hostname"]:
             run_calls.append(list(cmd))
+            return DummyResult()
+        if isinstance(cmd, list) and cmd[:3] == ["systemctl", "restart", "dhcpcd"]:
+            restart_calls.append(list(cmd))
             return DummyResult()
         return original_run(cmd, *args, **kwargs)
 
@@ -832,10 +837,196 @@ def test_network_settings_post_static_triggers_hostnamectl(monkeypatch, client):
         "hostname": "studio-pi",
         "local_domain": "studio.lan",
     }
-    assert command_calls == [("hostnamectl", "set-hostname", "studio-pi")]
+    assert command_calls == [
+        ("hostnamectl", "set-hostname", "studio-pi"),
+        ("systemctl", "restart", "dhcpcd"),
+    ]
     assert run_calls == [["hostnamectl", "set-hostname", "studio-pi"]]
+    assert restart_calls == [["systemctl", "restart", "dhcpcd"]]
     assert host_updates == [("studio-pi", "studio.lan")]
 
+
+def test_network_settings_triggers_dhcpcd_restart_on_change(monkeypatch, client):
+    test_client, app_module = client
+    _login(test_client)
+
+    normalized_result = app_module.NormalizedNetworkSettings(
+        interface="wlan0",
+        normalized={
+            "mode": "manual",
+            "ipv4_address": "192.168.50.10",
+            "ipv4_prefix": "24",
+            "ipv4_gateway": "192.168.50.1",
+            "dns_servers": "1.1.1.1, 8.8.8.8",
+            "local_domain": "",
+        },
+        original_lines=["# alt"],
+        new_lines=["# alt", "interface wlan0"],
+        dhcpcd_path=Path("/tmp/dhcpcd.conf"),
+        backup_path=None,
+        original_exists=True,
+    )
+
+    def fake_normalize(interface: str, payload: Mapping[str, str]):
+        assert interface == "wlan0"
+        return normalized_result
+
+    def fake_write(
+        interface: str,
+        payload: Mapping[str, str],
+        *,
+        normalized_result: Any = None,
+    ):
+        assert normalized_result is normalized_result_obj
+        return dict(normalized_result_obj.normalized)
+
+    normalized_result_obj = normalized_result
+    monkeypatch.setattr(app_module, "_normalize_network_settings", fake_normalize)
+    monkeypatch.setattr(app_module, "_write_network_settings", fake_write)
+    monkeypatch.setattr(app_module, "_get_current_hostname", lambda: "audio-pi")
+    monkeypatch.setattr(app_module, "is_sudo_disabled", lambda: False)
+
+    host_updates: List[Tuple[str, str]] = []
+
+    def fake_update_hosts(hostname: str, local_domain: str):
+        host_updates.append((hostname, local_domain))
+        return True
+
+    monkeypatch.setattr(app_module, "_update_hosts_file", fake_update_hosts)
+
+    command_calls: List[Tuple[str, ...]] = []
+
+    def fake_privileged_command(*args: str) -> List[str]:
+        command_calls.append(tuple(args))
+        return list(args)
+
+    monkeypatch.setattr(app_module, "privileged_command", fake_privileged_command)
+
+    class DummyResult:
+        def __init__(self):
+            self.returncode = 0
+            self.stdout = ""
+            self.stderr = ""
+
+    restart_calls: List[List[str]] = []
+    original_run = app_module.subprocess.run
+
+    def fake_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd[:3] == ["systemctl", "restart", "dhcpcd"]:
+            restart_calls.append(list(cmd))
+            return DummyResult()
+        return original_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+
+    response = csrf_post(
+        test_client,
+        "/network_settings",
+        data={
+            "mode": "manual",
+            "ipv4_address": "192.168.50.10",
+            "ipv4_prefix": "24",
+            "ipv4_gateway": "192.168.50.1",
+            "dns_servers": "1.1.1.1 8.8.8.8",
+            "hostname": "audio-pi",
+            "local_domain": "",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"Statische IPv4-Konfiguration gespeichert." in response.data
+    assert b"Der Netzwerkdienst (dhcpcd) wurde neu gestartet." in response.data
+    assert command_calls == [("systemctl", "restart", "dhcpcd")]
+    assert restart_calls == [["systemctl", "restart", "dhcpcd"]]
+    assert host_updates == [("audio-pi", "")]
+
+
+def test_network_settings_skips_restart_when_not_needed(monkeypatch, client):
+    test_client, app_module = client
+    _login(test_client)
+
+    normalized_result = app_module.NormalizedNetworkSettings(
+        interface="wlan0",
+        normalized={
+            "mode": "manual",
+            "ipv4_address": "192.168.60.10",
+            "ipv4_prefix": "24",
+            "ipv4_gateway": "192.168.60.1",
+            "dns_servers": "9.9.9.9, 1.1.1.1",
+            "local_domain": "",
+        },
+        original_lines=["interface wlan0"],
+        new_lines=["interface wlan0"],
+        dhcpcd_path=Path("/tmp/dhcpcd.conf"),
+        backup_path=None,
+        original_exists=True,
+    )
+
+    def fake_normalize(interface: str, payload: Mapping[str, str]):
+        assert interface == "wlan0"
+        return normalized_result
+
+    def fake_write(
+        interface: str,
+        payload: Mapping[str, str],
+        *,
+        normalized_result: Any = None,
+    ):
+        assert normalized_result is normalized_result_obj
+        return dict(normalized_result_obj.normalized)
+
+    normalized_result_obj = normalized_result
+    monkeypatch.setattr(app_module, "_normalize_network_settings", fake_normalize)
+    monkeypatch.setattr(app_module, "_write_network_settings", fake_write)
+    monkeypatch.setattr(app_module, "_get_current_hostname", lambda: "audio-pi")
+    monkeypatch.setattr(app_module, "is_sudo_disabled", lambda: False)
+
+    host_updates: List[Tuple[str, str]] = []
+
+    def fake_update_hosts(hostname: str, local_domain: str):
+        host_updates.append((hostname, local_domain))
+        return True
+
+    monkeypatch.setattr(app_module, "_update_hosts_file", fake_update_hosts)
+
+    command_calls: List[Tuple[str, ...]] = []
+
+    def fake_privileged_command(*args: str) -> List[str]:
+        command_calls.append(tuple(args))
+        return list(args)
+
+    monkeypatch.setattr(app_module, "privileged_command", fake_privileged_command)
+
+    original_run = app_module.subprocess.run
+
+    def guard_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd[:3] == ["systemctl", "restart", "dhcpcd"]:
+            raise AssertionError("systemctl sollte nicht aufgerufen werden")
+        return original_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(app_module.subprocess, "run", guard_run)
+
+    response = csrf_post(
+        test_client,
+        "/network_settings",
+        data={
+            "mode": "manual",
+            "ipv4_address": "192.168.60.10",
+            "ipv4_prefix": "24",
+            "ipv4_gateway": "192.168.60.1",
+            "dns_servers": "9.9.9.9 1.1.1.1",
+            "hostname": "audio-pi",
+            "local_domain": "",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"Statische IPv4-Konfiguration gespeichert." in response.data
+    assert b"Der Netzwerkdienst (dhcpcd) wurde neu gestartet." not in response.data
+    assert ("systemctl", "restart", "dhcpcd") not in command_calls
+    assert host_updates == [("audio-pi", "")]
 
 def test_network_settings_post_static_invalid_ip(monkeypatch, client):
     test_client, app_module = client

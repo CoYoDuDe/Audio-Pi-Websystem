@@ -563,9 +563,7 @@ nohook wpa_supplicant
 Wer ein anderes Subnetz oder eine andere Präfix-Länge benötigt, kann die Werte
 bereits während der Installation anpassen oder die erzeugte Konfiguration im
 Nachgang manuell editieren (z. B. `/etc/dhcpcd.conf` und
-`/etc/dnsmasq.d/audio-pi.conf`). Nach Änderungen empfiehlt sich ein Neustart des
-`dhcpcd`-Dienstes bzw. ein Reboot, damit alle Komponenten die neuen Einstellungen
-übernehmen.
+`/etc/dnsmasq.d/audio-pi.conf`).
 
 > 💡 Für automatisierte Setups lassen sich alle Access-Point-Parameter per
 > `INSTALL_AP_*` Variablen oder `--ap-*` Flags vorkonfigurieren. Zusammen mit
@@ -625,9 +623,18 @@ Backup-Datei und schreibt nur die Client-Sektion von `dhcpcd.conf`, während der
 Access-Point-Block unangetastet bleibt. Nach erfolgreicher Validierung wird
 `hostnamectl` ausgeführt, sobald sich der Wunschhost vom aktuellen Namen
 unterscheidet. Der anschließende `hosts`-Abgleich trägt `127.0.1.1` mit Hostname
-und optionaler lokaler Domain ein. Für einen vollständigen Systemwechsel empfiehlt
-es sich, `dhcpcd` neu zu starten bzw. den Pi zu rebooten, wie es die Raspberry-Pi
-Dokumentation beschreibt.
+und optionaler lokaler Domain ein.
+
+### Netzwerk/Administration
+
+Änderungen an der Netzwerkkonfiguration lösen automatisch einen Neustart des
+`dhcpcd`-Dienstes aus (`systemctl restart dhcpcd`). Die Weboberfläche informiert
+über Erfolg oder Fehler per Hinweisbannern und protokolliert dabei auch Fälle,
+in denen `sudo` deaktiviert ist oder `systemctl` fehlt. Bleibt der Neustart
+aus, kann der Dienst manuell über
+`systemctl restart dhcpcd` (siehe [systemctl-Referenz](https://www.freedesktop.org/software/systemd/man/latest/systemctl.html))
+oder durch einen kompletten Reboot wieder gestartet werden. Für detaillierte
+Fehlersuche empfiehlt sich `journalctl -u dhcpcd`.
 
 > ⚠️ **Rechteverwaltung:** Die ausführende Benutzerkennung benötigt weiterhin
 > die passenden `sudo`-Rechte für `hostnamectl` und ggf. `dhcpcd`. Entsprechende
