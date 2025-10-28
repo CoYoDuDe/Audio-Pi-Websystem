@@ -6105,16 +6105,16 @@ def _run_wpa_cli(
 @app.route("/wlan_connect", methods=["POST"])
 @login_required
 def wlan_connect():
-    raw_ssid = request.form.get("ssid")
-    normalized_ssid = raw_ssid.strip() if isinstance(raw_ssid, str) else ""
-    if not normalized_ssid:
+    raw_ssid_value = request.form.get("ssid")
+    if not isinstance(raw_ssid_value, str) or raw_ssid_value == "":
         flash("SSID darf nicht leer sein.", "warning")
         logging.warning("WLAN-Verbindungsversuch ohne gültige SSID abgebrochen.")
         return redirect(url_for("index"))
 
+    ssid = raw_ssid_value
     raw_password_value = request.form.get("password")
     raw_password = raw_password_value if isinstance(raw_password_value, str) else ""
-    formatted_ssid = _format_ssid_for_wpa_cli(normalized_ssid)
+    formatted_ssid = _format_ssid_for_wpa_cli(ssid)
     is_open_network = raw_password == ""
     is_hex_psk = _is_hex_psk(raw_password)
 
@@ -6126,7 +6126,7 @@ def wlan_connect():
             )
             logging.warning(
                 "WLAN-Verbindung zu SSID '%s' abgebrochen: Passphrase-Länge %s unzulässig.",
-                normalized_ssid,
+                ssid,
                 len(raw_password),
             )
             return redirect(url_for("index"))

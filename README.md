@@ -562,6 +562,16 @@ Wichtige Einstellungen können über Umgebungsvariablen angepasst werden:
 Weitere Variablen sind im Quelltext dokumentiert. Wird ein Port kleiner 1024
 eingesetzt, sind – je nach Startmethode – entsprechende Capabilities oder Root-Rechte notwendig (siehe Hinweise oben).
 
+### WLAN-Verbindung (Client)
+
+Beim Verbinden mit bestehenden WLANs übergibt die Weboberfläche die eingegebene
+SSID unverändert an `wpa_cli`. Das ist notwendig, weil `wpa_supplicant` laut
+Dokumentation führende oder nachgestellte Leerzeichen als Bestandteil des
+Netzwerknamens wertet und nur korrekt zitierte Zeichenketten exakt dieselbe SSID
+adressieren. Daher werden Eingaben lediglich auf echte Leereinträge (`None`/`""`)
+geprüft; alle anderen Zeichen – inklusive Leerzeichen am Anfang oder Ende –
+bleiben bewusst erhalten.
+
 ### WLAN-Access-Point
 
 Der Installer richtet auf Wunsch weiterhin `hostapd` und `dnsmasq` ein, fragt
