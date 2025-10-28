@@ -60,6 +60,36 @@ def _read_lines(path: Path) -> List[str]:
     return content.splitlines()
 
 
+def _candidate_backup_bases() -> List[Path]:
+    """Liefert mögliche Basisverzeichnisse für Backups."""
+
+    local_dir = Path.cwd() / ".audio-pi" / "network-backups"
+    system_dir = Path("/var/lib/dhcpcd/audio-pi")
+    candidates: List[Path] = []
+    for candidate in (local_dir, system_dir):
+        if candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
+
+
+def _sanitize_parent_for_backup(path: Path) -> str:
+    """Erstellt einen eindeutigen Namen für das Elternverzeichnis."""
+
+    parent = path.parent.as_posix().lstrip("/")
+    if not parent:
+        return ""
+    return parent.replace("/", "_")
+
+
+def _cleanup_backup_artifact(backup_path: Path) -> None:
+    """Entfernt ein temporär benötigtes Backup."""
+
+    try:
+        backup_path.unlink()
+    except (FileNotFoundError, PermissionError, OSError):
+        return
+
+
 def _backup_file(path: Path) -> Optional[Path]:
     if not path.exists():
         return None
@@ -69,9 +99,43 @@ def _backup_file(path: Path) -> Optional[Path]:
     try:
         shutil.copy2(path, backup_path)
     except Exception as exc:
+        if not isinstance(exc, PermissionError):
+            raise NetworkConfigError(
+                "Fehler beim Schreiben der Netzwerkkonfiguration: Backup konnte nicht erstellt werden."
+            ) from exc
+
+        fallback_error: Optional[BaseException] = exc
+        sanitized_parent = _sanitize_parent_for_backup(path)
+        for base in _candidate_backup_bases():
+            try:
+                base.mkdir(parents=True, exist_ok=True)
+            except (PermissionError, OSError) as mkdir_exc:
+                fallback_error = mkdir_exc
+                continue
+            target_dir = base
+            if sanitized_parent:
+                target_dir = base / sanitized_parent
+                try:
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                except (PermissionError, OSError) as mkdir_exc:
+                    fallback_error = mkdir_exc
+                    continue
+            fallback_path = target_dir / backup_name
+            try:
+                shutil.copy2(path, fallback_path)
+            except PermissionError as copy_exc:
+                fallback_error = copy_exc
+                continue
+            except Exception as copy_exc:
+                raise NetworkConfigError(
+                    "Fehler beim Schreiben der Netzwerkkonfiguration: Backup konnte nicht erstellt werden."
+                ) from copy_exc
+            else:
+                return fallback_path
+
         raise NetworkConfigError(
             "Fehler beim Schreiben der Netzwerkkonfiguration: Backup konnte nicht erstellt werden."
-        ) from exc
+        ) from fallback_error
     return backup_path
 
 
@@ -111,10 +175,25 @@ def _write_lines(path: Path, lines: Sequence[str], *, create_backup: bool = True
                 os.chmod(path, mode)
             else:
                 os.chmod(path, 0o644)
-        except Exception:
-            if create_backup and backup_path and backup_path.exists():
-                shutil.copy2(backup_path, path)
+        except NetworkConfigError:
             raise
+        except Exception as exc:
+            restore_error: Optional[BaseException] = None
+            if create_backup and backup_path and backup_path.exists():
+                try:
+                    shutil.copy2(backup_path, path)
+                except Exception as restore_exc:  # pragma: no cover - defensive fallback
+                    restore_error = restore_exc
+                finally:
+                    if backup_path.parent != path.parent:
+                        _cleanup_backup_artifact(backup_path)
+            if restore_error is not None:
+                raise NetworkConfigError(
+                    "Fehler beim Wiederherstellen der ursprünglichen Netzwerkkonfiguration."
+                ) from restore_error
+            raise NetworkConfigError(
+                "Fehler beim Schreiben der Netzwerkkonfiguration."
+            ) from exc
     finally:
         if tmp_path is not None and tmp_path.exists():
             try:
@@ -565,6 +644,9 @@ def restore_network_backup(result: NormalizedNetworkSettings) -> None:
     path = result.dhcpcd_path
     if result.backup_path and result.backup_path.exists():
         shutil.copy2(result.backup_path, path)
+        if result.backup_path.parent != path.parent:
+            _cleanup_backup_artifact(result.backup_path)
+        result.backup_path = None
         return
 
     if result.original_exists:

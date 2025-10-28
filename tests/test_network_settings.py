@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import shutil
 import sqlite3
 import sys
 from contextlib import contextmanager
@@ -223,6 +224,83 @@ def test_write_network_settings_manual_appends_client_block(network_module, tmp_
     backups = list(conf.parent.glob("dhcpcd.conf.bak.*"))
     assert len(backups) == 1
     assert backups[0].read_text(encoding="utf-8").startswith("# Basis\ninterface wlan0")
+
+
+def test_write_network_settings_backup_fallback_directory(
+    network_module, tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+
+    conf_dir = tmp_path / "etc"
+    conf_dir.mkdir()
+    conf = conf_dir / "dhcpcd.conf"
+    original_lines = [
+        "interface wlan0",
+        "static ip_address=10.0.0.5/24",
+        "static routers=10.0.0.1",
+    ]
+    _write_conf(conf, original_lines)
+
+    real_copy2 = shutil.copy2
+
+    def guarded_copy2(src, dst, *args, **kwargs):
+        src_path = Path(src)
+        dst_path = Path(dst)
+        if src_path == conf and dst_path.parent == conf.parent:
+            raise PermissionError("Zielverzeichnis ist schreibgeschützt")
+        return real_copy2(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(network_module.shutil, "copy2", guarded_copy2)
+
+    normalized_result = network_module.normalize_network_settings(
+        "wlan0",
+        {
+            "mode": "manual",
+            "ipv4_address": "192.168.1.20",
+            "ipv4_prefix": "24",
+            "ipv4_gateway": "192.168.1.1",
+            "dns_servers": "1.1.1.1 9.9.9.9",
+            "local_domain": "lan.local",
+        },
+        conf,
+    )
+
+    backup_path = normalized_result.backup_path
+    assert backup_path is not None
+    assert backup_path.parent != conf.parent
+    assert backup_path.exists()
+
+    written = network_module.write_network_settings(
+        "wlan0",
+        {
+            "mode": "manual",
+            "ipv4_address": "192.168.1.20",
+            "ipv4_prefix": "24",
+            "ipv4_gateway": "192.168.1.1",
+            "dns_servers": "1.1.1.1 9.9.9.9",
+            "local_domain": "lan.local",
+        },
+        conf,
+        normalized_result=normalized_result,
+    )
+
+    assert written == {
+        "mode": "manual",
+        "ipv4_address": "192.168.1.20",
+        "ipv4_prefix": "24",
+        "ipv4_gateway": "192.168.1.1",
+        "dns_servers": "1.1.1.1, 9.9.9.9",
+        "local_domain": "lan.local",
+    }
+
+    assert conf.read_text(encoding="utf-8").splitlines() != original_lines
+    assert backup_path.exists()
+
+    network_module.restore_network_backup(normalized_result)
+
+    assert conf.read_text(encoding="utf-8").splitlines() == original_lines
+    assert normalized_result.backup_path is None
+    assert not backup_path.exists()
 
 
 def test_write_network_settings_invalid_ipv4(network_module, tmp_path: Path):

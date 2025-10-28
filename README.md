@@ -663,6 +663,13 @@ Access-Point-Block unangetastet bleibt. Nach erfolgreicher Validierung wird
 unterscheidet. Der anschließende `hosts`-Abgleich trägt `127.0.1.1` mit Hostname
 und optionaler lokaler Domain ein.
 
+Sollte das ursprüngliche Verzeichnis (z. B. `/etc`) wegen fehlender Schreibrechte
+kein Backup zulassen, legt Audio-Pi automatisch eine Sicherung unter
+`.audio-pi/network-backups/…` im aktuellen Arbeitsverzeichnis oder – falls
+verfügbar – unter `/var/lib/dhcpcd/audio-pi/` ab. Der tatsächlich genutzte
+Pfad landet im Normalisierungsresultat und wird bei einer Wiederherstellung
+ebenfalls wieder entfernt, sodass keine verwaisten Sicherungen verbleiben.
+
 Schlägt einer der Schritte nach der Validierung fehl (Speichern der
 `dhcpcd.conf`, Aufruf von `hostnamectl` oder das Aktualisieren von
 `/etc/hosts`), setzt das System automatisch Hostname, Host-Datei und
