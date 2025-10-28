@@ -11,6 +11,7 @@ import glob
 import shlex
 import socket
 import uuid
+from urllib.parse import urlparse
 from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.schedulers.base import (
@@ -4146,12 +4147,15 @@ def disable_ap():
 # ---- Flask Web-UI ----
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    next_param = request.args.get("next", "") or ""
     if request.method == "POST":
+        next_param = request.form.get("next", next_param) or ""
         username = request.form.get("username", "")
         password = request.form.get("password", "")
         if not username or not password:
             flash("Benutzername und Passwort sind erforderlich.")
-            return redirect(url_for("login"))
+            login_url = url_for("login", next=next_param) if next_param else url_for("login")
+            return redirect(login_url)
         with get_db_connection() as (conn, cursor):
             cursor.execute("SELECT * FROM users WHERE username=?", (username,))
             user_data = cursor.fetchone()
@@ -4167,9 +4171,13 @@ def login():
             if user.must_change_password:
                 flash("Bitte ändern Sie das initiale Passwort, bevor Sie fortfahren.")
                 return redirect(url_for("change_password"))
+            if next_param:
+                parsed_next = urlparse(next_param)
+                if not parsed_next.netloc and not parsed_next.scheme:
+                    return redirect(next_param)
             return redirect(url_for("index"))
         flash("Falsche Anmeldedaten")
-    return render_template("login.html")
+    return render_template("login.html", next_value=next_param)
 
 
 @app.route("/logout", methods=["POST"], endpoint="logout_route")

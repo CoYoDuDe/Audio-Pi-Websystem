@@ -1,6 +1,7 @@
 import importlib
 import sys
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -98,6 +99,38 @@ def test_change_password_missing_fields_redirects_with_flash(client):
 
     follow_response = client.get("/change_password")
     assert b"Altes und neues Passwort sind erforderlich." in follow_response.data
+
+
+def test_login_redirects_to_requested_page_after_success(client):
+    client, app_module = client
+    with app_module.get_db_connection() as (conn, cursor):
+        cursor.execute(
+            "UPDATE users SET must_change_password=0 WHERE username=?",
+            ("admin",),
+        )
+        conn.commit()
+
+    protected_response = client.get("/logs", follow_redirects=False)
+    assert protected_response.status_code == 302
+    location = protected_response.headers.get("Location", "")
+    assert location.startswith("/login")
+
+    parsed_location = urlparse(location)
+    query = parse_qs(parsed_location.query)
+    assert query.get("next") == ["/logs"]
+
+    login_response = csrf_post(
+        client,
+        "/login",
+        data={"username": "admin", "password": "password", "next": "/logs"},
+        follow_redirects=False,
+        source_url="/login?next=/logs",
+    )
+    assert login_response.status_code == 302
+    assert login_response.headers.get("Location", "").endswith("/logs")
+
+    logs_response = client.get("/logs")
+    assert logs_response.status_code == 200
 
 
 def test_add_schedule_missing_fields_redirects_with_flash(client):
