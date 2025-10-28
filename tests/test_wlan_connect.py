@@ -92,6 +92,38 @@ def test_wlan_connect_quotes_ascii_ssid(client, monkeypatch):
     assert password_call[6] == '"secretpass"'
 
 
+def test_wlan_connect_preserves_ssid_whitespace(client, monkeypatch):
+    flask_client, app_module = client
+    calls = []
+
+    def fake_run(args, **kwargs):
+        assert args[0:3] == ["wpa_cli", "-i", "wlan0"]
+        calls.append(args)
+        if args[-1] == "add_network":
+            return CompletedProcess(args, 0, stdout="5\n", stderr="")
+        return CompletedProcess(args, 0, stdout="OK\n", stderr="")
+
+    _login_admin(flask_client)
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+    response = csrf_post(
+        flask_client,
+        "/wlan_connect",
+        data={"ssid": " My Wifi ", "password": "secretpass"},
+        follow_redirects=False,
+        source_url="/change_password",
+    )
+
+    assert response.status_code == 302
+
+    ssid_call = next(
+        call
+        for call in calls
+        if len(call) > 6 and call[3] == "set_network" and call[5] == "ssid"
+    )
+
+    assert ssid_call[6] == '" My Wifi "'
+
+
 def test_wlan_connect_preserves_leading_space(client, monkeypatch):
     flask_client, app_module = client
     calls = []
@@ -271,7 +303,7 @@ def test_wlan_connect_rejects_empty_ssid(client, monkeypatch):
     response = csrf_post(
         flask_client,
         "/wlan_connect",
-        data={"ssid": "   ", "password": "secretpass"},
+        data={"ssid": "", "password": "secretpass"},
         follow_redirects=True,
         source_url="/change_password",
     )
