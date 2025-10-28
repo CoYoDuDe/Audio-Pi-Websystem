@@ -1420,6 +1420,19 @@ def initialize_database():
         )
         cursor.execute(
             """
+            DELETE FROM playlist_files
+            WHERE rowid NOT IN (
+                SELECT MIN(rowid)
+                FROM playlist_files
+                GROUP BY playlist_id, file_id
+            )
+            """
+        )
+        cursor.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_playlist_files_unique ON playlist_files (playlist_id, file_id)"
+        )
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS hardware_buttons (
                 id INTEGER PRIMARY KEY,
                 gpio_pin INTEGER UNIQUE,
@@ -4796,7 +4809,15 @@ def add_to_playlist():
             )
         except sqlite3.IntegrityError as exc:
             conn.rollback()
-            flash(f"Datei konnte nicht zur Playlist hinzugefügt werden: {exc}")
+            error_message = str(exc)
+            sqlite_errorname = getattr(exc, "sqlite_errorname", "") or ""
+            if "UNIQUE" in error_message.upper() or sqlite_errorname == "SQLITE_CONSTRAINT_UNIQUE":
+                flash("Diese Datei ist bereits in der Playlist vorhanden.")
+            else:
+                flash(
+                    "Datei konnte nicht zur Playlist hinzugefügt werden: "
+                    f"{error_message}"
+                )
             return redirect(url_for("index"))
 
         conn.commit()
