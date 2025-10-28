@@ -4147,8 +4147,11 @@ def disable_ap():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        username = request.form["username"]
-        password = request.form["password"]
+        username = request.form.get("username", "")
+        password = request.form.get("password", "")
+        if not username or not password:
+            flash("Benutzername und Passwort sind erforderlich.")
+            return redirect(url_for("login"))
         with get_db_connection() as (conn, cursor):
             cursor.execute("SELECT * FROM users WHERE username=?", (username,))
             user_data = cursor.fetchone()
@@ -5436,10 +5439,13 @@ def save_schedule_default_volume():
 @login_required
 def add_schedule():
     volume_raw = (request.form.get("volume_percent") or "").strip()
-    item_type = request.form["item_type"]
-    item_id = request.form["item_id"]
-    time_str = request.form["time"]  # Erwarte Format YYYY-MM-DDTHH:MM
-    repeat = request.form["repeat"]
+    item_type = (request.form.get("item_type", "") or "").strip()
+    item_id = (request.form.get("item_id", "") or "").strip()
+    time_str = (request.form.get("time", "") or "").strip()  # Erwarte Format YYYY-MM-DDTHH:MM
+    repeat = (request.form.get("repeat", "") or "").strip()
+    if not item_type or not item_id or not time_str or not repeat:
+        flash("Zeitplan konnte nicht hinzugefügt werden: Erforderliche Felder fehlen.")
+        return redirect(url_for("index"))
     delay_raw = request.form.get("delay", "0")
     try:
         delay = int(delay_raw)
@@ -5820,7 +5826,7 @@ def _run_wpa_cli(
 @app.route("/wlan_connect", methods=["POST"])
 @login_required
 def wlan_connect():
-    ssid = request.form["ssid"]
+    ssid = request.form.get("ssid", "")
     normalized_ssid = ssid.strip()
     if not normalized_ssid:
         flash("SSID darf nicht leer sein.")
@@ -6121,8 +6127,11 @@ def logs():
 def change_password():
     force_change = getattr(current_user, "must_change_password", False)
     if request.method == "POST":
-        old_pass = request.form["old_password"]
-        new_pass = request.form["new_password"]
+        old_pass = request.form.get("old_password", "")
+        new_pass = request.form.get("new_password", "")
+        if not old_pass or not new_pass:
+            flash("Altes und neues Passwort sind erforderlich.")
+            return redirect(url_for("change_password"))
         if not new_pass or len(new_pass) < 8:
             flash("Neues Passwort zu kurz")
             return render_template("change_password.html", force_change=force_change)
