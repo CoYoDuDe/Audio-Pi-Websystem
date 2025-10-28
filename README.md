@@ -389,7 +389,8 @@ lässt sich das Verhalten bei Bedarf weiter abstimmen.
   `/etc/polkit-1/rules.d/49-audio-pi.rules` an. Die Regel gestattet dem
   Dienstkonto exakt die benötigten Aktionen (`systemctl start/stop/restart`
   für `hostapd`, `dnsmasq`, `dhcpcd`, `systemd-timesyncd`, `audio-pi`,
-  `systemctl reboot/poweroff` sowie `timedatectl set-time/set-ntp`). Dadurch
+  `audio-pi-iptables-restore`, `systemctl reboot/poweroff` sowie
+  `timedatectl set-time/set-ntp`). Dadurch
   funktionieren AP-Umschaltung, Zeitsync, DHCP-Client-Neustarts und Neustart ohne
   `sudo`-Wrapper. Nach Regel- oder Unit-Updates empfiehlt sich zusätzlich
   `sudo systemctl daemon-reload`, damit systemd geänderte Abhängigkeiten sofort

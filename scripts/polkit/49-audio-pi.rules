@@ -25,6 +25,7 @@ polkit.addRule(function(action, subject) {
         "hostapd.service": ["start", "stop", "restart"],
         "systemd-timesyncd.service": ["start", "stop", "restart"],
         "dhcpcd.service": ["start", "stop", "restart"],
+        "audio-pi-iptables-restore.service": ["start", "stop", "restart"],
         "audio-pi-alsactl.service": ["start"]
     };
 
