@@ -20,6 +20,7 @@ REQUIRED_READWRITE_PATHS = (
     "/etc/dhcpcd.conf",
     "/etc/hosts",
     "/etc/hostname",
+    "/etc/wpa_supplicant",
     "/var/lib/dhcpcd",
 )
 
@@ -56,8 +57,7 @@ def test_service_allows_expected_writable_paths_only() -> None:
 
     content = SERVICE.read_text(encoding="utf-8")
     readwrite_paths = _collect_readwrite_paths(content)
-    for path in REQUIRED_READWRITE_PATHS:
-        assert path in readwrite_paths
+    assert readwrite_paths == set(REQUIRED_READWRITE_PATHS)
     assert "ProtectSystem=strict" in content
 
 
@@ -66,3 +66,14 @@ def test_installer_advises_daemon_reload_after_unit_updates() -> None:
 
     script = INSTALLER.read_text(encoding="utf-8")
     assert "Empfehlung nach Unit-Updates: sudo systemctl daemon-reload" in script
+
+
+def test_installer_updates_readwrite_paths_list() -> None:
+    """Das Installationsskript muss die vollständige ReadWritePaths-Liste setzen."""
+
+    script = INSTALLER.read_text(encoding="utf-8")
+    expected = (
+        'UPDATED_READWRITE_PATHS="$INSTALL_ABS_PATH /etc/dhcpcd.conf /etc/hosts '
+        '/etc/hostname /etc/wpa_supplicant /var/lib/dhcpcd"'
+    )
+    assert expected in script

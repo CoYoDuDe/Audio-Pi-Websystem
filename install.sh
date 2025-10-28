@@ -1804,7 +1804,8 @@ fi
 
 # systemd-Dienst einrichten
 sudo cp audio-pi.service /etc/systemd/system/
-SYSTEMD_SAFE_PWD=$(printf '%s' "$(pwd)" | sed -e 's/[\\&|]/\\&/g')
+INSTALL_ABS_PATH="$(pwd)"
+SYSTEMD_SAFE_PWD=$(printf '%s' "$INSTALL_ABS_PATH" | sed -e 's/[\\&|]/\\&/g')
 sudo sed -i "s|/opt/Audio-Pi-Websystem|$SYSTEMD_SAFE_PWD|g" /etc/systemd/system/audio-pi.service
 if sudo grep -q '^EnvironmentFile=' /etc/systemd/system/audio-pi.service; then
     sudo sed -i "s|^EnvironmentFile=.*|EnvironmentFile=$AUDIO_PI_ENV_FILE|" /etc/systemd/system/audio-pi.service
@@ -1816,6 +1817,10 @@ if sudo grep -q '^Environment=FLASK_PORT=' /etc/systemd/system/audio-pi.service;
 else
     echo "Environment=FLASK_PORT=${CONFIGURED_FLASK_PORT}" | sudo tee -a /etc/systemd/system/audio-pi.service >/dev/null
 fi
+UPDATED_READWRITE_PATHS="$INSTALL_ABS_PATH /etc/dhcpcd.conf /etc/hosts /etc/hostname /etc/wpa_supplicant /var/lib/dhcpcd"
+UPDATED_READWRITE_PATHS_ESCAPED=$(printf '%s' "$UPDATED_READWRITE_PATHS" | sed -e 's/[\\&|]/\\&/g')
+sudo sed -i "s|^ReadWritePaths=.*|ReadWritePaths=$UPDATED_READWRITE_PATHS_ESCAPED|" /etc/systemd/system/audio-pi.service
+echo "ReadWritePaths aktualisiert: $UPDATED_READWRITE_PATHS"
 SYSTEMD_DISABLE_SUDO_VALUE=${INSTALL_DISABLE_SUDO:-1}
 SYSTEMD_DISABLE_SUDO_ESCAPED=$(printf '%s' "$SYSTEMD_DISABLE_SUDO_VALUE" | sed -e 's/[\\&|]/\\&/g')
 if sudo grep -q '^Environment=AUDIO_PI_DISABLE_SUDO=' /etc/systemd/system/audio-pi.service; then
