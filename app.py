@@ -1181,8 +1181,21 @@ def read_rtc():
             weekday_raw,
             dt_value.weekday(),
         )
-    target_tz = LOCAL_TZ
     offset_minutes = _load_rtc_local_offset_minutes()
+    target_tz = LOCAL_TZ
+    if offset_minutes is None:
+        legacy_tz = target_tz
+        if legacy_tz is None:
+            try:
+                legacy_tz = datetime.now().astimezone().tzinfo
+            except Exception:  # pragma: no cover - Plattform ohne Zeitzoneninformationen
+                legacy_tz = None
+        if legacy_tz is not None:
+            dt_value = dt_value.replace(tzinfo=legacy_tz)
+        else:
+            logging.getLogger(__name__).debug(
+                "RTC-Wert ohne Offset-Einstellung, behalte UTC bei"
+            )
     if target_tz is None and offset_minutes is not None:
         target_tz = timezone(timedelta(minutes=offset_minutes))
     if target_tz is None:

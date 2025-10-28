@@ -120,11 +120,34 @@ def test_index_warns_when_dac_sink_missing(client):
     assert b"Gepr\xc3\xbcfter Sink: alsa_output.expected_sink" in response.data
 
 
-def test_ds3231_read_and_write_cycle(app_module):
+def test_read_rtc_without_offset_treats_value_as_local(app_module):
     berlin = ZoneInfo("Europe/Berlin")
     app_module.LOCAL_TZ = berlin
     app_module.RTC_LAST_LOCAL_OFFSET_MINUTES = None
     app_module.set_setting(app_module.RTC_LOCAL_OFFSET_SETTING_KEY, "")
+
+    class DummyBus:
+        def read_i2c_block_data(self, address, register, length):
+            assert address == 0x68
+            assert register == 0x00
+            assert length == 7
+            return [0x45, 0x34, 0x20, 0x06, 0x15, 0x03, 0x24]
+
+    dummy_bus = DummyBus()
+    app_module.bus = dummy_bus
+    app_module.RTC_AVAILABLE = True
+    app_module.RTC_ADDRESS = 0x68
+    app_module.RTC_DETECTED_ADDRESS = 0x68
+
+    dt = app_module.read_rtc()
+    assert dt == datetime(2024, 3, 15, 20, 34, 45, tzinfo=berlin)
+
+
+def test_ds3231_read_and_write_cycle(app_module):
+    berlin = ZoneInfo("Europe/Berlin")
+    app_module.LOCAL_TZ = berlin
+    app_module.RTC_LAST_LOCAL_OFFSET_MINUTES = None
+    app_module.set_setting(app_module.RTC_LOCAL_OFFSET_SETTING_KEY, "60")
 
     class DummyBus:
         def __init__(self):
@@ -163,7 +186,7 @@ def test_pcf8563_read_and_write_cycle(app_module):
     berlin = ZoneInfo("Europe/Berlin")
     app_module.LOCAL_TZ = berlin
     app_module.RTC_LAST_LOCAL_OFFSET_MINUTES = None
-    app_module.set_setting(app_module.RTC_LOCAL_OFFSET_SETTING_KEY, "")
+    app_module.set_setting(app_module.RTC_LOCAL_OFFSET_SETTING_KEY, "60")
 
     class DummyBus:
         def __init__(self):
