@@ -193,3 +193,30 @@ def test_system_command_not_found_flash(monkeypatch, tmp_path):
     assert b"Neustart konnte nicht gestartet werden" in response.data
     assert b"systemctl nicht gefunden" in response.data
     assert b"Systemneustart eingeleitet." not in response.data
+
+
+def test_logout_rejects_get_requests(client):
+    client, _ = client
+    _login(client)
+
+    response = client.get("/logout")
+
+    assert response.status_code == 405
+
+
+def test_logout_post_succeeds_with_csrf(client):
+    client, _ = client
+    _login(client)
+
+    response = csrf_post(
+        client,
+        "/logout",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert "/login" in response.headers.get("Location", "")
+
+    post_logout_response = client.get("/", follow_redirects=False)
+    assert post_logout_response.status_code == 302
+    assert "/login" in post_logout_response.headers.get("Location", "")
