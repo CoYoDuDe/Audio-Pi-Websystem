@@ -377,11 +377,13 @@ lässt sich das Verhalten bei Bedarf weiter abstimmen.
   (gleichzeitig als `AmbientCapabilities` gesetzt) und kombiniert dies mit
   `NoNewPrivileges=yes`, `RestrictSUIDSGID=yes`,
   `SystemCallFilter=@system-service`, `RestrictNamespaces=yes`,
-  `ProtectSystem=strict`, `ReadWritePaths=/opt/Audio-Pi-Websystem /etc/dhcpcd.conf /etc/hosts /etc/hostname /var/lib/dhcpcd`
+  `ProtectSystem=strict`, `ReadWritePaths=/opt/Audio-Pi-Websystem /etc/dhcpcd.conf /etc/hosts /etc/hostname /etc/wpa_supplicant /var/lib/dhcpcd`
   sowie einem eingeschränkten `RestrictAddressFamilies`-Set. Laufzeitdaten
-  bleiben dadurch auf das Projektverzeichnis sowie die explizit benötigten
-  Netzwerk-Konfigurationsdateien beschränkt, während die Anwendung dennoch Port
-  80 ohne Root-Rechte binden kann.
+  bleiben dadurch auf das Projektverzeichnis, die WLAN-Konfigurationsdateien und
+  die explizit benötigten Netzwerkpfade beschränkt, während die Anwendung
+  dennoch Port 80 ohne Root-Rechte binden kann. Nach Änderungen an der Unit ist
+  stets `sudo systemctl daemon-reload` erforderlich, bevor ein Neustart die
+  aktualisierten Sandbox-Ausnahmen übernimmt.
 - **Polkit-Standard (sudo-frei):** Der Installer aktiviert ab sofort
   `AUDIO_PI_DISABLE_SUDO=1` und legt automatisch
   `/etc/polkit-1/rules.d/49-audio-pi.rules` an. Die Regel gestattet dem
