@@ -1879,6 +1879,44 @@ UPDATED_READWRITE_PATHS="$INSTALL_ABS_PATH /etc/dhcpcd.conf /etc/hosts /etc/host
 UPDATED_READWRITE_PATHS_ESCAPED=$(printf '%s' "$UPDATED_READWRITE_PATHS" | sed -e 's/[\\&|]/\\&/g')
 sudo sed -i "s|^ReadWritePaths=.*|ReadWritePaths=$UPDATED_READWRITE_PATHS_ESCAPED|" /etc/systemd/system/audio-pi.service
 echo "ReadWritePaths aktualisiert: $UPDATED_READWRITE_PATHS"
+if ! command -v setfacl >/dev/null 2>&1; then
+    if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
+        echo "[Dry-Run] Würde Paket 'acl' installieren, um setfacl bereitzustellen."
+    else
+        apt_get install -y acl
+    fi
+fi
+ACL_TARGET_FILES=(/etc/dhcpcd.conf /etc/hosts /etc/hostname)
+ACL_TARGET_DIR="/etc/wpa_supplicant"
+if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
+    for acl_target in "${ACL_TARGET_FILES[@]}"; do
+        if [ -e "$acl_target" ]; then
+            echo "[Dry-Run] Würde ACL-Schreibrechte für ${TARGET_USER} auf ${acl_target} setzen (setfacl -m u:${TARGET_USER}:rw ${acl_target})."
+        else
+            echo "[Dry-Run] Hinweis: ${acl_target} existiert nicht – ACL-Anpassung würde übersprungen."
+        fi
+    done
+    if [ -d "$ACL_TARGET_DIR" ]; then
+        echo "[Dry-Run] Würde rekursiv ACL-Schreibrechte für ${TARGET_USER} auf ${ACL_TARGET_DIR} setzen (setfacl -R -m u:${TARGET_USER}:rwX ${ACL_TARGET_DIR})."
+    else
+        echo "[Dry-Run] Hinweis: ${ACL_TARGET_DIR} existiert nicht – ACL-Anpassung würde übersprungen."
+    fi
+else
+    for acl_target in "${ACL_TARGET_FILES[@]}"; do
+        if [ -e "$acl_target" ]; then
+            echo "Setze ACL-Schreibrechte für ${TARGET_USER} auf ${acl_target}."
+            sudo setfacl -m "u:${TARGET_USER}:rw" "$acl_target"
+        else
+            echo "Hinweis: ${acl_target} existiert nicht – ACL-Anpassung übersprungen."
+        fi
+    done
+    if [ -d "$ACL_TARGET_DIR" ]; then
+        echo "Setze rekursiv ACL-Schreibrechte für ${TARGET_USER} auf ${ACL_TARGET_DIR}."
+        sudo setfacl -R -m "u:${TARGET_USER}:rwX" "$ACL_TARGET_DIR"
+    else
+        echo "Hinweis: ${ACL_TARGET_DIR} existiert nicht – ACL-Anpassung übersprungen."
+    fi
+fi
 SYSTEMD_DISABLE_SUDO_VALUE=${INSTALL_DISABLE_SUDO:-1}
 SYSTEMD_DISABLE_SUDO_ESCAPED=$(printf '%s' "$SYSTEMD_DISABLE_SUDO_VALUE" | sed -e 's/[\\&|]/\\&/g')
 if sudo grep -q '^Environment=AUDIO_PI_DISABLE_SUDO=' /etc/systemd/system/audio-pi.service; then
