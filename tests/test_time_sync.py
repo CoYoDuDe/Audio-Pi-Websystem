@@ -151,12 +151,17 @@ def test_sync_time_handles_timesyncd_failure(monkeypatch, client):
     commands = []
     called_set_rtc = False
     restart_failure_triggered = {"value": False}
+    status_command = app_module.privileged_command(
+        "timedatectl", "show", "-p", "SystemClockSynchronized", "--value"
+    )
 
     def fake_run(cmd, *args, **kwargs):
         assert kwargs.get("check") is True
         assert kwargs.get("capture_output") is True
         assert kwargs.get("text") is True
         commands.append(cmd)
+        if cmd == status_command:
+            return app_module.subprocess.CompletedProcess(cmd, 0, "yes\n", "")
         restart_command = app_module.privileged_command(
             "systemctl", "restart", "systemd-timesyncd"
         )
@@ -204,12 +209,17 @@ def test_sync_time_succeeds_without_rtc(monkeypatch, client):
     _login(client)
 
     recorded_commands = []
+    status_command = app_module.privileged_command(
+        "timedatectl", "show", "-p", "SystemClockSynchronized", "--value"
+    )
 
     def fake_run(cmd, *args, **kwargs):
         assert kwargs.get("check") is True
         assert kwargs.get("capture_output") is True
         assert kwargs.get("text") is True
         recorded_commands.append(list(cmd))
+        if list(cmd) == status_command:
+            return app_module.subprocess.CompletedProcess(cmd, 0, "yes\n", "")
         return app_module.subprocess.CompletedProcess(cmd, 0, "", "")
 
     def fake_set_rtc(_dt):
@@ -234,6 +244,7 @@ def test_sync_time_succeeds_without_rtc(monkeypatch, client):
     assert disable_command in recorded_commands
     assert enable_command in recorded_commands
     assert restart_command in recorded_commands
+    assert status_command in recorded_commands
     assert any("RTC" in message for message in messages)
     assert any(
         "Zeit vom Internet synchronisiert" in message for message in messages
@@ -264,11 +275,16 @@ def test_sync_time_does_not_flash_success_on_restart_failure(monkeypatch, client
     restart_command = app_module.privileged_command(
         "systemctl", "restart", "systemd-timesyncd"
     )
+    status_command = app_module.privileged_command(
+        "timedatectl", "show", "-p", "SystemClockSynchronized", "--value"
+    )
 
     def fake_run(cmd, *args, **kwargs):
         assert kwargs.get("check") is True
         assert kwargs.get("capture_output") is True
         assert kwargs.get("text") is True
+        if cmd == status_command:
+            return app_module.subprocess.CompletedProcess(cmd, 0, "yes\n", "")
         if cmd == restart_command:
             restart_attempts["count"] += 1
             raise app_module.subprocess.CalledProcessError(
@@ -296,6 +312,55 @@ def test_sync_time_does_not_flash_success_on_restart_failure(monkeypatch, client
     assert called_set_rtc is False
     assert b"Zeit vom Internet synchronisiert" not in response.data
     assert b"systemd-timesyncd konnte nicht neu gestartet werden" in response.data
+
+
+def test_sync_time_from_internet_reports_timeout(monkeypatch, client):
+    client, app_module = client
+    _login(client)
+
+    status_command = app_module.privileged_command(
+        "timedatectl", "show", "-p", "SystemClockSynchronized", "--value"
+    )
+    commands = []
+    set_rtc_called = False
+
+    def fake_run(cmd, *args, **kwargs):
+        assert kwargs.get("check") is True
+        assert kwargs.get("capture_output") is True
+        assert kwargs.get("text") is True
+        commands.append(list(cmd))
+        if list(cmd) == status_command:
+            return app_module.subprocess.CompletedProcess(cmd, 0, "no\n", "")
+        return app_module.subprocess.CompletedProcess(cmd, 0, "", "")
+
+    def fake_set_rtc(_dt):
+        nonlocal set_rtc_called
+        set_rtc_called = True
+
+    monotonic_values = [0.0, 0.1, 0.2, 0.3]
+
+    def fake_monotonic():
+        return monotonic_values.pop(0) if monotonic_values else 1.0
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(app_module, "set_rtc", fake_set_rtc)
+    monkeypatch.setattr(app_module.time, "monotonic", fake_monotonic)
+    monkeypatch.setattr(app_module.time, "sleep", lambda *args, **kwargs: None)
+    monkeypatch.setenv("AUDIO_PI_TIMESYNC_TIMEOUT_SECONDS", "0.25")
+    monkeypatch.setenv("AUDIO_PI_TIMESYNC_POLL_INTERVAL_SECONDS", "0.1")
+
+    response = csrf_post(
+        client,
+        "/sync_time_from_internet",
+        follow_redirects=True,
+    )
+
+    assert status_command in commands
+    assert set_rtc_called is False
+    assert (
+        b"Zeitserver-Synchronisation konnte nicht best\xc3\xa4tigt werden (Timeout)"
+        in response.data
+    )
 
 
 def test_sync_time_rejects_get_after_login(client):
@@ -344,12 +409,17 @@ def test_set_time_triggers_internet_sync(monkeypatch, client):
 
 def test_perform_internet_time_sync_handles_missing_systemctl(monkeypatch, app_module):
     commands = []
+    status_command = app_module.privileged_command(
+        "timedatectl", "show", "-p", "SystemClockSynchronized", "--value"
+    )
 
     def fake_run(cmd, *args, **kwargs):
         assert kwargs.get("check") is True
         assert kwargs.get("capture_output") is True
         assert kwargs.get("text") is True
         commands.append(cmd)
+        if cmd == status_command:
+            return app_module.subprocess.CompletedProcess(cmd, 0, "yes\n", "")
         restart_command = app_module.privileged_command(
             "systemctl", "restart", "systemd-timesyncd"
         )
@@ -384,6 +454,9 @@ def test_perform_internet_time_sync_handles_missing_systemctl(monkeypatch, app_m
 def test_perform_internet_time_sync_handles_missing_timedatectl(monkeypatch, app_module):
     commands = []
     rtc_called = False
+    status_command = app_module.privileged_command(
+        "timedatectl", "show", "-p", "SystemClockSynchronized", "--value"
+    )
 
     def fake_run(cmd, *args, **kwargs):
         assert kwargs.get("check") is True
@@ -395,6 +468,8 @@ def test_perform_internet_time_sync_handles_missing_timedatectl(monkeypatch, app
         )
         if cmd == disable_cmd:
             raise FileNotFoundError(2, "No such file or directory", cmd[0])
+        if cmd == status_command:
+            return app_module.subprocess.CompletedProcess(cmd, 0, "yes\n", "")
         return app_module.subprocess.CompletedProcess(cmd, 0, "", "")
 
     def fake_set_rtc(dt):
@@ -422,6 +497,9 @@ def test_perform_internet_time_sync_handles_sudo_missing_timedatectl(
 ):
     commands = []
     rtc_called = False
+    status_command = sudo_app_module.privileged_command(
+        "timedatectl", "show", "-p", "SystemClockSynchronized", "--value"
+    )
 
     def fake_run(cmd, *args, **kwargs):
         assert kwargs.get("check") is True
@@ -438,6 +516,8 @@ def test_perform_internet_time_sync_handles_sudo_missing_timedatectl(
                 stderr="sudo: timedatectl: Befehl nicht gefunden",
                 output="",
             )
+        if cmd == status_command:
+            return sudo_app_module.subprocess.CompletedProcess(cmd, 0, "yes\n", "")
         return sudo_app_module.subprocess.CompletedProcess(cmd, 0, "", "")
 
     def fake_set_rtc(dt):
@@ -467,11 +547,16 @@ def test_perform_internet_time_sync_cleanup_failure_after_success(monkeypatch, a
     restart_command = app_module.privileged_command(
         "systemctl", "restart", "systemd-timesyncd"
     )
+    status_command = app_module.privileged_command(
+        "timedatectl", "show", "-p", "SystemClockSynchronized", "--value"
+    )
 
     def fake_run(cmd, *args, **kwargs):
         assert kwargs.get("check") is True
         assert kwargs.get("capture_output") is True
         assert kwargs.get("text") is True
+        if cmd == status_command:
+            return app_module.subprocess.CompletedProcess(cmd, 0, "yes\n", "")
         if cmd == restart_command:
             restart_calls["count"] += 1
             if restart_calls["count"] == 2:

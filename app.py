@@ -6305,6 +6305,105 @@ def change_password():
 TIME_SYNC_INTERNET_SETTING_KEY = "time_sync_internet_default"
 
 
+_DEFAULT_TIMESYNC_TIMEOUT_SECONDS = 30.0
+_DEFAULT_TIMESYNC_POLL_INTERVAL_SECONDS = 1.0
+_TIMESYNC_TIMEOUT_ENV = "AUDIO_PI_TIMESYNC_TIMEOUT_SECONDS"
+_TIMESYNC_POLL_INTERVAL_ENV = "AUDIO_PI_TIMESYNC_POLL_INTERVAL_SECONDS"
+
+
+def _parse_float_env_with_min(env_name: str, default: float, *, minimum: float = 0.0) -> float:
+    raw_value = os.environ.get(env_name)
+    if raw_value is None:
+        return default
+    try:
+        parsed = float(raw_value)
+    except (TypeError, ValueError):
+        return default
+    if parsed < minimum:
+        return minimum
+    return parsed
+
+
+def _wait_for_system_clock_synchronization() -> Tuple[bool, Optional[str]]:
+    timeout_seconds = _parse_float_env_with_min(
+        _TIMESYNC_TIMEOUT_ENV, _DEFAULT_TIMESYNC_TIMEOUT_SECONDS, minimum=0.0
+    )
+    poll_interval_seconds = _parse_float_env_with_min(
+        _TIMESYNC_POLL_INTERVAL_ENV,
+        _DEFAULT_TIMESYNC_POLL_INTERVAL_SECONDS,
+        minimum=0.0,
+    )
+    status_command = privileged_command(
+        "timedatectl", "show", "-p", "SystemClockSynchronized", "--value"
+    )
+    last_warning: Optional[str] = None
+    start = time.monotonic()
+
+    while True:
+        try:
+            result = subprocess.run(
+                status_command,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError as exc:
+            primary_command = exc.filename or _extract_primary_command(status_command)
+            message = (
+                f"Kommando '{primary_command}' nicht gefunden, Synchronisationsstatus konnte nicht geprüft werden"
+            )
+            logging.error("%s", message)
+            return False, message
+        except subprocess.CalledProcessError as exc:
+            stderr_text = exc.stderr if isinstance(exc.stderr, str) else ""
+            stdout_text = exc.stdout if isinstance(exc.stdout, str) else ""
+            if _command_not_found(stderr_text, stdout_text, exc.returncode):
+                primary_command = _extract_primary_command(exc.cmd or status_command)
+                message = (
+                    f"Kommando '{primary_command}' nicht gefunden, Synchronisationsstatus konnte nicht geprüft werden"
+                )
+                logging.error("%s", message)
+                return False, message
+            logging.debug(
+                "Synchronisationsstatus konnte nicht abgefragt werden (Exit-Code %s)",
+                exc.returncode,
+            )
+            last_warning = "Synchronisationsstatus konnte nicht abgefragt werden (Exit-Code)"
+        except Exception as exc:  # pragma: no cover - unerwartete Fehler
+            logging.debug(
+                "Synchronisationsstatus konnte nicht abgefragt werden (unerwarteter Fehler): %s",
+                exc,
+                exc_info=True,
+            )
+            last_warning = "Synchronisationsstatus konnte nicht abgefragt werden (unerwarteter Fehler)"
+        else:
+            output = (result.stdout or "").strip()
+            if not output:
+                output = (result.stderr or "").strip()
+            normalized_output = output.lower()
+            if normalized_output == "yes":
+                return True, None
+            if normalized_output and normalized_output not in {"no"}:
+                last_warning = (
+                    f"Synchronisationsstatus lieferte unerwartete Antwort: '{output}'"
+                )
+        now = time.monotonic()
+        if now - start >= timeout_seconds:
+            break
+        if poll_interval_seconds > 0:
+            remaining = (start + timeout_seconds) - now
+            if remaining > 0:
+                time.sleep(min(poll_interval_seconds, remaining))
+
+    timeout_message = (
+        last_warning
+        if last_warning
+        else "Zeitserver-Synchronisation konnte nicht bestätigt werden (Timeout)"
+    )
+    logging.warning("%s", timeout_message)
+    return False, timeout_message
+
+
 def perform_internet_time_sync():
     success = False
     messages: List[str] = []
@@ -6376,24 +6475,32 @@ def perform_internet_time_sync():
         logging.error("Unerwarteter Fehler bei der Zeit-Synchronisation: %s", exc)
         messages.append("Fehler bei der Synchronisation")
     else:
-        success = True
-        success_message = "Zeit vom Internet synchronisiert"
-        try:
-            current_local_time = (
-                datetime.now(LOCAL_TZ) if LOCAL_TZ is not None else datetime.now().astimezone()
-            )
-            set_rtc(current_local_time)
-        except RTCWriteError as exc:
-            logging.warning(
-                "RTC konnte nach dem Internet-Sync nicht geschrieben werden: %s",
-                exc,
-            )
-            messages.append("RTC konnte nicht aktualisiert werden (I²C-Schreibfehler)")
-        except (RTCUnavailableError, UnsupportedRTCError) as exc:
-            logging.warning(
-                "RTC konnte nach dem Internet-Sync nicht gesetzt werden: %s", exc
-            )
-            messages.append("RTC konnte nicht aktualisiert werden")
+        sync_confirmed, confirmation_message = _wait_for_system_clock_synchronization()
+        if sync_confirmed:
+            success = True
+            success_message = "Zeit vom Internet synchronisiert"
+            try:
+                current_local_time = (
+                    datetime.now(LOCAL_TZ)
+                    if LOCAL_TZ is not None
+                    else datetime.now().astimezone()
+                )
+                set_rtc(current_local_time)
+            except RTCWriteError as exc:
+                logging.warning(
+                    "RTC konnte nach dem Internet-Sync nicht geschrieben werden: %s",
+                    exc,
+                )
+                messages.append("RTC konnte nicht aktualisiert werden (I²C-Schreibfehler)")
+                success = False
+            except (RTCUnavailableError, UnsupportedRTCError) as exc:
+                logging.warning(
+                    "RTC konnte nach dem Internet-Sync nicht gesetzt werden: %s", exc
+                )
+                messages.append("RTC konnte nicht aktualisiert werden")
+        else:
+            if confirmation_message:
+                messages.append(confirmation_message)
     finally:
         if disable_completed and not enable_completed:
             try:
