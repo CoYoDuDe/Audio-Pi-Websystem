@@ -84,6 +84,16 @@ POLKIT_RULE_TEMPLATE="$SCRIPT_DIR/scripts/polkit/49-audio-pi.rules"
 POLKIT_RULE_TARGET="/etc/polkit-1/rules.d/49-audio-pi.rules"
 AUDIO_PI_ALSACTL_UNIT_TEMPLATE="$SCRIPT_DIR/scripts/systemd/audio-pi-alsactl.service"
 AUDIO_PI_ALSACTL_UNIT_TARGET="/etc/systemd/system/audio-pi-alsactl.service"
+POLKIT_MANAGED_UNITS=(
+    "audio-pi.service"
+    "dnsmasq.service"
+    "hostapd.service"
+    "systemd-timesyncd.service"
+    "dhcpcd.service"
+    "audio-pi-alsactl.service"
+)
+POLKIT_MANAGED_UNITS_MESSAGE=$(printf '%s, ' "${POLKIT_MANAGED_UNITS[@]}")
+POLKIT_MANAGED_UNITS_MESSAGE=${POLKIT_MANAGED_UNITS_MESSAGE%, }
 
 apt_get() {
     if [ $# -lt 1 ]; then
@@ -1087,6 +1097,7 @@ if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
         echo "[Dry-Run] Würde Rechte per 'sudo chmod 0755 ${POLKIT_RULE_DIR}' sicherstellen."
         echo "[Dry-Run] Würde Polkit-Regel für ${TARGET_USER} nach ${POLKIT_RULE_TARGET} (0644, root:root) kopieren."
         echo "[Dry-Run] Würde Rechte per 'sudo chmod 0644 ${POLKIT_RULE_TARGET}' sicherstellen."
+        echo "[Dry-Run] Polkit-Regel würde folgende Units erlauben: ${POLKIT_MANAGED_UNITS_MESSAGE}."
     else
         echo "[Dry-Run] Warnung: Polkit-Vorlage ${POLKIT_RULE_TEMPLATE} nicht gefunden – Berechtigungen manuell prüfen."
     fi
@@ -1834,6 +1845,7 @@ if [ -f "$POLKIT_RULE_TEMPLATE" ]; then
     sudo install -o root -g root -m 0644 "$tmp_polkit" "$POLKIT_RULE_TARGET"
     sudo chmod 0644 "$POLKIT_RULE_TARGET"
     rm -f "$tmp_polkit"
+    echo "Polkit-Regel erlaubt systemctl-Aktionen für: ${POLKIT_MANAGED_UNITS_MESSAGE}."
     echo "Polkit-Regel für $TARGET_USER nach $POLKIT_RULE_TARGET installiert."
 else
     echo "Warnung: Polkit-Vorlage $POLKIT_RULE_TEMPLATE nicht gefunden – bitte Berechtigungen manuell prüfen."

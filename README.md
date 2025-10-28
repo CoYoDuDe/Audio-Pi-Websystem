@@ -385,9 +385,12 @@ lässt sich das Verhalten bei Bedarf weiter abstimmen.
   `AUDIO_PI_DISABLE_SUDO=1` und legt automatisch
   `/etc/polkit-1/rules.d/49-audio-pi.rules` an. Die Regel gestattet dem
   Dienstkonto exakt die benötigten Aktionen (`systemctl start/stop/restart`
-  für `hostapd`, `dnsmasq`, `systemd-timesyncd`, `audio-pi`,
+  für `hostapd`, `dnsmasq`, `dhcpcd`, `systemd-timesyncd`, `audio-pi`,
   `systemctl reboot/poweroff` sowie `timedatectl set-time/set-ntp`). Dadurch
-  funktionieren AP-Umschaltung, Zeitsync und Neustart ohne `sudo`-Wrapper.
+  funktionieren AP-Umschaltung, Zeitsync, DHCP-Client-Neustarts und Neustart ohne
+  `sudo`-Wrapper. Nach Regel- oder Unit-Updates empfiehlt sich zusätzlich
+  `sudo systemctl daemon-reload`, damit systemd geänderte Abhängigkeiten sofort
+  einliest.
   Das Regelverzeichnis `/etc/polkit-1/rules.d` setzt der Installer auf
   `root:root` mit Modus `0755`, die Regeldatei selbst auf `0644`, damit der
   `polkitd`-Dienst sie lesen kann. Bestehende Installationen korrigiert das
