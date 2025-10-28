@@ -24,6 +24,7 @@ import calendar
 import fnmatch
 import math
 import logging
+from collections import deque
 from dataclasses import dataclass, asdict, is_dataclass
 from datetime import date, datetime, timedelta
 from flask import (
@@ -35,6 +36,7 @@ from flask import (
     flash,
     has_request_context,
     g,
+    current_app,
 )
 from flask_login import (
     LoginManager,
@@ -502,6 +504,52 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 DEFAULT_MAX_UPLOAD_MB = 100
 
+DEFAULT_LOG_VIEW_MAX_BYTES = 64 * 1024
+DEFAULT_LOG_VIEW_MAX_LINES = 2000
+DEFAULT_LOG_FILE_NAME = "app.log"
+
+
+def _resolve_positive_int_env(env_var: str, default: int) -> int:
+    raw_value = os.getenv(env_var)
+    if raw_value is None:
+        return default
+
+    candidate = raw_value.strip()
+    if not candidate:
+        return default
+
+    try:
+        parsed = int(candidate)
+    except ValueError:
+        _logger.warning(
+            "Ungültiger Wert für %s (%s). Verwende Standard %s.",
+            env_var,
+            raw_value,
+            default,
+        )
+        return default
+
+    if parsed <= 0:
+        _logger.warning(
+            "Wert für %s muss größer als 0 sein. Verwende Standard %s.",
+            env_var,
+            default,
+        )
+        return default
+
+    return parsed
+
+
+def _resolve_log_file_path(raw_value: Optional[str]) -> str:
+    if raw_value is None:
+        return DEFAULT_LOG_FILE_NAME
+
+    candidate = raw_value.strip()
+    if not candidate:
+        return DEFAULT_LOG_FILE_NAME
+
+    return str(Path(candidate).expanduser())
+
 
 def _resolve_max_upload_mb(raw_value: Optional[str]) -> int:
     if raw_value is None:
@@ -536,6 +584,20 @@ _max_upload_env = os.getenv("AUDIO_PI_MAX_UPLOAD_MB")
 MAX_UPLOAD_SIZE_MB = _resolve_max_upload_mb(_max_upload_env)
 app.config["MAX_CONTENT_LENGTH_MB"] = MAX_UPLOAD_SIZE_MB
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+LOG_VIEW_MAX_BYTES = _resolve_positive_int_env(
+    "AUDIO_PI_LOG_VIEW_MAX_BYTES",
+    DEFAULT_LOG_VIEW_MAX_BYTES,
+)
+LOG_VIEW_MAX_LINES = _resolve_positive_int_env(
+    "AUDIO_PI_LOG_VIEW_MAX_LINES",
+    DEFAULT_LOG_VIEW_MAX_LINES,
+)
+LOG_VIEW_FILE = _resolve_log_file_path(os.getenv("AUDIO_PI_LOG_FILE"))
+
+app.config["LOG_VIEW_MAX_BYTES"] = LOG_VIEW_MAX_BYTES
+app.config["LOG_VIEW_MAX_LINES"] = LOG_VIEW_MAX_LINES
+app.config["LOG_VIEW_FILE"] = LOG_VIEW_FILE
 
 DB_FILE = os.getenv("DB_FILE", "audio.db")
 DEFAULT_INITIAL_PASSWORD_FILENAME = "initial_admin_password.txt"
@@ -5890,15 +5952,77 @@ def set_volume():
     return redirect(url_for("index"))
 
 
+def _read_log_tail(path: Path, *, max_bytes: int, max_lines: int) -> Tuple[List[str], bool]:
+    effective_max_bytes = max_bytes if max_bytes > 0 else DEFAULT_LOG_VIEW_MAX_BYTES
+    effective_max_lines = max_lines if max_lines > 0 else DEFAULT_LOG_VIEW_MAX_LINES
+
+    file_size = path.stat().st_size
+    truncated = False
+    start_offset = 0
+
+    if file_size > effective_max_bytes:
+        truncated = True
+        start_offset = file_size - effective_max_bytes
+
+    with path.open("rb") as handle:
+        if start_offset:
+            handle.seek(start_offset)
+        data = handle.read()
+
+    text = data.decode("utf-8", errors="replace")
+    lines = text.splitlines()
+
+    if start_offset and data[:1] not in (b"\n", b"\r"):
+        if lines:
+            lines = lines[1:]
+
+    if len(lines) > effective_max_lines:
+        truncated = True
+        lines = list(deque(lines, maxlen=effective_max_lines))
+    else:
+        lines = list(lines)
+
+    return lines, truncated
+
+
 @app.route("/logs")
 @login_required
 def logs():
+    log_path = Path(current_app.config.get("LOG_VIEW_FILE", DEFAULT_LOG_FILE_NAME))
+    max_bytes = int(current_app.config.get("LOG_VIEW_MAX_BYTES", DEFAULT_LOG_VIEW_MAX_BYTES))
+    max_lines = int(current_app.config.get("LOG_VIEW_MAX_LINES", DEFAULT_LOG_VIEW_MAX_LINES))
+
+    missing_file = False
+    truncated = False
+    log_lines: List[str]
+
     try:
-        with open("app.log", "r") as f:
-            logs = f.read()
+        log_lines, truncated = _read_log_tail(
+            log_path,
+            max_bytes=max_bytes,
+            max_lines=max_lines,
+        )
     except FileNotFoundError:
-        logs = "Keine Logdatei vorhanden"
-    return render_template("logs.html", logs=logs)
+        missing_file = True
+        log_lines = []
+    except OSError as exc:
+        logging.getLogger(__name__).warning(
+            "Logdatei %s konnte nicht gelesen werden: %s",
+            log_path,
+            exc,
+        )
+        log_lines = []
+
+    return render_template(
+        "logs.html",
+        logs=log_lines,
+        missing_file=missing_file,
+        truncated=truncated,
+        max_lines=max_lines,
+        max_bytes=max_bytes,
+        max_bytes_label=f"{max_bytes / 1024:.1f}",
+        log_path=str(log_path),
+    )
 
 
 @app.route("/change_password", methods=["GET", "POST"])

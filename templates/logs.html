@@ -2,6 +2,20 @@
 {% block title %}Logs{% endblock %}
 {% block content %}
 <h2>Logdatei</h2>
-<pre>{{ logs }}</pre>
+{% if missing_file %}
+<p class="alert alert-info">Keine Logdatei vorhanden.</p>
+{% else %}
+<p class="text-muted">
+    Angezeigt werden maximal {{ max_lines }} Zeilen bzw. {{ max_bytes_label }}&nbsp;KB aus
+    <code>{{ log_path }}</code>.
+    {% if truncated %}<br>Ältere Einträge wurden abgeschnitten.{% endif %}
+</p>
+{% if logs %}
+<pre class="log-output">{% for line in logs -%}{{ line|e }}{% if not loop.last %}
+{% endif %}{%- endfor %}</pre>
+{% else %}
+<p class="text-muted">Keine Logeinträge vorhanden.</p>
+{% endif %}
+{% endif %}
 <a href="{{ url_for('index') }}">Zurück</a>
 {% endblock %}
