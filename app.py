@@ -3422,12 +3422,12 @@ def schedule_job(schedule_id):
                     (schedule_id,),
                 )
                 conn.commit()
-            load_schedules()
         else:
             logging.info(
                 "Zeitplan %s konnte nicht ausgeführt werden – Wiedergabe nicht gestartet",
                 schedule_id,
             )
+        load_schedules()
 
 
 def skip_past_once_schedules():

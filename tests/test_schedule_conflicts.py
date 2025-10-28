@@ -232,6 +232,12 @@ def test_once_schedule_remains_pending_when_playback_busy(monkeypatch):
 
     monkeypatch.setattr(app, "pygame_available", True)
     monkeypatch.setattr(app.pygame.mixer.music, "get_busy", lambda: True)
+    load_calls = {"count": 0}
+
+    def fake_load_schedules():
+        load_calls["count"] += 1
+
+    monkeypatch.setattr(app, "load_schedules", fake_load_schedules)
 
     app.schedule_job(schedule_id)
 
@@ -239,3 +245,4 @@ def test_once_schedule_remains_pending_when_playback_busy(monkeypatch):
         "SELECT executed FROM schedules WHERE id=?", (schedule_id,)
     ).fetchone()
     assert row["executed"] == 0
+    assert load_calls["count"] == 1
