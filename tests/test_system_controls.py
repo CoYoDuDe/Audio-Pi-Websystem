@@ -66,6 +66,77 @@ def _login(client):
     return change_response
 
 
+def test_login_missing_fields_redirects_with_flash(client):
+    client, _ = client
+    response = csrf_post(
+        client,
+        "/login",
+        data={},
+        follow_redirects=False,
+        source_url="/login",
+    )
+    assert response.status_code == 302
+    assert "/login" in response.headers.get("Location", "")
+
+    follow_response = client.get("/login")
+    assert b"Benutzername und Passwort sind erforderlich." in follow_response.data
+
+
+def test_change_password_missing_fields_redirects_with_flash(client):
+    client, _ = client
+    _login(client)
+
+    response = csrf_post(
+        client,
+        "/change_password",
+        data={},
+        follow_redirects=False,
+        source_url="/change_password",
+    )
+    assert response.status_code == 302
+    assert "/change_password" in response.headers.get("Location", "")
+
+    follow_response = client.get("/change_password")
+    assert b"Altes und neues Passwort sind erforderlich." in follow_response.data
+
+
+def test_add_schedule_missing_fields_redirects_with_flash(client):
+    client, _ = client
+    _login(client)
+
+    response = csrf_post(
+        client,
+        "/schedule",
+        data={},
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    assert response.headers.get("Location", "").endswith("/")
+
+    follow_response = client.get("/", follow_redirects=True)
+    assert (
+        b"Zeitplan konnte nicht hinzugef\xc3\xbcgt werden: Erforderliche Felder fehlen."
+        in follow_response.data
+    )
+
+
+def test_wlan_connect_missing_ssid_redirects_with_flash(client):
+    client, _ = client
+    _login(client)
+
+    response = csrf_post(
+        client,
+        "/wlan_connect",
+        data={},
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    assert response.headers.get("Location", "").endswith("/")
+
+    follow_response = client.get("/", follow_redirects=True)
+    assert b"SSID darf nicht leer sein." in follow_response.data
+
+
 def test_reboot_requires_login(client):
     client, _ = client
     response = csrf_post(client, "/system/reboot", follow_redirects=False)
