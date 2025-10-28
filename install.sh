@@ -261,7 +261,7 @@ print_post_install_instructions() {
     if [ "$ap_configured" -eq 1 ]; then
         echo "Hinweis: WLAN-Access-Point ist aktiv."
         echo "Passe SSID/Passwort in /etc/hostapd/hostapd.conf sowie DHCP-Einstellungen in /etc/dnsmasq.d/audio-pi.conf an."
-        echo "Die NAT-Regeln wurden nach /etc/iptables.ipv4.nat geschrieben und können dort angepasst werden."
+        echo "Die NAT-Regeln sind in /etc/iptables.ipv4.nat und /etc/iptables/rules.v4 hinterlegt und werden beim Booten automatisch geladen."
         echo ""
     fi
     echo "Empfehlung nach Unit-Updates: sudo systemctl daemon-reload && sudo systemctl restart audio-pi.service"
@@ -1468,7 +1468,7 @@ fi
 apt_get install -y pulseaudio-module-bluetooth bluez-tools bluez
 
 # Hostapd & dnsmasq (WLAN AP)
-apt_get install -y hostapd dnsmasq wireless-tools iw wpasupplicant
+apt_get install -y hostapd dnsmasq wireless-tools iw wpasupplicant netfilter-persistent
 
 create_hostapd_conf() {
     local default_ssid="AudioPiAP"
@@ -1688,6 +1688,54 @@ EOF
     sudo iptables -C FORWARD -i "$WAN_INTERFACE" -o "$AP_INTERFACE" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || sudo iptables -A FORWARD -i "$WAN_INTERFACE" -o "$AP_INTERFACE" -m state --state RELATED,ESTABLISHED -j ACCEPT
     sudo iptables -C FORWARD -i "$AP_INTERFACE" -o "$WAN_INTERFACE" -j ACCEPT 2>/dev/null || sudo iptables -A FORWARD -i "$AP_INTERFACE" -o "$WAN_INTERFACE" -j ACCEPT
     sudo sh -c 'iptables-save > /etc/iptables.ipv4.nat'
+
+    local netfilter_rules_dir="/etc/iptables"
+    local netfilter_rules_v4="${netfilter_rules_dir}/rules.v4"
+    local netfilter_service="netfilter-persistent.service"
+    local need_fallback_service=0
+
+    sudo mkdir -p "$netfilter_rules_dir"
+    sudo sh -c "iptables-save > ${netfilter_rules_v4}"
+
+    if command -v netfilter-persistent >/dev/null 2>&1; then
+        echo "Aktualisiere netfilter-persistent-Regeln..."
+        if sudo netfilter-persistent save; then
+            sudo systemctl enable "$netfilter_service"
+            echo "Regeln sind zusätzlich unter ${netfilter_rules_v4} gespeichert."
+            echo "netfilter-persistent lädt die NAT-Regeln künftig automatisch beim Systemstart."
+        else
+            echo "Warnung: netfilter-persistent save fehlgeschlagen – aktiviere Fallback-Service."
+            need_fallback_service=1
+        fi
+    else
+        echo "Warnung: netfilter-persistent ist nicht verfügbar – aktiviere Fallback-Service."
+        need_fallback_service=1
+    fi
+
+    if [ "$need_fallback_service" -eq 1 ]; then
+        local iptables_restore_cmd
+        iptables_restore_cmd=$(command -v iptables-restore || echo "/sbin/iptables-restore")
+        local fallback_unit="/etc/systemd/system/audio-pi-iptables-restore.service"
+        sudo tee "$fallback_unit" >/dev/null <<EOF
+[Unit]
+Description=Restore Audio-Pi iptables NAT rules
+DefaultDependencies=no
+Before=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=${iptables_restore_cmd} /etc/iptables.ipv4.nat
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        sudo systemctl daemon-reload
+        sudo systemctl enable audio-pi-iptables-restore.service
+        echo "Fallback-Unit audio-pi-iptables-restore.service lädt die NAT-Regeln aus /etc/iptables.ipv4.nat beim Systemstart."
+        echo "Regeln sind zusätzlich unter ${netfilter_rules_v4} gespeichert."
+    fi
 
     if [ -f /etc/rc.local ]; then
         if ! sudo grep -q 'iptables-restore < /etc/iptables.ipv4.nat' /etc/rc.local; then
