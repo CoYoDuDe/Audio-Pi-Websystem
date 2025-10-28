@@ -1336,9 +1336,6 @@ def sync_rtc_to_system() -> bool:
     return True
 
 
-if not TESTING:
-    sync_rtc_to_system()
-
 # DB Setup
 from contextlib import contextmanager, nullcontext
 
@@ -1927,6 +1924,10 @@ def refresh_local_timezone(*, reconfigure_scheduler: bool = True):
 
 
 refresh_local_timezone()
+
+
+if not TESTING:
+    sync_rtc_to_system()
 
 
 def _format_schedule_time_for_display(time_str, repeat):
