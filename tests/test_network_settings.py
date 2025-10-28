@@ -307,6 +307,32 @@ def test_write_network_settings_backup_fallback_directory(
     assert not backup_path.exists()
 
 
+def test_restore_hosts_state_cleans_fallback_backup(network_module, tmp_path: Path):
+    hosts_dir = tmp_path / "etc"
+    hosts_dir.mkdir()
+    hosts_path = hosts_dir / "hosts"
+    hosts_path.write_text("neue inhalte\n", encoding="utf-8")
+
+    fallback_dir = tmp_path / "fallback"
+    fallback_dir.mkdir()
+    backup_path = fallback_dir / "hosts.bak"
+    backup_path.write_text("urspruenglich\n", encoding="utf-8")
+
+    result = network_module.HostsUpdateResult(
+        hosts_path=hosts_path,
+        changed=True,
+        backup_path=backup_path,
+        original_exists=True,
+        original_lines=["neue inhalte"],
+    )
+
+    network_module.restore_hosts_state(result)
+
+    assert hosts_path.read_text(encoding="utf-8") == "urspruenglich\n"
+    assert not backup_path.exists()
+    assert result.backup_path is None
+
+
 def test_write_network_settings_invalid_ipv4(network_module, tmp_path: Path):
     conf = tmp_path / "dhcpcd.conf"
     original_lines = ["interface wlan0", "static ip_address=10.0.0.5/24"]

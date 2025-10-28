@@ -768,8 +768,12 @@ def restore_hosts_state(result: HostsUpdateResult) -> None:
 
     hosts_path = result.hosts_path
 
-    if result.backup_path and result.backup_path.exists():
-        shutil.copy2(result.backup_path, hosts_path)
+    backup_path = result.backup_path
+    if backup_path and backup_path.exists():
+        shutil.copy2(backup_path, hosts_path)
+        if backup_path.parent != hosts_path.parent:
+            _cleanup_backup_artifact(backup_path)
+            result.backup_path = None
         return
 
     if result.original_exists:
