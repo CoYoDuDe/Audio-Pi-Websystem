@@ -1269,6 +1269,7 @@ def _update_rtc_sync_status(success: bool, error: Optional[str] = None) -> None:
 
 
 def sync_rtc_to_system() -> bool:
+    refresh_local_timezone()
     try:
         rtc_time = read_rtc()
     except (ValueError, OSError, RTCUnavailableError, UnsupportedRTCError) as e:
@@ -1892,33 +1893,35 @@ def refresh_local_timezone(*, reconfigure_scheduler: bool = True):
                 exc_info=True,
             )
 
-    new_tz = _current_local_time().tzinfo or timezone.utc
-    timezone_changed = new_tz is not LOCAL_TZ and new_tz != LOCAL_TZ
+    previous_tz = LOCAL_TZ
+    new_tz = datetime.now().astimezone().tzinfo or timezone.utc
+    timezone_changed = new_tz is not previous_tz and new_tz != previous_tz
     LOCAL_TZ = new_tz
 
-    if timezone_changed and reconfigure_scheduler:
+    if reconfigure_scheduler and scheduler is not None:
         try:
             scheduler.configure(timezone=LOCAL_TZ)
         except Exception:
             logging.exception(
                 "Scheduler konnte nicht auf die neue Zeitzone umgestellt werden."
             )
-            try:
-                if getattr(scheduler, "running", False):
-                    scheduler.shutdown(wait=False)
-            except Exception:
-                logging.warning(
-                    "Laufender Scheduler konnte vor der Neuinitialisierung nicht gestoppt werden.",
-                    exc_info=True,
-                )
-            try:
-                scheduler = BackgroundScheduler(timezone=LOCAL_TZ)
-            except Exception:
-                logging.exception(
-                    "Neuer Scheduler konnte nach Zeitzonenwechsel nicht initialisiert werden."
-                )
-            else:
-                _BACKGROUND_SERVICES_STARTED = False
+            if timezone_changed:
+                try:
+                    if getattr(scheduler, "running", False):
+                        scheduler.shutdown(wait=False)
+                except Exception:
+                    logging.warning(
+                        "Laufender Scheduler konnte vor der Neuinitialisierung nicht gestoppt werden.",
+                        exc_info=True,
+                    )
+                try:
+                    scheduler = BackgroundScheduler(timezone=LOCAL_TZ)
+                except Exception:
+                    logging.exception(
+                        "Neuer Scheduler konnte nach Zeitzonenwechsel nicht initialisiert werden."
+                    )
+                else:
+                    _BACKGROUND_SERVICES_STARTED = False
 
     return LOCAL_TZ
 
@@ -3173,6 +3176,7 @@ def run_auto_reboot_job():
 
 
 def update_auto_reboot_job():
+    refresh_local_timezone()
     enabled = get_setting("auto_reboot_enabled") == "1"
     try:
         job = scheduler.get_job(AUTO_REBOOT_JOB_ID)

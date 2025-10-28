@@ -38,7 +38,7 @@ def app_module(tmp_path, monkeypatch):
         sys.path.remove(repo_root_str)
 
 
-def test_refresh_updates_scheduler_and_timesync(monkeypatch, app_module):
+def test_refresh_updates_scheduler_and_rtc_sync(monkeypatch, app_module):
     new_tz = timezone(timedelta(hours=5), name="UTC+05")
 
     configure_calls = []
@@ -56,10 +56,31 @@ def test_refresh_updates_scheduler_and_timesync(monkeypatch, app_module):
 
     monkeypatch.setattr(app_module.time, "tzset", fake_tzset, raising=False)
 
-    def fake_current_local_time():
-        return datetime(2024, 1, 1, 12, 0, 0, tzinfo=new_tz)
+    real_datetime = datetime
 
-    monkeypatch.setattr(app_module, "_current_local_time", fake_current_local_time)
+    class _FakeNow:
+        def __init__(self, tzinfo):
+            self.tzinfo = tzinfo
+
+        def astimezone(self, tz=None):
+            if tz is None:
+                return self
+            return real_datetime(2024, 1, 1, 12, 0, tzinfo=self.tzinfo).astimezone(tz)
+
+    class DateTimeProxy:
+        def __call__(self, *args, **kwargs):
+            return real_datetime(*args, **kwargs)
+
+        def __getattr__(self, name):
+            return getattr(real_datetime, name)
+
+        @staticmethod
+        def now(tz=None):
+            if tz is not None:
+                return real_datetime.now(tz)
+            return _FakeNow(new_tz)
+
+    monkeypatch.setattr(app_module, "datetime", DateTimeProxy())
 
     app_module.LOCAL_TZ = timezone.utc
 
@@ -76,34 +97,29 @@ def test_refresh_updates_scheduler_and_timesync(monkeypatch, app_module):
 
     assert result_tz == new_tz
     assert app_module.LOCAL_TZ == new_tz
-    assert configure_calls == [new_tz]
+    assert configure_calls and configure_calls[0] == new_tz
     assert tzset_called is True
 
-    monkeypatch.setattr(
-        app_module,
-        "_wait_for_system_clock_synchronization",
-        lambda: (True, None),
-    )
+    rtc_timestamp = datetime(2024, 1, 1, 7, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(app_module, "read_rtc", lambda: rtc_timestamp)
 
     run_calls = []
 
-    def fake_run(cmd, *args, **kwargs):
-        run_calls.append(tuple(cmd) if isinstance(cmd, (list, tuple)) else cmd)
-        return app_module.subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+    def fake_run(command, *args, **kwargs):
+        run_calls.append(command)
+        return app_module.subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
     monkeypatch.setattr(app_module.subprocess, "run", fake_run)
 
-    rtc_calls = []
+    assert app_module.sync_rtc_to_system() is True
 
-    def fake_set_rtc(dt):
-        rtc_calls.append(dt)
+    expected_local_time = rtc_timestamp.astimezone(new_tz).strftime("%Y-%m-%d %H:%M:%S")
+    assert run_calls, "timedatectl sollte aufgerufen worden sein."
+    set_time_command = run_calls[0]
+    assert isinstance(set_time_command, list)
+    assert set_time_command[:2] == ["timedatectl", "set-time"]
+    assert set_time_command[2] == expected_local_time
 
-    monkeypatch.setattr(app_module, "set_rtc", fake_set_rtc)
-
-    success, messages = app_module.perform_internet_time_sync()
-
-    assert success is True
-    assert any("Zeit vom Internet synchronisiert" in msg for msg in messages)
+    assert app_module.RTC_SYNC_STATUS["success"] is True
     assert len(refresh_calls) >= 2
-    assert rtc_calls and rtc_calls[0].tzinfo is new_tz
-    assert run_calls, "Es sollten Kommandos für die Synchronisation ausgeführt worden sein."
+    assert configure_calls[-1] == new_tz
