@@ -856,8 +856,8 @@
     </nav>
 
     <script>
-    const audioFiles = {{ files_all | tojson }};
-    const playlists = {{ playlists_all | tojson }};
+    const audioFiles = {{ files_all | default([], true) | tojson }};
+    const playlists = {{ playlists_all | default([], true) | tojson }};
     </script>
 
     <script>
