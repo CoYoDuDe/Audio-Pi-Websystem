@@ -15,8 +15,7 @@ def client(tmp_path, monkeypatch):
 
     repo_root = Path(__file__).resolve().parents[1]
     repo_root_str = str(repo_root)
-    if repo_root_str not in sys.path:
-        sys.path.insert(0, repo_root_str)
+    monkeypatch.syspath_prepend(repo_root_str)
 
     if "app" in sys.modules:
         del sys.modules["app"]
@@ -41,8 +40,6 @@ def client(tmp_path, monkeypatch):
     if "app" in sys.modules:
         del sys.modules["app"]
 
-    if repo_root_str in sys.path:
-        sys.path.remove(repo_root_str)
 
 
 def test_login_page_renders_base_layout(client):
