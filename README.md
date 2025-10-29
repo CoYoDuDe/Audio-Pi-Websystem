@@ -23,6 +23,10 @@ Audio-Pi-Control ist ein vollständiges Steuer- und Audiomanagement-System für 
 - Zeitpläne laufen nun über **APScheduler**; dank `misfire_grace_time` werden nach dem Start keine verpassten Jobs mehr nachgeholt.
 - `parse_once_datetime` verarbeitet einmalige Zeitangaben in verschiedenen Formaten.
 
+## Weboberfläche / Assets
+
+Die Weboberfläche bindet das Stylesheet [Simple.css](https://github.com/kevquirk/simple.css) ab sofort lokal über `static/vendor/simple.min.css` ein. Die Datei stammt unverändert aus dem offiziellen Projekt-Repository und wird zusammen mit der zugehörigen Lizenz (`static/vendor/simplecss-LICENSE.txt`, MIT-Lizenz laut Originalquelle) ausgeliefert. Bitte aktualisiere die Datei im Rahmen von Installer- oder Update-Läufen regelmäßig, damit Sicherheitsfixes und neue Komponenten zeitnah einfließen.
+
 ## GPIO-Taster für Wiedergabe & Bluetooth
 
 Das System unterstützt jetzt physische Taster am Raspberry Pi. Ein eigener Monitor in `hardware/buttons.py`
