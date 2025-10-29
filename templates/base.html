@@ -26,10 +26,12 @@
         </form>
     </nav>
     {% else %}
+    {% if request.endpoint != 'login' %}
     <div class="guest-navigation">
         <p>Bitte melden Sie sich an, um alle Funktionen zu nutzen.</p>
         <a href="{{ url_for('login') }}" class="btn">Zum Login</a>
     </div>
+    {% endif %}
     {% endif %}
     {% block flashes %}
         {% with messages = get_flashed_messages() %}
