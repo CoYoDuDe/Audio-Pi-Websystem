@@ -163,6 +163,31 @@ validate_port() {
     fi
 }
 
+detect_default_wifi_interface() {
+    local iface
+    for iface in /sys/class/net/wl*; do
+        if [ -e "$iface" ]; then
+            basename "$iface"
+            return 0
+        fi
+    done
+    printf '%s\n' "wlan0"
+}
+
+upsert_env_file_var() {
+    local env_file="$1"
+    local key="$2"
+    local value="$3"
+    local escaped_value
+    escaped_value=$(printf '%s' "$value" | sed -e 's/[\\&|]/\\&/g')
+
+    if sudo grep -q "^${key}=" "$env_file"; then
+        sudo sed -i "s|^${key}=.*|${key}=${escaped_value}|" "$env_file"
+    else
+        printf '%s=%s\n' "$key" "$value" | sudo tee -a "$env_file" >/dev/null
+    fi
+}
+
 validate_secret_strength() {
     local secret="$1"
     local source="$2"
@@ -1465,6 +1490,12 @@ SQL
     else
         echo "Warnung: sqlite3 nicht verfügbar – DAC-Sink konnte nicht gespeichert werden."
     fi
+
+    if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
+        echo "[Dry-Run] Würde AUDIO_PI_DAC_SINK=${HAT_SELECTED_SINK_HINT} in ${AUDIO_PI_ENV_FILE} hinterlegen."
+    else
+        upsert_env_file_var "$AUDIO_PI_ENV_FILE" "AUDIO_PI_DAC_SINK" "$HAT_SELECTED_SINK_HINT"
+    fi
 fi
 
 # Bluetooth Audio Setup – Nur SINK (kein Agent)
@@ -1795,6 +1826,13 @@ if [[ "$AP_CONFIRM_INPUT" =~ ^(j|ja|y|yes|1|true)$ ]]; then
     AP_CONFIGURED=1
 else
     echo "Access-Point-Konfiguration wurde übersprungen."
+fi
+
+EFFECTIVE_WIFI_INTERFACE="${AP_INTERFACE:-$(detect_default_wifi_interface)}"
+if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
+    echo "[Dry-Run] Würde AUDIO_PI_WIFI_INTERFACE=${EFFECTIVE_WIFI_INTERFACE} in ${AUDIO_PI_ENV_FILE} hinterlegen."
+else
+    upsert_env_file_var "$AUDIO_PI_ENV_FILE" "AUDIO_PI_WIFI_INTERFACE" "$EFFECTIVE_WIFI_INTERFACE"
 fi
 
 # ALSA für Mixer/Fallback

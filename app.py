@@ -610,6 +610,12 @@ DEFAULT_AMPLIFIER_GPIO_PIN = 17
 AMPLIFIER_GPIO_PIN_SETTING_KEY = "amplifier_gpio_pin"
 GPIO_PIN_ENDSTUFE = DEFAULT_AMPLIFIER_GPIO_PIN
 CONFIGURED_AMPLIFIER_GPIO_PIN: Optional[int] = None
+DEFAULT_WIFI_INTERFACE = "wlan0"
+CONFIGURED_WIFI_INTERFACE = (
+    os.getenv("AUDIO_PI_WIFI_INTERFACE")
+    or os.getenv("WIFI_INTERFACE")
+    or ""
+).strip()
 VERZOEGERUNG_SEC = 5
 DEFAULT_BUTTON_DEBOUNCE_MS = 150
 DEFAULT_MAX_SCHEDULE_DELAY_SECONDS = 60
@@ -2141,10 +2147,30 @@ def _parse_amplifier_gpio_pin(raw_value: Optional[str]) -> Optional[int]:
     return candidate
 
 
+def get_wifi_interface() -> str:
+    if CONFIGURED_WIFI_INTERFACE:
+        return CONFIGURED_WIFI_INTERFACE
+
+    try:
+        interface_names = sorted(os.listdir("/sys/class/net"))
+    except OSError:
+        return DEFAULT_WIFI_INTERFACE
+
+    for interface in interface_names:
+        if interface.startswith("wl"):
+            return interface
+
+    return DEFAULT_WIFI_INTERFACE
+
+
 def load_amplifier_gpio_pin_from_settings(*, log_source: bool = False) -> int:
     global GPIO_PIN_ENDSTUFE, CONFIGURED_AMPLIFIER_GPIO_PIN
 
-    raw_value = get_setting(AMPLIFIER_GPIO_PIN_SETTING_KEY, None)
+    raw_value = (
+        os.getenv("AUDIO_PI_GPIO_PIN")
+        or os.getenv("GPIO_PIN_ENDSTUFE")
+        or get_setting(AMPLIFIER_GPIO_PIN_SETTING_KEY, None)
+    )
     parsed = _parse_amplifier_gpio_pin(raw_value)
     previous_pin = GPIO_PIN_ENDSTUFE
 
@@ -2406,7 +2432,9 @@ def _load_configured_dac_label() -> Optional[str]:
 
 def _gather_dac_sink_state() -> dict:
     default_sink = _refresh_default_dac_sink()
-    env_value = _normalize_optional(os.environ.get("DAC_SINK_NAME"))
+    env_value = _normalize_optional(
+        os.environ.get("AUDIO_PI_DAC_SINK") or os.environ.get("DAC_SINK_NAME")
+    )
     stored_raw = get_setting(DAC_SINK_SETTING_KEY, None)
     stored_value = _normalize_optional(stored_raw)
 
@@ -3211,8 +3239,9 @@ def gather_status():
         success = False
         wlan_output = "Nicht verfügbar (Testmodus)"
     else:
+        wifi_interface = get_wifi_interface()
         success, wlan_output = _run_wifi_tool(
-            ["iwgetid", "wlan0", "-r"],
+            ["iwgetid", wifi_interface, "-r"],
             "Nicht verfügbar (iwgetid fehlt)",
             "iwgetid für WLAN-Status",
         )
@@ -3237,7 +3266,8 @@ def gather_status():
     headroom_details = get_normalization_headroom_details()
     schedule_default_volume = get_schedule_default_volume_details()
     amplifier_state = get_amplifier_gpio_pin_state()
-    network_info = _load_network_settings_for_template("wlan0")
+    wifi_interface = get_wifi_interface()
+    network_info = _load_network_settings_for_template(wifi_interface)
     network_mode = (network_info.get("mode") or "dhcp").strip().lower()
     if network_mode not in {"manual", "dhcp"}:
         network_mode = "dhcp"
@@ -4676,7 +4706,8 @@ def index():
             "rtc_candidates_display": rtc_state["effective_addresses_display"],
         }
     )
-    network_settings = _load_network_settings_for_template("wlan0")
+    wifi_interface = get_wifi_interface()
+    network_settings = _load_network_settings_for_template(wifi_interface)
 
     auto_reboot_settings = {
         "enabled": get_setting("auto_reboot_enabled") == "1",
@@ -5462,6 +5493,7 @@ def save_auto_reboot_settings():
 @login_required
 def save_network_settings():
     redirect_url = _network_settings_redirect_url()
+    wifi_interface = get_wifi_interface()
     mode_raw = (request.form.get("mode") or "dhcp").strip().lower()
     mode = "manual" if mode_raw in {"manual", "static", "static_ipv4"} else "dhcp"
 
@@ -5498,7 +5530,7 @@ def save_network_settings():
 
     normalized_result: NormalizedNetworkSettings
     try:
-        normalized_result = _normalize_network_settings("wlan0", payload)
+        normalized_result = _normalize_network_settings(wifi_interface, payload)
     except NetworkConfigError as exc:
         flash(str(exc), "network_settings")
         return redirect(redirect_url)
@@ -5534,7 +5566,7 @@ def save_network_settings():
 
     try:
         normalized_settings = _write_network_settings(
-            "wlan0",
+            wifi_interface,
             payload,
             normalized_result=normalized_result,
         )
@@ -6148,7 +6180,8 @@ def delete_schedule(sch_id):
 @app.route("/wlan_scan", methods=["POST"])
 @login_required
 def wlan_scan():
-    base_cmd = privileged_command("wpa_cli", "-i", "wlan0")
+    wifi_interface = get_wifi_interface()
+    base_cmd = privileged_command("wpa_cli", "-i", wifi_interface)
     fallback_message = "Scan nicht möglich, wpa_cli fehlt oder meldet einen Fehler"
 
     try:
@@ -6375,7 +6408,8 @@ def wlan_connect():
                 len(raw_password),
             )
             return redirect(url_for("index"))
-    base_cmd = privileged_command("wpa_cli", "-i", "wlan0")
+    wifi_interface = get_wifi_interface()
+    base_cmd = privileged_command("wpa_cli", "-i", wifi_interface)
     net_id: Optional[str] = None
 
     base_cli_name = _extract_primary_command(base_cmd)

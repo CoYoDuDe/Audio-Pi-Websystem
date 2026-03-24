@@ -145,6 +145,12 @@ durchlaufen. Über die Variablen `INSTALL_APT_FRONTEND`,
 an eigene Anforderungen anpassen (z. B. anderes Frontend, angepasste dpkg-Flags
 oder ein alternativer Log-Pfad für die Installationsprotokolle).
 
+Zusätzlich hinterlegt der Installer inzwischen `AUDIO_PI_WIFI_INTERFACE` in der
+Environment-Datei des Dienstes. Ohne explizite Vorgabe verwendet die Anwendung
+das erste gefundene Interface `wl*` und fällt sonst auf `wlan0` zurück.
+Optional lassen sich auch `AUDIO_PI_DAC_SINK` und `AUDIO_PI_GPIO_PIN` setzen,
+um Audioausgang und Endstufen-Pin direkt per Environment zu überschreiben.
+
 ### I²C vorbereiten
 
 Die Einrichtung der I²C-Schnittstelle folgt der offiziellen Raspberry-Pi-Dokumentation

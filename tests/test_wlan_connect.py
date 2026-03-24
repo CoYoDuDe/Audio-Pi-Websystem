@@ -218,6 +218,34 @@ def test_wlan_connect_open_network(client, monkeypatch):
 
     assert response.status_code == 302
 
+
+def test_wlan_connect_uses_configured_wifi_interface(client, monkeypatch):
+    flask_client, app_module = client
+    calls = []
+
+    monkeypatch.setattr(app_module, "CONFIGURED_WIFI_INTERFACE", "wlp1s0", raising=False)
+
+    def fake_run(args, **kwargs):
+        assert args[0:3] == ["wpa_cli", "-i", "wlp1s0"]
+        calls.append(args)
+        if args[-1] == "add_network":
+            return CompletedProcess(args, 0, stdout="9\n", stderr="")
+        return CompletedProcess(args, 0, stdout="OK\n", stderr="")
+
+    _login_admin(flask_client)
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+
+    response = csrf_post(
+        flask_client,
+        "/wlan_connect",
+        data={"ssid": "My Wifi", "password": "secretpass"},
+        follow_redirects=False,
+        source_url="/change_password",
+    )
+
+    assert response.status_code == 302
+    assert calls
+
     set_network_calls = [
         call for call in calls if len(call) > 6 and call[3] == "set_network"
     ]
