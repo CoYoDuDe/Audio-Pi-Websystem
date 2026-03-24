@@ -1903,6 +1903,7 @@ sudo cp audio-pi.service /etc/systemd/system/
 INSTALL_ABS_PATH="$(pwd)"
 SYSTEMD_SAFE_PWD=$(printf '%s' "$INSTALL_ABS_PATH" | sed -e 's/[\\&|]/\\&/g')
 sudo sed -i "s|/opt/Audio-Pi-Websystem|$SYSTEMD_SAFE_PWD|g" /etc/systemd/system/audio-pi.service
+sudo chmod 755 "$INSTALL_ABS_PATH/scripts/systemd/start_audio_pi.sh"
 if sudo grep -q '^EnvironmentFile=' /etc/systemd/system/audio-pi.service; then
     sudo sed -i "s|^EnvironmentFile=.*|EnvironmentFile=$AUDIO_PI_ENV_FILE|" /etc/systemd/system/audio-pi.service
 else

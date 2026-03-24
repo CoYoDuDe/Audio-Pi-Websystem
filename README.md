@@ -343,7 +343,7 @@ starten wie gewohnt.
 
 ### Automatischer Start (systemd)
 
-`install.sh` kopiert und konfiguriert `audio-pi.service` automatisch. Dabei wird der während der Installation abgefragte `FLASK_SECRET_KEY` eingetragen; ohne gültigen Schlüssel startet der Dienst nicht. Der HTTP-Port landet – standardmäßig als `FLASK_PORT=80`, bei Bedarf entsprechend der Installer-Option `--flask-port` bzw. `INSTALL_FLASK_PORT` – ebenfalls direkt in der Unit. Dank `AmbientCapabilities=CAP_NET_BIND_SERVICE` kann der nicht-root-Benutzer `pi` weiterhin Port 80 binden, ohne zusätzliche weitreichende Privilegien zu erhalten. Statt direkt `python
+`install.sh` kopiert und konfiguriert `audio-pi.service` automatisch. Dabei wird der während der Installation abgefragte `FLASK_SECRET_KEY` eingetragen; ohne gültigen Schlüssel startet der Dienst nicht. Der HTTP-Port landet – standardmäßig als `FLASK_PORT=80`, bei Bedarf entsprechend der Installer-Option `--flask-port` bzw. `INSTALL_FLASK_PORT` – ebenfalls direkt in der Unit. Dank `AmbientCapabilities=CAP_NET_BIND_SERVICE` kann der nicht-root-Benutzer `pi` weiterhin Port 80 binden, ohne zusätzliche weitreichende Privilegien zu erhalten. Ist Port `80` beim Start bereits durch einen anderen Dienst belegt, wechselt der systemd-Startwrapper automatisch auf Port `8080`; bei bewusst gesetzten Alternativports bleibt die Konfiguration unverändert. Statt direkt `python
 app.py` aufzurufen, startet systemd jetzt Gunicorn aus der virtuellen Umgebung
 (`ExecStart=/opt/Audio-Pi-Websystem/venv/bin/gunicorn --config ...`). Das sorgt
 für mehrere Worker-Threads, optionale Hot-ReLoads (`systemctl reload` sendet
