@@ -4855,6 +4855,19 @@ def _build_dashboard_context():
     )
 
 
+@app.before_request
+def ensure_runtime_background_services():
+    if TESTING or _BACKGROUND_SERVICES_STARTED:
+        return
+
+    try:
+        start_background_services()
+    except Exception:
+        logging.exception(
+            "Hintergrunddienste konnten beim Request-Start nicht initialisiert werden."
+        )
+
+
 @app.route("/")
 @login_required
 def index():
