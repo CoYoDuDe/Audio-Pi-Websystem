@@ -4831,7 +4831,7 @@ def settings_page():
 
 
 def _hardware_button_redirect_url() -> str:
-    return url_for("index") + "#hardware-buttons-admin"
+    return url_for("settings_page") + "#hardware-buttons-admin"
 
 
 def _amplifier_settings_redirect_url() -> str:
