@@ -4054,6 +4054,41 @@ def start_background_services(*, force: bool = False) -> bool:
     return True
 
 
+def _shutdown_audio_runtime() -> None:
+    """Beendet die pygame-Audioengine sauber beim Prozessende."""
+
+    global is_paused
+
+    if pygame is None or not pygame_imported:
+        return
+
+    mixer = getattr(pygame, "mixer", None)
+    music = getattr(mixer, "music", None) if mixer is not None else None
+
+    if music is not None:
+        try:
+            music.stop()
+        except Exception:
+            logging.debug("pygame.music.stop() beim Shutdown fehlgeschlagen.", exc_info=True)
+
+    if mixer is not None:
+        quit_mixer = getattr(mixer, "quit", None)
+        if callable(quit_mixer):
+            try:
+                quit_mixer()
+            except Exception:
+                logging.debug("pygame.mixer.quit() beim Shutdown fehlgeschlagen.", exc_info=True)
+
+    quit_pygame = getattr(pygame, "quit", None)
+    if callable(quit_pygame):
+        try:
+            quit_pygame()
+        except Exception:
+            logging.debug("pygame.quit() beim Shutdown fehlgeschlagen.", exc_info=True)
+
+    is_paused = False
+
+
 def stop_background_services(*, wait: bool = False) -> bool:
     """Stoppt Scheduler und bereinigt Ressourcen idempotent."""
 
@@ -4081,6 +4116,8 @@ def stop_background_services(*, wait: bool = False) -> bool:
     if helpers_were_active:
         _stop_bt_audio_monitor_thread()
         _stop_button_monitor()
+
+    _shutdown_audio_runtime()
 
     return was_running
 
