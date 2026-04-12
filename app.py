@@ -1275,7 +1275,6 @@ def _update_rtc_sync_status(success: bool, error: Optional[str] = None) -> None:
 
 
 def sync_rtc_to_system() -> bool:
-    refresh_local_timezone()
     try:
         rtc_time = read_rtc()
     except (ValueError, OSError, RTCUnavailableError, UnsupportedRTCError) as e:
@@ -1341,9 +1340,6 @@ def sync_rtc_to_system() -> bool:
     _update_rtc_sync_status(True, None)
     return True
 
-
-if not TESTING:
-    sync_rtc_to_system()
 
 # DB Setup
 from contextlib import contextmanager, nullcontext
@@ -1982,6 +1978,9 @@ def refresh_local_timezone(*, reconfigure_scheduler: bool = True):
 
 
 refresh_local_timezone()
+
+if not TESTING:
+    sync_rtc_to_system()
 
 
 class _TimezoneChangeMonitor:

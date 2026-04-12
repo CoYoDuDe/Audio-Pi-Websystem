@@ -238,7 +238,7 @@ def test_wlan_connect_uses_configured_wifi_interface(client, monkeypatch):
     response = csrf_post(
         flask_client,
         "/wlan_connect",
-        data={"ssid": "My Wifi", "password": "secretpass"},
+        data={"ssid": "My Wifi", "password": ""},
         follow_redirects=False,
         source_url="/change_password",
     )

@@ -67,6 +67,31 @@ def test_install_generates_secret_into_env_file(tmp_path: Path) -> None:
     )
     env.setdefault("INSTALL_TARGET_USER", "root")
 
+    fake_bin = Path(env["PATH"])
+    (fake_bin / "install").unlink(missing_ok=True)
+    (fake_bin / "install").write_text(
+        """#!/bin/sh
+set -eu
+args=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o|-g)
+      shift 2
+      continue
+      ;;
+  esac
+  args="$args '$1'"
+  shift
+done
+eval exec /usr/bin/install "$args"
+""",
+        encoding="utf-8",
+    )
+    (fake_bin / "install").chmod(0o755)
+    (fake_bin / "chown").unlink(missing_ok=True)
+    (fake_bin / "chown").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    (fake_bin / "chown").chmod(0o755)
+
     result = subprocess.run(
         ["/bin/bash", str(script)],
         stdout=subprocess.PIPE,

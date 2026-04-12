@@ -122,7 +122,7 @@ def test_refresh_updates_scheduler_and_rtc_sync(monkeypatch, app_module):
     assert set_time_command[2] == expected_local_time
 
     assert app_module.RTC_SYNC_STATUS["success"] is True
-    assert len(refresh_calls) >= 2
+    assert len(refresh_calls) >= 1
     assert configure_calls[-1] == new_tz
 
 

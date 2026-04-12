@@ -7,10 +7,19 @@ import subprocess
 import textwrap
 from pathlib import Path
 
+import pytest
+
+
+def _require_writable_boot() -> None:
+    writable_targets = (Path("/boot"), Path("/boot/firmware"))
+    if not any(os.access(target, os.W_OK) for target in writable_targets):
+        pytest.skip("/boot ist in dieser Testumgebung nicht schreibbar")
+
 
 def test_hat_overlay_prefers_firmware_config_when_standard_missing() -> None:
     """Die HAT-Helfer sollen /boot/firmware/config.txt verwenden, wenn /boot/config.txt fehlt."""
 
+    _require_writable_boot()
     script = Path(__file__).resolve().parents[1] / "install.sh"
 
     boot_dir = Path("/boot")
@@ -84,6 +93,7 @@ def test_hat_overlay_prefers_firmware_config_when_standard_missing() -> None:
 def test_hat_overlay_removes_existing_entry_with_options(tmp_path: Path) -> None:
     """Einträge mit Optionen dürfen beim erneuten Anwenden nicht dupliziert werden."""
 
+    _require_writable_boot()
     script = Path(__file__).resolve().parents[1] / "install.sh"
 
     firmware_dir = Path("/boot/firmware")

@@ -63,6 +63,7 @@ def test_install_dry_run_uses_env_file(tmp_path: Path) -> None:
     assert (
         "[Dry-Run] Polkit-Regel würde folgende Units erlauben: audio-pi.service, dnsmasq.service, hostapd.service, systemd-timesyncd.service, dhcpcd.service, audio-pi-alsactl.service, audio-pi-iptables-restore.service." in combined_output
     )
+    assert "[Dry-Run] Würde /var/lib/dhcpcd (root:root, 0755) anlegen." in combined_output
     assert "Environment=\"FLASK_SECRET_KEY" not in combined_output
     assert 'if [ -f "/etc/audio-pi/audio-pi.env" ]; then . "/etc/audio-pi/audio-pi.env"; fi' in combined_output
 

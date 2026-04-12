@@ -18,6 +18,8 @@ def _base_env(tmp_path: Path) -> dict[str, str]:
     env["PATH"] = _prepare_fake_path(tmp_path)
     env["INSTALL_FLASK_SECRET_KEY"] = "Example-Secret-Key_mit-Genug-Zeichen-1234567890"
     env["INSTALL_DRY_RUN"] = "1"
+    env["USER"] = "root"
+    env.pop("SUDO_USER", None)
     return env
 
 

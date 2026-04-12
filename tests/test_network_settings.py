@@ -435,6 +435,14 @@ def test_write_network_settings_permission_error_hint(
     su_binary = shutil.which("su")
     if su_binary is None:
         pytest.skip("'su' steht nicht zur Verfügung")
+    su_probe = subprocess.run(
+        [su_binary, "nobody", "-s", "/bin/sh", "-c", "true"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if su_probe.returncode != 0:
+        pytest.skip("'su nobody' ist in dieser Testumgebung nicht nutzbar")
 
     shared_dir = Path(tempfile.mkdtemp(prefix="network-permission-", dir="/tmp"))
     conf_dir = shared_dir / "restricted"

@@ -1131,6 +1131,7 @@ if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
     else
         echo "[Dry-Run] Warnung: Polkit-Vorlage ${POLKIT_RULE_TEMPLATE} nicht gefunden – Berechtigungen manuell prüfen."
     fi
+    echo "[Dry-Run] Würde /var/lib/dhcpcd (root:root, 0755) anlegen."
     echo ""
     echo "[Dry-Run] Installation wurde nicht ausgeführt. Folgende Abschluss-Hinweise würden angezeigt:"
     print_post_install_instructions "$CONFIGURED_FLASK_PORT" 0
@@ -2022,6 +2023,11 @@ else
     echo "Warnung: Polkit-Vorlage $POLKIT_RULE_TEMPLATE nicht gefunden – bitte Berechtigungen manuell prüfen."
 fi
 install_tmpfiles_rule "$TARGET_USER" "$TARGET_GROUP" "$TARGET_UID"
+if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
+    echo "[Dry-Run] Würde /var/lib/dhcpcd (root:root, 0755) anlegen."
+else
+    sudo install -d -m 0755 /var/lib/dhcpcd
+fi
 sudo systemctl daemon-reload
 sudo systemctl enable audio-pi.service
 sudo systemctl restart audio-pi.service
