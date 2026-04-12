@@ -5,3 +5,6 @@ audio.db
 *.db
 app.log
 .lgd-*
+venv/
+.venv/
+initial_admin_password.txt
