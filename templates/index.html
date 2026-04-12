@@ -856,6 +856,90 @@
 
     <script>
     document.addEventListener('DOMContentLoaded', function () {
+        const accordionDefaults = {
+            status: true,
+            'network-settings': true,
+            playback: true,
+            files: true,
+            playlists: false,
+            schedules: true,
+            'wlan-scan': false,
+            'amplifier-settings': false,
+            'audio-sink-settings': false,
+            'audio-normalization-settings': false,
+            'schedule-default-volume-settings': false,
+            'hardware-buttons-admin': false,
+            'auto-reboot': false,
+            system: true
+        };
+
+        function enhanceDashboardAccordions() {
+            const sections = document.querySelectorAll('.dashboard-section');
+            sections.forEach((section) => {
+                if (!(section instanceof HTMLElement)) {
+                    return;
+                }
+                const article = section.querySelector(':scope > .dashboard-card');
+                if (!(article instanceof HTMLElement) || article.dataset.accordionReady === 'true') {
+                    return;
+                }
+                const heading = article.querySelector(':scope > h3');
+                if (!(heading instanceof HTMLElement)) {
+                    return;
+                }
+
+                const sectionId = section.id || '';
+                const defaultOpen = Object.prototype.hasOwnProperty.call(accordionDefaults, sectionId)
+                    ? Boolean(accordionDefaults[sectionId])
+                    : false;
+
+                const toggle = document.createElement('button');
+                toggle.type = 'button';
+                toggle.className = 'dashboard-accordion-toggle';
+
+                const label = document.createElement('span');
+                label.className = 'dashboard-accordion-toggle__label';
+                label.textContent = heading.textContent || 'Bereich';
+
+                const meta = document.createElement('span');
+                meta.className = 'dashboard-accordion-toggle__meta';
+                meta.textContent = defaultOpen ? 'eingeklappt ausblenden' : 'aufklappen';
+
+                toggle.appendChild(label);
+                toggle.appendChild(meta);
+
+                const content = document.createElement('div');
+                content.className = 'dashboard-accordion-content';
+
+                let sibling = heading.nextSibling;
+                while (sibling) {
+                    const nextSibling = sibling.nextSibling;
+                    content.appendChild(sibling);
+                    sibling = nextSibling;
+                }
+
+                heading.remove();
+                article.insertBefore(toggle, article.firstChild);
+                article.appendChild(content);
+                article.classList.add('dashboard-accordion');
+                article.dataset.accordionReady = 'true';
+
+                function setExpanded(expanded) {
+                    article.classList.toggle('is-collapsed', !expanded);
+                    toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+                    meta.textContent = expanded ? 'eingeklappt ausblenden' : 'aufklappen';
+                }
+
+                toggle.addEventListener('click', function () {
+                    setExpanded(article.classList.contains('is-collapsed'));
+                });
+
+                setExpanded(defaultOpen);
+            });
+        }
+
+        enhanceDashboardAccordions();
+
         const itemSelect = document.getElementById('item-select');
         const typeSelect = document.getElementById('item-type');
         const repeatSelect = document.getElementById('repeat-select');

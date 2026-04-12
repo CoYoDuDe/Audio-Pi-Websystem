@@ -1915,6 +1915,11 @@ if sudo grep -q '^Environment=FLASK_PORT=' /etc/systemd/system/audio-pi.service;
 else
     echo "Environment=FLASK_PORT=${CONFIGURED_FLASK_PORT}" | sudo tee -a /etc/systemd/system/audio-pi.service >/dev/null
 fi
+if sudo grep -q '^Environment=XDG_RUNTIME_DIR=' /etc/systemd/system/audio-pi.service; then
+    sudo sed -i "s|^Environment=XDG_RUNTIME_DIR=.*|Environment=XDG_RUNTIME_DIR=/run/user/${TARGET_UID}|" /etc/systemd/system/audio-pi.service
+else
+    sudo sed -i "/^Environment=FLASK_PORT=/a Environment=XDG_RUNTIME_DIR=/run/user/${TARGET_UID}" /etc/systemd/system/audio-pi.service
+fi
 UPDATED_READWRITE_PATHS="$INSTALL_ABS_PATH /etc/dhcpcd.conf /etc/hosts /etc/hostname /etc/wpa_supplicant /var/lib/dhcpcd"
 UPDATED_READWRITE_PATHS_ESCAPED=$(printf '%s' "$UPDATED_READWRITE_PATHS" | sed -e 's/[\\&|]/\\&/g')
 sudo sed -i "s|^ReadWritePaths=.*|ReadWritePaths=$UPDATED_READWRITE_PATHS_ESCAPED|" /etc/systemd/system/audio-pi.service

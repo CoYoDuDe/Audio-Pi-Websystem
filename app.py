@@ -1979,10 +1979,6 @@ def refresh_local_timezone(*, reconfigure_scheduler: bool = True):
 
 refresh_local_timezone()
 
-if not TESTING:
-    sync_rtc_to_system()
-
-
 class _TimezoneChangeMonitor:
     """Überwacht Systemzeitzonenänderungen und löst Aktualisierungen aus."""
 
@@ -2985,14 +2981,17 @@ def get_current_sink():
 
 def _list_pulse_sinks():
     try:
-        output = subprocess.check_output(
+        result = subprocess.run(
             ["pactl", "list", "short", "sinks"],
+            check=True,
+            capture_output=True,
             text=True,
-            encoding="utf-8",
-            errors="ignore",
         )
     except (subprocess.CalledProcessError, FileNotFoundError) as exc:
         logging.warning("Konnte PulseAudio-Sinks nicht abfragen: %s", exc)
+        return []
+    output = (result.stdout or "").strip()
+    if not output:
         return []
     sinks = []
     for line in output.splitlines():
@@ -3171,6 +3170,10 @@ def _command_not_found(stderr: Optional[str], stdout: Optional[str], returncode:
     return returncode == 127
 
 
+if not TESTING:
+    sync_rtc_to_system()
+
+
 def _run_wifi_tool(
     args,
     fallback_message,
@@ -3256,8 +3259,21 @@ def gather_status():
         match = re.search(r"(\d+)%", volume_output)
         if match:
             current_volume = f"{match.group(1)}%"
-    if audio_status.get("dac_sink_detected") is None and DAC_SINK:
-        audio_status["dac_sink_detected"] = _is_sink_available(DAC_SINK)
+    current_sink_name = get_current_sink()
+    if DAC_SINK:
+        sink_detected = audio_status.get("dac_sink_detected")
+        sink_available = _is_sink_available(DAC_SINK)
+        if sink_available:
+            sink_detected = True
+        elif (
+            isinstance(current_sink_name, str)
+            and current_sink_name not in {"", "Nicht verfügbar"}
+            and _sink_matches_hint(current_sink_name, DAC_SINK)
+        ):
+            sink_detected = True
+        elif sink_detected is None:
+            sink_detected = False
+        audio_status["dac_sink_detected"] = sink_detected
 
     effective_label = DAC_SINK_LABEL or DEFAULT_DAC_SINK_LABEL
     target_dac_sink = DAC_SINK or DAC_SINK_HINT
@@ -3290,7 +3306,7 @@ def gather_status():
         "playing": is_playing,
         "bluetooth_status": "Verbunden" if is_bt_connected() else "Nicht verbunden",
         "wlan_status": wlan_ssid,
-        "current_sink": get_current_sink(),
+        "current_sink": current_sink_name,
         "current_time": current_time,
         "amplifier_status": "An" if amplifier_claimed else "Aus",
         "relay_invert": RELAY_INVERT,

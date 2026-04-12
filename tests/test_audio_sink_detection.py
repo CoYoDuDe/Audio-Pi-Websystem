@@ -1,5 +1,6 @@
 import importlib
 import os
+from subprocess import CompletedProcess
 
 import pytest
 
@@ -12,16 +13,19 @@ app = importlib.import_module('app')
 def test_set_sink_detected(monkeypatch):
     calls = []
 
-    def fake_check_output(cmd, text=None, encoding=None, errors=None):
+    def fake_run(cmd, check=None, capture_output=None, text=None):
         assert cmd == ["pactl", "list", "short", "sinks"]
-        return f"0\t{app.DAC_SINK}\n"
+        assert check is True
+        assert capture_output is True
+        assert text is True
+        return CompletedProcess(cmd, 0, stdout=f"0\t{app.DAC_SINK}\n", stderr="")
 
     def fake_call(cmd):
         calls.append(cmd)
         return 0
 
     app.audio_status["dac_sink_detected"] = None
-    monkeypatch.setattr(app.subprocess, "check_output", fake_check_output)
+    monkeypatch.setattr(app.subprocess, "run", fake_run)
     monkeypatch.setattr(app.subprocess, "call", fake_call)
 
     result = app.set_sink(app.DAC_SINK)
@@ -34,16 +38,19 @@ def test_set_sink_detected(monkeypatch):
 def test_set_sink_missing(monkeypatch):
     calls = []
 
-    def fake_check_output(cmd, text=None, encoding=None, errors=None):
+    def fake_run(cmd, check=None, capture_output=None, text=None):
         assert cmd == ["pactl", "list", "short", "sinks"]
-        return "0\talsa_output.internal\n"
+        assert check is True
+        assert capture_output is True
+        assert text is True
+        return CompletedProcess(cmd, 0, stdout="0\talsa_output.internal\n", stderr="")
 
     def fake_call(cmd):
         calls.append(cmd)
         return 0
 
     app.audio_status["dac_sink_detected"] = None
-    monkeypatch.setattr(app.subprocess, "check_output", fake_check_output)
+    monkeypatch.setattr(app.subprocess, "run", fake_run)
     monkeypatch.setattr(app.subprocess, "call", fake_call)
 
     result = app.set_sink(app.DAC_SINK)
@@ -58,9 +65,12 @@ def test_set_sink_keeps_flag_for_non_dac(monkeypatch):
 
     bluetooth_sink = "bluez_sink.12345"
 
-    def fake_check_output(cmd, text=None, encoding=None, errors=None):
+    def fake_run(cmd, check=None, capture_output=None, text=None):
         assert cmd == ["pactl", "list", "short", "sinks"]
-        return f"0\t{bluetooth_sink}\tRUNNING\n"
+        assert check is True
+        assert capture_output is True
+        assert text is True
+        return CompletedProcess(cmd, 0, stdout=f"0\t{bluetooth_sink}\tRUNNING\n", stderr="")
 
     def fake_call(cmd):
         calls.append(cmd)
@@ -68,7 +78,7 @@ def test_set_sink_keeps_flag_for_non_dac(monkeypatch):
 
     app.audio_status["dac_sink_detected"] = False
     monkeypatch.setattr(app, "DAC_SINK_LABEL", "HiFiBerry DAC+", raising=False)
-    monkeypatch.setattr(app.subprocess, "check_output", fake_check_output)
+    monkeypatch.setattr(app.subprocess, "run", fake_run)
     monkeypatch.setattr(app.subprocess, "call", fake_call)
 
     result = app.set_sink(bluetooth_sink)
@@ -87,15 +97,18 @@ def test_set_sink_resolves_pattern(monkeypatch):
 
     calls = []
 
-    def fake_check_output(cmd, text=None, encoding=None, errors=None):
+    def fake_run(cmd, check=None, capture_output=None, text=None):
         assert cmd == ["pactl", "list", "short", "sinks"]
-        return "0\talsa_output.pattern_test-dac\tRUNNING\n"
+        assert check is True
+        assert capture_output is True
+        assert text is True
+        return CompletedProcess(cmd, 0, stdout="0\talsa_output.pattern_test-dac\tRUNNING\n", stderr="")
 
     def fake_call(cmd):
         calls.append(cmd)
         return 0
 
-    monkeypatch.setattr(app.subprocess, "check_output", fake_check_output)
+    monkeypatch.setattr(app.subprocess, "run", fake_run)
     monkeypatch.setattr(app.subprocess, "call", fake_call)
 
     try:
@@ -114,15 +127,18 @@ def test_set_sink_uses_default_when_name_missing(monkeypatch):
     calls = []
     default_sink = "alsa_output.default"
 
-    def fake_check_output(cmd, text=None, encoding=None, errors=None):
+    def fake_run(cmd, check=None, capture_output=None, text=None):
         assert cmd == ["pactl", "list", "short", "sinks"]
-        return f"0\t{default_sink}\tRUNNING\n"
+        assert check is True
+        assert capture_output is True
+        assert text is True
+        return CompletedProcess(cmd, 0, stdout=f"0\t{default_sink}\tRUNNING\n", stderr="")
 
     def fake_call(cmd):
         calls.append(cmd)
         return 0
 
-    monkeypatch.setattr(app.subprocess, "check_output", fake_check_output)
+    monkeypatch.setattr(app.subprocess, "run", fake_run)
     monkeypatch.setattr(app.subprocess, "call", fake_call)
 
     monkeypatch.setattr(app, "DAC_SINK", default_sink, raising=False)
@@ -212,6 +228,42 @@ def test_gather_status_includes_dac_sink_flag(monkeypatch):
     assert status["dac_sink_hint"] == app.DAC_SINK_HINT
     assert "configured_dac_sink" in status
     assert status["default_dac_sink"] == app.DEFAULT_DAC_SINK
+
+
+def test_gather_status_recovers_from_stale_false_dac_state(monkeypatch):
+    class FakeDateTime:
+        @staticmethod
+        def now():
+            class FakeNow:
+                def strftime(self, fmt):
+                    return "2024-01-01 12:00:00"
+
+            return FakeNow()
+
+    def fake_run_pactl(command, *args, **kwargs):
+        if command == "get-sink-volume":
+            return "Front Left: 55%"
+        if command == "get-default-sink":
+            return app.DAC_SINK
+        return ""
+
+    app.audio_status["dac_sink_detected"] = False
+    monkeypatch.setattr(app, "datetime", FakeDateTime)
+    monkeypatch.setattr(app.pygame.mixer.music, "get_busy", lambda: False)
+    monkeypatch.setattr(app, "is_bt_connected", lambda: False)
+    monkeypatch.setattr(
+        app,
+        "_run_wifi_tool",
+        lambda *_args, **_kwargs: (True, "TestSSID"),
+    )
+    monkeypatch.setattr(app, "_run_pactl_command", fake_run_pactl)
+    monkeypatch.setattr(app, "_is_sink_available", lambda sink: False)
+
+    status = app.gather_status()
+
+    assert status["current_sink"] == app.DAC_SINK
+    assert status["dac_sink_detected"] is True
+    assert app.audio_status["dac_sink_detected"] is True
 
 
 @pytest.mark.parametrize("sink_available", [False, True])
