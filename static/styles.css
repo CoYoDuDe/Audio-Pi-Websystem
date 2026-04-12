@@ -3,6 +3,7 @@ body {
         radial-gradient(circle at top left, rgba(226, 234, 255, 0.8), transparent 28rem),
         linear-gradient(180deg, #f7f9fc 0%, #edf2f7 100%);
     color: #173042;
+    scroll-behavior: smooth;
 }
 
 nav {
@@ -288,6 +289,10 @@ nav form {
     display: flex;
     flex-wrap: wrap;
     gap: 0.65rem;
+}
+
+.settings-shortcuts--anchors .dashboard-sidebar__action {
+    background: #eef3f8;
 }
 
 .settings-shortcuts .dashboard-sidebar__form {

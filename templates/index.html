@@ -48,7 +48,7 @@
         <li>Relais-Umkehr: {{ 'Ja' if status['relay_invert'] else 'Nein' }}</li>
         <li>Lautstärke: {{ status['current_volume'] }}</li>
         <li>Audio-Sink: {{ status['current_sink'] }}</li>
-        <li>Time: {{ status['current_time'] }}</li>
+        <li>Zeit: {{ status['current_time'] }}</li>
         <li>
             RTC:
             {{ status['rtc_module_label'] }}
@@ -174,7 +174,7 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <label class="choice-inline">
                     <input type="checkbox" name="invert" value="1" {% if status['relay_invert'] %}checked{% endif %}>
-                    Relay umkehren
+                    Relais umkehren
                 </label>
                 <button type="submit" class="btn">Speichern</button>
             </form>

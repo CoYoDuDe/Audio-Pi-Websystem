@@ -26,11 +26,36 @@
     {% endif %}
 
     <div class="dashboard-group" id="group-settings">
-        <h2 class="dashboard-group-title">Netzwerk &amp; System</h2>
+        <h2 class="dashboard-group-title">Einstellungen</h2>
+
+        <section class="dashboard-section dashboard-section--status section-card">
+            <article class="dashboard-card stack-md">
+                <h3>Übersicht</h3>
+                <p class="dashboard-sidebar__hint mb-none max-w-60ch">
+                    Alles, was man selten ändert, ist hier gebündelt. Die Hauptseite bleibt damit auf Wiedergabe, Upload und Zeitpläne fokussiert.
+                </p>
+                <div class="settings-shortcuts settings-shortcuts--anchors">
+                    <a href="#settings-access" class="dashboard-sidebar__action">Zugriff</a>
+                    <a href="#network-settings" class="dashboard-sidebar__action">Netzwerk</a>
+                    <a href="#audio-settings" class="dashboard-sidebar__action">Audio</a>
+                    <a href="#hardware-buttons-admin" class="dashboard-sidebar__action">Hardware</a>
+                    <a href="#system" class="dashboard-sidebar__action">System</a>
+                </div>
+            </article>
+        </section>
+
+        <section class="dashboard-section dashboard-section--status section-card">
+            <article class="dashboard-card stack-md">
+                <h3>Zugriff &amp; Wartung</h3>
+                <p class="dashboard-sidebar__hint mb-none">
+                    Für Diagnose, Passwortwechsel, Zeitkorrektur und Software-Aktualisierung.
+                </p>
+            </article>
+        </section>
 
         <section id="settings-access" class="dashboard-section section-card">
             <article class="dashboard-card stack-md">
-                <h3>Zugriff &amp; Wartung</h3>
+                <h3>Werkzeuge</h3>
                 <div class="settings-shortcuts">
                     <a href="{{ url_for('logs') }}" class="dashboard-sidebar__action">Logs</a>
                     <a href="{{ url_for('change_password') }}" class="dashboard-sidebar__action">Passwort</a>
@@ -40,6 +65,15 @@
                         <button type="submit" class="dashboard-sidebar__action dashboard-sidebar__action--button">Update</button>
                     </form>
                 </div>
+            </article>
+        </section>
+
+        <section class="dashboard-section dashboard-section--status section-card">
+            <article class="dashboard-card stack-md">
+                <h3>Netzwerk</h3>
+                <p class="dashboard-sidebar__hint mb-none">
+                    Hier werden IP, Hostname und WLAN nur bei Bedarf angepasst.
+                </p>
             </article>
         </section>
 
@@ -188,6 +222,15 @@
             </article>
         </section>
 
+        <section class="dashboard-section dashboard-section--status section-card" id="audio-settings">
+            <article class="dashboard-card stack-md">
+                <h3>Audio-Basis</h3>
+                <p class="dashboard-sidebar__hint mb-none">
+                    Standardwerte für Verstärker, Sink, Normalisierung und neue Zeitpläne.
+                </p>
+            </article>
+        </section>
+
         <section id="amplifier-settings" class="dashboard-section section-card">
             <article class="dashboard-card stack-md">
                 <h3>Verstärker-GPIO</h3>
@@ -265,6 +308,15 @@
                     </small>
                     <button type="submit" class="btn align-self-start">Speichern</button>
                 </form>
+            </article>
+        </section>
+
+        <section class="dashboard-section dashboard-section--status section-card">
+            <article class="dashboard-card stack-md">
+                <h3>Hardware</h3>
+                <p class="dashboard-sidebar__hint mb-none">
+                    Taster-Zuordnungen nur dann anpassen, wenn zusätzliche Bedienung direkt am Gerät gebraucht wird.
+                </p>
             </article>
         </section>
 
