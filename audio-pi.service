@@ -19,9 +19,10 @@ Environment=AUDIO_PI_REPO_DIR=/opt/Audio-Pi-Websystem
 Environment=AUDIO_PI_ACTIVE_PORT_FILE=/run/audio-pi/active_port
 ExecStart=/usr/bin/env bash /opt/Audio-Pi-Websystem/scripts/systemd/start_audio_pi.sh
 ExecReload=/bin/kill -s HUP $MAINPID
-KillSignal=SIGQUIT
+KillSignal=SIGTERM
+KillMode=mixed
 TimeoutStartSec=60
-TimeoutStopSec=45
+TimeoutStopSec=15
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=yes
