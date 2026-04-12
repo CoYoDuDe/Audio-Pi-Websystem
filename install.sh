@@ -1216,11 +1216,31 @@ detect_rtc_devices() {
     local bus
     for bus in 1 0; do
         local output
+        local -a addresses
         output=$(sudo i2cdetect -y "$bus" 2>/dev/null || true)
         if [ -z "$output" ]; then
             continue
         fi
-        mapfile -t addresses < <(printf '%s\n' "$output" | awk 'NR>1 {for (i=2; i<=NF; i++) if ($i != "--") printf("0x%s\n", $i)}')
+        addresses=()
+        while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            set -- $line
+            local row_label row_hex index cell addr
+            row_label="${1:-}"
+            row_hex="${row_label%:}"
+            shift || true
+            if [[ ! "$row_hex" =~ ^[0-9a-fA-F]{2}$ ]]; then
+                continue
+            fi
+            index=0
+            for cell in "$@"; do
+                if [ "$cell" != "--" ]; then
+                    printf -v addr '0x%02x' $((16#$row_hex + index))
+                    addresses+=("$addr")
+                fi
+                index=$((index + 1))
+            done
+        done < <(printf '%s\n' "$output" | sed -n '2,$p')
         if [ "${#addresses[@]}" -gt 0 ]; then
             RTC_DETECTED_BUS="$bus"
             RTC_DETECTED_ADDRESSES=("${addresses[@]}")
