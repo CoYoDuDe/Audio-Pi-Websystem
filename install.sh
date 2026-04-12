@@ -1391,9 +1391,9 @@ else
         if [ "$RTC_AUTODETECT_ACCEPTED" -eq 1 ]; then
             if [ -n "$RTC_AUTODETECT_MODULE" ]; then
                 RTC_MODULE="$RTC_AUTODETECT_MODULE"
+                RTC_ADDRESS_INPUT="$RTC_DETECTED_ADDRESS_STRING"
             fi
             RTC_OVERLAY_DEFAULT="$RTC_AUTODETECT_OVERLAY"
-            RTC_ADDRESS_INPUT="$RTC_DETECTED_ADDRESS_STRING"
         fi
     fi
 

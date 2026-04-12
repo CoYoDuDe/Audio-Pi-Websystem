@@ -966,6 +966,23 @@ RTC_KNOWN_ADDRESS_TYPES = {
 }
 
 
+def _infer_rtc_module_from_boot_overlay() -> Optional[str]:
+    for candidate in ("/boot/firmware/config.txt", "/boot/config.txt"):
+        try:
+            with open(candidate, "r", encoding="utf-8") as handle:
+                for raw_line in handle:
+                    line = raw_line.strip().lower()
+                    if not line.startswith("dtoverlay=i2c-rtc"):
+                        continue
+                    if ",pcf8563" in line:
+                        return "pcf8563"
+                    if ",ds3231" in line or ",ds1307" in line:
+                        return "ds3231"
+        except OSError:
+            continue
+    return None
+
+
 def scan_i2c_addresses_for_rtc(
     i2c_bus, candidate_addresses: Iterable[int]
 ) -> Optional[int]:
@@ -2584,10 +2601,22 @@ def load_rtc_configuration_from_settings():
         logging.warning("RTC-Adressen aus Einstellungen konnten nicht geparst werden: %s", exc)
         configured_addresses = tuple()
 
-    if configured_addresses:
+    known_configured_addresses = tuple(
+        address for address in configured_addresses if address in RTC_KNOWN_ADDRESS_TYPES
+    )
+
+    effective_module_type = module_type
+    if effective_module_type == "auto":
+        overlay_module_type = _infer_rtc_module_from_boot_overlay()
+        if overlay_module_type in RTC_SUPPORTED_TYPES:
+            effective_module_type = overlay_module_type
+
+    if configured_addresses and (
+        module_type != "auto" or known_configured_addresses
+    ):
         candidate_addresses = configured_addresses
     else:
-        candidate_addresses = RTC_SUPPORTED_TYPES[module_type]["default_addresses"]
+        candidate_addresses = RTC_SUPPORTED_TYPES[effective_module_type]["default_addresses"]
 
     refresh_rtc_detection(candidate_addresses)
 
