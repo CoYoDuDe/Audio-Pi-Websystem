@@ -4813,6 +4813,7 @@ def _build_dashboard_context():
         hardware_button_actions=HARDWARE_BUTTON_ACTIONS,
         hardware_button_action_labels=HARDWARE_BUTTON_ACTION_LABELS,
         default_button_debounce_ms=DEFAULT_BUTTON_DEBOUNCE_MS,
+        detected_hardware_gpio_pin=(request.args.get("detected_gpio_pin") or "").strip(),
         network_settings=network_settings,
     )
 
@@ -4943,6 +4944,100 @@ def _hardware_button_target_exists(cursor, item_type: str, item_id: int) -> bool
     return cursor.fetchone() is not None
 
 
+def _build_gpio_detection_chip_candidates() -> List[int]:
+    seen: Set[int] = set()
+    candidates: List[int] = []
+
+    def _add(candidate: Optional[int]) -> None:
+        if candidate is None or candidate in seen:
+            return
+        seen.add(candidate)
+        candidates.append(candidate)
+
+    _add(gpio_chip_id)
+    for default_candidate in (4, 0):
+        _add(default_candidate)
+
+    for path in sorted(glob.glob("/dev/gpiochip*")):
+        suffix = path[len("/dev/gpiochip") :]
+        if suffix.isdigit():
+            _add(int(suffix))
+
+    return candidates
+
+
+def _detect_pressed_gpio_pin(
+    *, timeout_seconds: float = 8.0, poll_interval: float = 0.02
+) -> Tuple[Optional[int], Optional[str]]:
+    if not GPIO_AVAILABLE or GPIO is None:
+        return None, "GPIO-Erkennung ist nicht verfügbar, weil lgpio fehlt."
+
+    candidate_pins = [pin for pin in range(28) if pin != GPIO_PIN_ENDSTUFE]
+    handle: Optional[int] = None
+    claimed_pins: List[int] = []
+
+    try:
+        for chip_candidate in _build_gpio_detection_chip_candidates():
+            try:
+                handle = GPIO.gpiochip_open(chip_candidate)
+            except (GPIO.error, OSError):
+                continue
+            else:
+                break
+
+        if handle is None:
+            return None, "Kein GPIO-Chip für die Taster-Erkennung verfügbar."
+
+        baseline_levels: Dict[int, int] = {}
+        for pin in candidate_pins:
+            try:
+                GPIO.gpio_claim_input(handle, pin, GPIO.SET_PULL_UP)
+                claimed_pins.append(pin)
+                baseline_levels[pin] = GPIO.gpio_read(handle, pin)
+            except (GPIO.error, OSError):
+                continue
+
+        if not baseline_levels:
+            return None, "Es konnten keine GPIO-Pins für die Erkennung geöffnet werden."
+
+        deadline = time.monotonic() + max(0.5, timeout_seconds)
+        sleep_time = max(0.005, poll_interval)
+        while time.monotonic() < deadline:
+            for pin in claimed_pins:
+                try:
+                    level = GPIO.gpio_read(handle, pin)
+                except (GPIO.error, OSError):
+                    continue
+
+                baseline = baseline_levels.get(pin)
+                if baseline is None:
+                    continue
+
+                # Typischer Taster-Fall: Pull-up im Leerlauf, beim Drücken auf LOW.
+                if baseline == 1 and level == 0:
+                    return pin, None
+
+                # Fallback für andere Beschaltungen: jede eindeutige Pegeländerung akzeptieren.
+                if baseline != level:
+                    return pin, None
+            time.sleep(sleep_time)
+
+        return None, (
+            "Kein Taster erkannt. Nach dem Start der Erkennung innerhalb weniger Sekunden einmal drücken."
+        )
+    finally:
+        if handle is not None and GPIO is not None:
+            for pin in reversed(claimed_pins):
+                try:
+                    GPIO.gpio_free(handle, pin)
+                except (GPIO.error, OSError):
+                    pass
+            try:
+                GPIO.gpiochip_close(handle)
+            except (GPIO.error, OSError):
+                pass
+
+
 @app.route("/hardware_buttons", methods=["POST"])
 @login_required
 def create_hardware_button():
@@ -4991,6 +5086,27 @@ def create_hardware_button():
         _refresh_button_monitor_configuration()
 
     return redirect(_hardware_button_redirect_url())
+
+
+@app.route("/hardware_buttons/detect", methods=["POST"])
+@login_required
+def detect_hardware_button_pin():
+    _stop_button_monitor()
+    try:
+        detected_pin, error_message = _detect_pressed_gpio_pin()
+    finally:
+        if not TESTING:
+            _start_button_monitor()
+
+    if error_message:
+        flash(error_message)
+        return redirect(_hardware_button_redirect_url())
+
+    flash(f"Taster erkannt: GPIO {detected_pin}. Wert wurde in das Formular übernommen.")
+    return redirect(
+        url_for("settings_page", detected_gpio_pin=str(detected_pin))
+        + "#hardware-buttons-admin"
+    )
 
 
 @app.route("/hardware_buttons/<int:button_id>/update", methods=["POST"])

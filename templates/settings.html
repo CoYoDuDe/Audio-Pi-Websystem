@@ -326,11 +326,18 @@
                 <div class="hardware-button-admin grid-2 gap-xl mt-lg">
                     <div class="hardware-button-create form-card stack-md">
                         <h4>Neue Zuordnung</h4>
+                        <p class="dashboard-sidebar__hint mb-none">
+                            GPIO kann manuell eingetragen oder automatisch erkannt werden. Nach dem Start der Erkennung den gewünschten Taster einmal drücken.
+                        </p>
+                        <form action="{{ url_for('detect_hardware_button_pin') }}" method="POST" class="inline-form">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn">GPIO automatisch erkennen</button>
+                        </form>
                         <form action="{{ url_for('create_hardware_button') }}" method="POST" class="hardware-button-form stack-md">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <label class="form-field">
                                 GPIO-Pin
-                                <input type="number" name="gpio_pin" min="0" required>
+                                <input type="number" name="gpio_pin" min="0" value="{{ detected_hardware_gpio_pin }}" required>
                             </label>
                             <label class="form-field">
                                 Aktion
