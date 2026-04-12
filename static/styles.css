@@ -18,33 +18,14 @@ nav form {
     top: 0;
     z-index: 20;
     display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
+    justify-content: center;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.5rem;
     margin: 0;
-    padding: 0.85rem 1rem;
+    padding: 0.6rem 0.85rem;
     background: rgba(250, 252, 255, 0.92);
     backdrop-filter: blur(10px);
     border-bottom: 1px solid rgba(23, 48, 66, 0.08);
-}
-
-.topbar__section {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-}
-
-.topbar__section--utility {
-    align-items: flex-end;
-}
-
-.topbar__label {
-    font-size: 0.75rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: #66798a;
 }
 
 .topbar__group {
@@ -55,7 +36,7 @@ nav form {
 }
 
 .topbar__group--utility {
-    justify-content: flex-end;
+    justify-content: center;
 }
 
 .topbar a,
@@ -67,7 +48,7 @@ nav form {
     color: #173042;
     font-weight: 600;
     text-decoration: none;
-    padding: 0.35rem 0.7rem;
+    padding: 0.3rem 0.65rem;
     border-radius: 999px;
     background: rgba(23, 48, 66, 0.06);
 }
@@ -301,6 +282,24 @@ nav form {
 
 .quick-action-card .dashboard-sidebar__action {
     justify-content: center;
+}
+
+.settings-shortcuts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+}
+
+.settings-shortcuts .dashboard-sidebar__form {
+    flex: 1 1 10rem;
+}
+
+.settings-shortcuts .dashboard-sidebar__action,
+.settings-shortcuts .dashboard-sidebar__action--button {
+    width: auto;
+    min-width: 8.5rem;
+    justify-content: center;
+    text-align: center;
 }
 .flashes {
     list-style: none;
@@ -811,17 +810,7 @@ pre { background: #eee; padding: 1em; }
 
 @media (max-width: 600px) {
     .topbar {
-        padding: 0.75rem;
-    }
-
-    .topbar__section--utility {
-        align-items: flex-start;
-    }
-
-    .topbar__group,
-    .topbar__group--utility {
-        width: 100%;
-        justify-content: flex-start;
+        padding: 0.5rem 0.65rem;
     }
 
     .dashboard-toolbar__card {
@@ -831,6 +820,18 @@ pre { background: #eee; padding: 1em; }
     .dashboard-toolbar__nav,
     .dashboard-toolbar__actions {
         grid-template-columns: minmax(0, 1fr);
+    }
+
+    .settings-shortcuts {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .settings-shortcuts .dashboard-sidebar__form,
+    .settings-shortcuts .dashboard-sidebar__action,
+    .settings-shortcuts .dashboard-sidebar__action--button {
+        min-width: 0;
+        width: 100%;
     }
 
     .dashboard-layout {

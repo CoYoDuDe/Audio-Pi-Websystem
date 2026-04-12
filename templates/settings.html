@@ -28,6 +28,21 @@
     <div class="dashboard-group" id="group-settings">
         <h2 class="dashboard-group-title">Netzwerk &amp; System</h2>
 
+        <section id="settings-access" class="dashboard-section section-card">
+            <article class="dashboard-card stack-md">
+                <h3>Zugriff &amp; Wartung</h3>
+                <div class="settings-shortcuts">
+                    <a href="{{ url_for('logs') }}" class="dashboard-sidebar__action">Logs</a>
+                    <a href="{{ url_for('change_password') }}" class="dashboard-sidebar__action">Passwort</a>
+                    <a href="{{ url_for('set_time') }}" class="dashboard-sidebar__action">Zeit/Datum</a>
+                    <form action="{{ url_for('update') }}" method="post" class="dashboard-sidebar__form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="dashboard-sidebar__action dashboard-sidebar__action--button">Update</button>
+                    </form>
+                </div>
+            </article>
+        </section>
+
         <section id="network-settings" class="dashboard-section section-card">
             <article class="dashboard-card stack-lg">
                 <h3>Netzwerkeinstellungen</h3>
