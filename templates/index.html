@@ -17,36 +17,7 @@
 
 <div class="dashboard-shell">
     <div class="dashboard-panels">
-<section class="dashboard-toolbar dashboard-panel is-active" id="group-toolbar">
-    <div class="dashboard-toolbar__card">
-        <div class="dashboard-toolbar__intro">
-            <p class="dashboard-sidebar__eyebrow">Steuerung</p>
-            <h2 class="dashboard-sidebar__title">Alles Wichtige auf einer Seite</h2>
-            <p class="dashboard-sidebar__hint">Die Hauptfunktionen bleiben direkt hier. Zusätzliche Seiten liegen kompakt oben.</p>
-        </div>
-        <nav class="dashboard-toolbar__nav" aria-label="Bereiche">
-            <button type="button" class="dashboard-sidebar__link is-active" data-dashboard-target="group-status">Status</button>
-            <button type="button" class="dashboard-sidebar__link" data-dashboard-target="group-network">Netzwerk</button>
-            <button type="button" class="dashboard-sidebar__link" data-dashboard-target="group-audio">Audio</button>
-            <button type="button" class="dashboard-sidebar__link" data-dashboard-target="group-schedules">Zeitpläne</button>
-            <button type="button" class="dashboard-sidebar__link" data-dashboard-target="group-system">System</button>
-        </nav>
-        <div class="dashboard-toolbar__actions">
-            <a href="{{ url_for('logs') }}" class="dashboard-sidebar__action">Logs</a>
-            <a href="{{ url_for('change_password') }}" class="dashboard-sidebar__action">Passwort</a>
-            <a href="{{ url_for('set_time') }}" class="dashboard-sidebar__action">Zeit/Datum</a>
-            <form action="{{ url_for('update') }}" method="post" class="dashboard-sidebar__form">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button type="submit" class="dashboard-sidebar__action dashboard-sidebar__action--button">Update</button>
-            </form>
-            <form action="{{ url_for('logout_route') }}" method="post" class="dashboard-sidebar__form">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button type="submit" class="dashboard-sidebar__action dashboard-sidebar__action--button">Logout</button>
-            </form>
-        </div>
-    </div>
-</section>
-<div class="dashboard-group dashboard-panel is-active" id="group-status">
+<div class="dashboard-group" id="group-status">
     <h2 class="dashboard-group-title">Systemstatus</h2>
     {% if flash_groups.general %}
     <ul class="flashes">
@@ -130,7 +101,7 @@
                             <button type="submit" class="btn">Stopp</button>
                         </form>
                     </div>
-                    <button type="button" class="dashboard-sidebar__action" data-dashboard-target="group-audio">Zu Audio</button>
+                    <a href="#group-audio" class="dashboard-sidebar__action">Zu Audio</a>
                 </div>
 
                 <div class="form-card stack-sm quick-action-card">
@@ -158,9 +129,9 @@
                 <div class="form-card stack-sm quick-action-card">
                     <span class="quick-action-title">Springen</span>
                     <div class="action-row">
-                        <button type="button" class="dashboard-sidebar__action" data-dashboard-target="group-network">Netzwerk</button>
-                        <button type="button" class="dashboard-sidebar__action" data-dashboard-target="group-schedules">Zeitpläne</button>
-                        <button type="button" class="dashboard-sidebar__action" data-dashboard-target="group-system">System</button>
+                        <a href="{{ url_for('settings_page') }}#network-settings" class="dashboard-sidebar__action">Netzwerk</a>
+                        <a href="#group-schedules" class="dashboard-sidebar__action">Zeitpläne</a>
+                        <a href="{{ url_for('settings_page') }}#system" class="dashboard-sidebar__action">System</a>
                     </div>
                 </div>
             </div>
@@ -172,158 +143,7 @@
 {% set manual_mode = (network_mode == 'manual') %}
 {% set manual_hidden_class = '' if manual_mode else 'is-hidden' %}
 
-<div class="dashboard-group dashboard-panel" id="group-network">
-    <h2 class="dashboard-group-title">Netzwerk</h2>
-    <section id="network-settings" class="dashboard-section dashboard-section--network section-card">
-        <article class="dashboard-card stack-lg">
-            <h3>Netzwerkeinstellungen</h3>
-            <div class="dashboard-subsection stack-sm">
-                <h4>Aktiver Zustand</h4>
-                <ul>
-                    <li>Modus: {{ status.get('network_mode_label', 'Unbekannt') }}</li>
-                    <li>Aktuelle IPv4: {{ status.get('network_runtime_ip', 'Unbekannt') }}</li>
-                    <li>Gateway: {{ status.get('network_runtime_gateway', 'Unbekannt') }}</li>
-                    <li>Hostname: {{ status.get('network_hostname', 'Unbekannt') }}</li>
-                </ul>
-            </div>
-            <form
-                id="network-settings-form"
-                action="{{ url_for('save_network_settings') }}"
-                method="POST"
-                class="network-settings-form form-card stack-md max-w-36"
-            >
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <fieldset class="fieldset-inline">
-            <legend class="legend-strong">IPv4-Konfiguration</legend>
-            <label class="choice-inline">
-                <input type="radio" name="mode" value="dhcp" {% if not manual_mode %}checked{% endif %}>
-                DHCP (automatisch beziehen)
-            </label>
-            <label class="choice-inline">
-                <input type="radio" name="mode" value="manual" {% if manual_mode %}checked{% endif %}>
-                Manuell (statische IPv4)
-            </label>
-        </fieldset>
-        <div class="network-field-grid form-grid">
-            <label
-                for="ipv4-address"
-                data-manual-field="ipv4"
-                class="form-field manual-only {{ manual_hidden_class }}"
-            >
-                IPv4-Adresse
-                <input
-                    type="text"
-                    id="ipv4-address"
-                    name="ipv4_address"
-                    placeholder="z. B. 192.168.0.10"
-                    value="{{ network_settings.ipv4_address }}"
-                    data-manual-input="ipv4"
-                    data-required-when-manual="true"
-                >
-            </label>
-            <label
-                for="ipv4-prefix"
-                data-manual-field="ipv4"
-                class="form-field manual-only {{ manual_hidden_class }}"
-            >
-                Präfix (CIDR)
-                <input
-                    type="number"
-                    id="ipv4-prefix"
-                    name="ipv4_prefix"
-                    min="0"
-                    max="32"
-                    placeholder="z. B. 24"
-                    value="{{ network_settings.ipv4_prefix }}"
-                    data-manual-input="ipv4"
-                    data-required-when-manual="true"
-                >
-            </label>
-            <label
-                for="ipv4-gateway"
-                data-manual-field="ipv4"
-                class="form-field manual-only {{ manual_hidden_class }}"
-            >
-                Gateway
-                <input
-                    type="text"
-                    id="ipv4-gateway"
-                    name="ipv4_gateway"
-                    placeholder="z. B. 192.168.0.1"
-                    value="{{ network_settings.ipv4_gateway }}"
-                    data-manual-input="ipv4"
-                    data-required-when-manual="true"
-                >
-            </label>
-            <label
-                for="dns-servers"
-                data-manual-field="ipv4"
-                class="form-field manual-only {{ manual_hidden_class }}"
-            >
-                DNS-Server
-                <input
-                    type="text"
-                    id="dns-servers"
-                    name="dns_servers"
-                    placeholder="z. B. 1.1.1.1, 8.8.8.8"
-                    value="{{ network_settings.dns_servers }}"
-                    data-manual-input="ipv4"
-                    data-required-when-manual="true"
-                >
-            </label>
-        </div>
-        <div class="network-identity-group form-section-divider form-grid">
-            <label for="hostname" class="form-field">
-                Hostname
-                <input
-                    type="text"
-                    id="hostname"
-                    name="hostname"
-                    placeholder="z. B. audio-pi"
-                    value="{{ network_settings.hostname }}"
-                >
-            </label>
-            <label for="local-domain" class="form-field">
-                Lokale Domain (optional)
-                <input
-                    type="text"
-                    id="local-domain"
-                    name="local_domain"
-                    placeholder="z. B. lan"
-                    value="{{ network_settings.local_domain }}"
-                >
-            </label>
-        </div>
-        <small data-manual-hint class="form-helper manual-only {{ manual_hidden_class }}">IPv4-Adresse, Präfix, Gateway und DNS-Server werden nur benötigt, wenn „Manuell (statische IPv4)“ aktiv ist.</small>
-        <button type="submit" class="btn align-self-start">Speichern</button>
-            </form>
-            {% if flash_groups.network %}
-            <ul class="flashes mt-sm">
-                {% for message in flash_groups.network %}
-                <li>{{ message }}</li>
-                {% endfor %}
-            </ul>
-            {% endif %}
-        </article>
-        <article class="dashboard-card stack-md">
-            <h3>WLAN-Scan</h3>
-            <p class="hint">
-                Starte einen neuen Scan nach verfügbaren Netzwerken. Die Ergebnisse werden auf einer separaten
-                Seite angezeigt und können zum Verbinden mit einem WLAN genutzt werden.
-            </p>
-            <p class="hint">
-                Hinweis: Für eine Verbindung muss die SSID einen sichtbaren Namen enthalten. Leere Eingaben oder
-                reine Leerzeichen werden serverseitig abgewiesen.
-            </p>
-            <form action="{{ url_for('wlan_scan') }}" method="post" class="form-card stack-sm max-w-20">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button type="submit" class="btn align-self-start">Scan starten</button>
-            </form>
-        </article>
-    </section>
-</div>
-
-<div class="dashboard-group dashboard-panel" id="group-audio">
+<div class="dashboard-group" id="group-audio">
     <h2 class="dashboard-group-title">Audio &amp; Wiedergabe</h2>
     <section id="amplifier-settings" class="dashboard-section dashboard-section--audio section-card">
         <article class="dashboard-card stack-md">
@@ -762,7 +582,7 @@
 
     </div>
 
-<div class="dashboard-group dashboard-panel" id="group-schedules">
+<div class="dashboard-group" id="group-schedules">
     <h2 class="dashboard-group-title">Zeitpläne</h2>
     <section id="schedules" class="dashboard-section dashboard-section--audio">
         <article class="dashboard-card stack-lg">
@@ -965,60 +785,6 @@
 
     <script>
     document.addEventListener('DOMContentLoaded', function () {
-        const sidebarLinks = document.querySelectorAll('[data-dashboard-target]');
-        const dashboardPanels = document.querySelectorAll('.dashboard-panel');
-        const panelAliases = {
-            'group-status': 'group-status',
-            status: 'group-status',
-            'group-network': 'group-network',
-            'network-settings': 'group-network',
-            network: 'group-network',
-            'group-audio': 'group-audio',
-            playback: 'group-audio',
-            files: 'group-audio',
-            playlists: 'group-audio',
-            audio: 'group-audio',
-            'group-schedules': 'group-schedules',
-            schedules: 'group-schedules',
-            'group-system': 'group-system',
-            'auto-reboot': 'group-system',
-            system: 'group-system'
-        };
-
-        function activateDashboardPanel(panelId) {
-            const resolvedPanelId = panelAliases[panelId] || 'group-status';
-
-            dashboardPanels.forEach((panel) => {
-                if (!(panel instanceof HTMLElement)) {
-                    return;
-                }
-                panel.classList.toggle('is-active', panel.id === resolvedPanelId);
-            });
-
-            sidebarLinks.forEach((link) => {
-                if (!(link instanceof HTMLElement)) {
-                    return;
-                }
-                link.classList.toggle(
-                    'is-active',
-                    link.getAttribute('data-dashboard-target') === resolvedPanelId
-                );
-            });
-
-            if (window.location.hash !== `#${resolvedPanelId}`) {
-                window.history.replaceState(null, '', `#${resolvedPanelId}`);
-            }
-        }
-
-        sidebarLinks.forEach((link) => {
-            link.addEventListener('click', function () {
-                const targetPanel = link.getAttribute('data-dashboard-target');
-                activateDashboardPanel(targetPanel || 'group-status');
-            });
-        });
-
-        activateDashboardPanel(window.location.hash.replace('#', '') || 'group-status');
-
         const accordionDefaults = {
             status: true,
             'network-settings': true,
@@ -1357,77 +1123,6 @@
     </script>
         </article>
     </section>
-</div>
-
-<div class="dashboard-group dashboard-panel" id="group-system">
-    <h2 class="dashboard-group-title">System &amp; Wartung</h2>
-    <section id="auto-reboot" class="dashboard-section dashboard-section--system section-card">
-        <article class="dashboard-card stack-md">
-            <h3>Automatischer Neustart</h3>
-            <form action="{{ url_for('save_auto_reboot_settings') }}" method="POST" class="auto-reboot-form form-card stack-sm max-w-32">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <label class="choice-inline">
-                    <input type="checkbox" name="auto_reboot_enabled" {% if auto_reboot_settings.enabled %}checked{% endif %}>
-                    Automatischer Neustart aktiv
-                </label>
-                <div class="flex-row flex-wrap gap-lg items-center">
-                    <label class="form-field">
-                        Uhrzeit
-                        <input type="time" name="auto_reboot_time" value="{{ auto_reboot_settings.time }}" required>
-                    </label>
-                    <label class="form-field">
-                        Ausführung
-                        <select name="auto_reboot_mode" id="auto-reboot-mode">
-                            <option value="daily" {% if auto_reboot_settings.mode == 'daily' %}selected{% endif %}>Täglich</option>
-                            <option value="weekly" {% if auto_reboot_settings.mode == 'weekly' %}selected{% endif %}>Wöchentlich</option>
-                        </select>
-                    </label>
-                    <label id="auto-reboot-weekday-wrapper" class="form-field {% if auto_reboot_settings.mode != 'weekly' %}is-hidden{% endif %}">
-                        Wochentag
-                        <select name="auto_reboot_weekday" id="auto-reboot-weekday">
-                            {% for weekday in auto_reboot_weekdays %}
-                            <option value="{{ weekday }}" {% if auto_reboot_settings.weekday == weekday %}selected{% endif %}>{{ weekday|capitalize }}</option>
-                            {% endfor %}
-                        </select>
-                    </label>
-                </div>
-                <button type="submit" class="btn mt-sm align-self-start">Speichern</button>
-            </form>
-            <p class="hint">Der automatische Neustart nutzt den System-Scheduler. Bei "Wöchentlich" erfolgt der Neustart nur am gewählten Tag.</p>
-        </article>
-    </section>
-
-    <section id="system" class="dashboard-section dashboard-section--system section-card">
-        <article class="dashboard-card stack-md">
-            <h3>System</h3>
-            <form action="{{ url_for('update') }}" method="POST" class="stack-sm">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button type="submit" class="btn">Update</button>
-            </form>
-            <div class="inline-actions">
-                <form action="{{ url_for('bluetooth_on') }}" method="POST" class="inline-form">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn">Bluetooth an</button>
-                </form>
-                <form action="{{ url_for('bluetooth_off') }}" method="POST" class="inline-form">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn">Bluetooth aus</button>
-                </form>
-            </div>
-            <div class="power-controls action-row mt-lg">
-                <form action="{{ url_for('system_reboot') }}" method="POST" data-confirm="System jetzt neu starten?" class="inline-form">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn">Neustart</button>
-                </form>
-                <form action="{{ url_for('system_shutdown') }}" method="POST" data-confirm="System wirklich herunterfahren?" class="inline-form">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn">Herunterfahren</button>
-                </form>
-            </div>
-        </article>
-    </section>
-</div>
-
     </div>
 </div>
 

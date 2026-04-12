@@ -1,0 +1,289 @@
+{% extends 'base.html' %}
+{% block title %}Einstellungen - Audio Pi{% endblock %}
+{% block page_heading %}Einstellungen{% endblock %}
+{% block flashes %}{% endblock %}
+{% block content %}
+{% set flashed_messages = get_flashed_messages(with_categories=true) %}
+{% set flash_groups = namespace(general=[], network=[]) %}
+{% for category, message in flashed_messages %}
+    {% if category == 'network_settings' %}
+        {% set flash_groups.network = flash_groups.network + [message] %}
+    {% else %}
+        {% set flash_groups.general = flash_groups.general + [message] %}
+    {% endif %}
+{% endfor %}
+{% set network_mode = (network_settings.mode | default('dhcp')) %}
+{% set manual_mode = (network_mode == 'manual') %}
+{% set manual_hidden_class = '' if manual_mode else 'is-hidden' %}
+
+<div class="dashboard-shell">
+    {% if flash_groups.general %}
+    <ul class="flashes">
+        {% for message in flash_groups.general %}
+        <li>{{ message }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+
+    <div class="dashboard-group" id="group-settings">
+        <h2 class="dashboard-group-title">Netzwerk &amp; System</h2>
+
+        <section id="network-settings" class="dashboard-section section-card">
+            <article class="dashboard-card stack-lg">
+                <h3>Netzwerkeinstellungen</h3>
+                <div class="dashboard-subsection stack-sm">
+                    <h4>Aktiver Zustand</h4>
+                    <ul>
+                        <li>Modus: {{ status.get('network_mode_label', 'Unbekannt') }}</li>
+                        <li>Aktuelle IPv4: {{ status.get('network_runtime_ip', 'Unbekannt') }}</li>
+                        <li>Gateway: {{ status.get('network_runtime_gateway', 'Unbekannt') }}</li>
+                        <li>Hostname: {{ status.get('network_hostname', 'Unbekannt') }}</li>
+                    </ul>
+                </div>
+                <form
+                    id="network-settings-form"
+                    action="{{ url_for('save_network_settings') }}"
+                    method="POST"
+                    class="network-settings-form form-card stack-md max-w-36"
+                >
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <fieldset class="fieldset-inline">
+                        <legend class="legend-strong">IPv4-Konfiguration</legend>
+                        <label class="choice-inline">
+                            <input type="radio" name="mode" value="dhcp" {% if not manual_mode %}checked{% endif %}>
+                            DHCP
+                        </label>
+                        <label class="choice-inline">
+                            <input type="radio" name="mode" value="manual" {% if manual_mode %}checked{% endif %}>
+                            Manuell
+                        </label>
+                    </fieldset>
+                    <div class="network-field-grid form-grid">
+                        <label for="ipv4-address" data-manual-field="ipv4" class="form-field manual-only {{ manual_hidden_class }}">
+                            IPv4-Adresse
+                            <input type="text" id="ipv4-address" name="ipv4_address" value="{{ network_settings.ipv4_address }}" data-manual-input="ipv4" data-required-when-manual="true">
+                        </label>
+                        <label for="ipv4-prefix" data-manual-field="ipv4" class="form-field manual-only {{ manual_hidden_class }}">
+                            Präfix (CIDR)
+                            <input type="number" id="ipv4-prefix" name="ipv4_prefix" min="0" max="32" value="{{ network_settings.ipv4_prefix }}" data-manual-input="ipv4" data-required-when-manual="true">
+                        </label>
+                        <label for="ipv4-gateway" data-manual-field="ipv4" class="form-field manual-only {{ manual_hidden_class }}">
+                            Gateway
+                            <input type="text" id="ipv4-gateway" name="ipv4_gateway" value="{{ network_settings.ipv4_gateway }}" data-manual-input="ipv4" data-required-when-manual="true">
+                        </label>
+                        <label for="dns-servers" data-manual-field="ipv4" class="form-field manual-only {{ manual_hidden_class }}">
+                            DNS-Server
+                            <input type="text" id="dns-servers" name="dns_servers" value="{{ network_settings.dns_servers }}" data-manual-input="ipv4" data-required-when-manual="true">
+                        </label>
+                    </div>
+                    <div class="network-identity-group form-section-divider form-grid">
+                        <label for="hostname" class="form-field">
+                            Hostname
+                            <input type="text" id="hostname" name="hostname" value="{{ network_settings.hostname }}">
+                        </label>
+                        <label for="local-domain" class="form-field">
+                            Lokale Domain (optional)
+                            <input type="text" id="local-domain" name="local_domain" value="{{ network_settings.local_domain }}">
+                        </label>
+                    </div>
+                    <small data-manual-hint class="form-helper manual-only {{ manual_hidden_class }}">IPv4-Adresse, Präfix, Gateway und DNS-Server nur bei manuellem Modus ausfüllen.</small>
+                    <button type="submit" class="btn align-self-start">Speichern</button>
+                </form>
+                {% if flash_groups.network %}
+                <ul class="flashes mt-sm">
+                    {% for message in flash_groups.network %}
+                    <li>{{ message }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </article>
+
+            <article class="dashboard-card stack-md">
+                <h3>WLAN-Scan</h3>
+                <p class="hint">Netzwerke werden auf einer separaten Seite angezeigt und können dort direkt verbunden werden.</p>
+                <form action="{{ url_for('wlan_scan') }}" method="post" class="form-card stack-sm max-w-20">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn align-self-start">Scan starten</button>
+                </form>
+            </article>
+        </section>
+
+        <section id="auto-reboot" class="dashboard-section dashboard-section--system section-card">
+            <article class="dashboard-card stack-md">
+                <h3>Automatischer Neustart</h3>
+                <form action="{{ url_for('save_auto_reboot_settings') }}" method="POST" class="auto-reboot-form form-card stack-sm max-w-32">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <label class="choice-inline">
+                        <input type="checkbox" name="auto_reboot_enabled" {% if auto_reboot_settings.enabled %}checked{% endif %}>
+                        Automatischer Neustart aktiv
+                    </label>
+                    <div class="flex-row flex-wrap gap-lg items-center">
+                        <label class="form-field">
+                            Uhrzeit
+                            <input type="time" name="auto_reboot_time" value="{{ auto_reboot_settings.time }}" required>
+                        </label>
+                        <label class="form-field">
+                            Ausführung
+                            <select name="auto_reboot_mode" id="auto-reboot-mode">
+                                <option value="daily" {% if auto_reboot_settings.mode == 'daily' %}selected{% endif %}>Täglich</option>
+                                <option value="weekly" {% if auto_reboot_settings.mode == 'weekly' %}selected{% endif %}>Wöchentlich</option>
+                            </select>
+                        </label>
+                        <label id="auto-reboot-weekday-wrapper" class="form-field {% if auto_reboot_settings.mode != 'weekly' %}is-hidden{% endif %}">
+                            Wochentag
+                            <select name="auto_reboot_weekday" id="auto-reboot-weekday">
+                                {% for weekday in auto_reboot_weekdays %}
+                                <option value="{{ weekday }}" {% if auto_reboot_settings.weekday == weekday %}selected{% endif %}>{{ weekday|capitalize }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                    </div>
+                    <button type="submit" class="btn mt-sm align-self-start">Speichern</button>
+                </form>
+            </article>
+        </section>
+
+        <section id="system" class="dashboard-section dashboard-section--system section-card">
+            <article class="dashboard-card stack-md">
+                <h3>System</h3>
+                <form action="{{ url_for('update') }}" method="POST" class="stack-sm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn">Update</button>
+                </form>
+                <div class="inline-actions">
+                    <form action="{{ url_for('bluetooth_on') }}" method="POST" class="inline-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn">Bluetooth an</button>
+                    </form>
+                    <form action="{{ url_for('bluetooth_off') }}" method="POST" class="inline-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn">Bluetooth aus</button>
+                    </form>
+                </div>
+                <div class="power-controls action-row mt-lg">
+                    <form action="{{ url_for('system_reboot') }}" method="POST" data-confirm="System jetzt neu starten?" class="inline-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn">Neustart</button>
+                    </form>
+                    <form action="{{ url_for('system_shutdown') }}" method="POST" data-confirm="System wirklich herunterfahren?" class="inline-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn">Herunterfahren</button>
+                    </form>
+                </div>
+            </article>
+        </section>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const autoRebootModeSelect = document.getElementById('auto-reboot-mode');
+    const autoRebootWeekdayWrapper = document.getElementById('auto-reboot-weekday-wrapper');
+    const networkForm = document.getElementById('network-settings-form');
+    const networkModeRadios = networkForm ? networkForm.querySelectorAll('input[name="mode"]') : null;
+    const manualFieldWrappers = networkForm ? networkForm.querySelectorAll('[data-manual-field="ipv4"]') : null;
+    const manualInputs = networkForm ? networkForm.querySelectorAll('input[data-manual-input="ipv4"]') : null;
+    const manualHint = networkForm ? networkForm.querySelector('[data-manual-hint]') : null;
+
+    function updateAutoRebootWeekdayVisibility() {
+        if (!autoRebootModeSelect || !autoRebootWeekdayWrapper) {
+            return;
+        }
+        autoRebootWeekdayWrapper.classList.toggle('is-hidden', autoRebootModeSelect.value !== 'weekly');
+    }
+
+    function getSelectedNetworkMode() {
+        if (!networkModeRadios) {
+            return 'dhcp';
+        }
+        for (const radio of networkModeRadios) {
+            if (radio instanceof HTMLInputElement && radio.checked) {
+                return radio.value || 'dhcp';
+            }
+        }
+        return 'dhcp';
+    }
+
+    function updateManualNetworkVisibility() {
+        const manual = getSelectedNetworkMode() === 'manual';
+        if (manualFieldWrappers) {
+            manualFieldWrappers.forEach((element) => {
+                if (element instanceof HTMLElement) {
+                    element.classList.toggle('is-hidden', !manual);
+                }
+            });
+        }
+        if (manualInputs) {
+            manualInputs.forEach((inputElement) => {
+                if (!(inputElement instanceof HTMLInputElement)) {
+                    return;
+                }
+                const mustFill = inputElement.dataset.requiredWhenManual === 'true';
+                inputElement.required = manual && mustFill;
+                if (!manual) {
+                    inputElement.setCustomValidity('');
+                }
+            });
+        }
+        if (manualHint && manualHint instanceof HTMLElement) {
+            manualHint.classList.toggle('is-hidden', !manual);
+        }
+    }
+
+    if (autoRebootModeSelect) {
+        autoRebootModeSelect.addEventListener('change', updateAutoRebootWeekdayVisibility);
+        updateAutoRebootWeekdayVisibility();
+    }
+    if (networkModeRadios) {
+        networkModeRadios.forEach((radio) => radio.addEventListener('change', updateManualNetworkVisibility));
+        updateManualNetworkVisibility();
+    }
+    if (manualInputs) {
+        manualInputs.forEach((inputElement) => {
+            if (inputElement instanceof HTMLInputElement) {
+                inputElement.addEventListener('input', () => inputElement.setCustomValidity(''));
+            }
+        });
+    }
+    if (networkForm) {
+        networkForm.addEventListener('submit', (event) => {
+            if (!manualInputs || getSelectedNetworkMode() !== 'manual') {
+                return;
+            }
+            let firstInvalid = null;
+            manualInputs.forEach((inputElement) => {
+                if (!(inputElement instanceof HTMLInputElement)) {
+                    return;
+                }
+                const mustFill = inputElement.dataset.requiredWhenManual === 'true';
+                if (!mustFill) {
+                    inputElement.setCustomValidity('');
+                    return;
+                }
+                if (!inputElement.value.trim()) {
+                    inputElement.setCustomValidity('Dieses Feld ist erforderlich, wenn der Modus „Manuell“ aktiv ist.');
+                    if (!firstInvalid) {
+                        firstInvalid = inputElement;
+                    }
+                } else {
+                    inputElement.setCustomValidity('');
+                }
+            });
+            if (firstInvalid) {
+                event.preventDefault();
+                firstInvalid.reportValidity();
+            }
+        });
+    }
+
+    document.querySelectorAll('form[data-confirm]').forEach((form) => {
+        form.addEventListener('submit', (event) => {
+            const message = form.getAttribute('data-confirm') || 'Aktion wirklich ausführen?';
+            if (!window.confirm(message)) {
+                event.preventDefault();
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

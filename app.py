@@ -4632,9 +4632,7 @@ def logout():
     return redirect(url_for("login"))
 
 
-@app.route("/")
-@login_required
-def index():
+def _build_dashboard_context():
     file_page_size = _parse_page_size(request.args.get("file_page_size"))
     schedule_page_size = _parse_page_size(request.args.get("schedule_page_size"))
     file_page_number = _parse_page_number(request.args.get("file_page"))
@@ -4780,8 +4778,7 @@ def index():
         ),
     }
     default_schedule_delay = min(VERZOEGERUNG_SEC, MAX_SCHEDULE_DELAY_SECONDS)
-    return render_template(
-        "index.html",
+    return dict(
         files=files_page_items,
         files_all=files_all,
         files_page=files_page,
@@ -4820,6 +4817,18 @@ def index():
     )
 
 
+@app.route("/")
+@login_required
+def index():
+    return render_template("index.html", **_build_dashboard_context())
+
+
+@app.route("/settings")
+@login_required
+def settings_page():
+    return render_template("settings.html", **_build_dashboard_context())
+
+
 def _hardware_button_redirect_url() -> str:
     return url_for("index") + "#hardware-buttons-admin"
 
@@ -4829,7 +4838,7 @@ def _amplifier_settings_redirect_url() -> str:
 
 
 def _network_settings_redirect_url() -> str:
-    return url_for("index") + "#network-settings"
+    return url_for("settings_page") + "#network-settings"
 
 
 def _parse_hardware_button_form(form) -> Tuple[Optional[dict], List[str]]:
@@ -5501,7 +5510,7 @@ def save_auto_reboot_settings():
     mode = (request.form.get("auto_reboot_mode") or "daily").strip().lower()
     if mode not in {"daily", "weekly"}:
         flash("Ungültiger Modus für den automatischen Neustart.")
-        return redirect(url_for("index"))
+        return redirect(url_for("settings_page"))
     time_raw = (request.form.get("auto_reboot_time") or "").strip()
     existing_time_value = get_setting(
         "auto_reboot_time", AUTO_REBOOT_DEFAULTS["auto_reboot_time"]
@@ -5511,7 +5520,7 @@ def save_auto_reboot_settings():
         parsed_time = _parse_auto_reboot_time(time_raw)
         if parsed_time is None:
             flash("Ungültige Uhrzeit für den automatischen Neustart.")
-            return redirect(url_for("index"))
+            return redirect(url_for("settings_page"))
         hour, minute = parsed_time
         time_to_store = f"{hour:02d}:{minute:02d}"
     else:
@@ -5519,13 +5528,13 @@ def save_auto_reboot_settings():
         if parsed_existing is None:
             if enabled:
                 flash("Bitte eine gültige Uhrzeit für den automatischen Neustart wählen.")
-                return redirect(url_for("index"))
+                return redirect(url_for("settings_page"))
             time_to_store = AUTO_REBOOT_DEFAULTS["auto_reboot_time"]
     weekday_raw = (request.form.get("auto_reboot_weekday") or "").strip().lower()
     if mode == "weekly":
         if weekday_raw not in AUTO_REBOOT_WEEKDAYS:
             flash("Bitte einen gültigen Wochentag auswählen.")
-            return redirect(url_for("index"))
+            return redirect(url_for("settings_page"))
         weekday_to_store = weekday_raw
     else:
         existing_weekday = get_setting(
@@ -5544,7 +5553,7 @@ def save_auto_reboot_settings():
     flash(
         "Automatischer Neustart aktiviert." if enabled else "Automatischer Neustart deaktiviert."
     )
-    return redirect(url_for("index"))
+    return redirect(url_for("settings_page"))
 
 
 @app.route("/network_settings", methods=["POST"])
