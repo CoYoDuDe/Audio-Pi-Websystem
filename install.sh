@@ -1155,7 +1155,7 @@ if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
     echo "[Dry-Run] Würde /var/lib/dhcpcd (root:root, 0755) anlegen."
     echo ""
     echo "[Dry-Run] Installation wurde nicht ausgeführt. Folgende Abschluss-Hinweise würden angezeigt:"
-    print_post_install_instructions "$CONFIGURED_FLASK_PORT" 0
+    print_post_install_instructions "$CONFIGURED_FLASK_PORT" 0 "$INITIAL_ADMIN_USER" "$INITIAL_ADMIN_PASSWORD_VALUE"
     exit 0
 fi
 

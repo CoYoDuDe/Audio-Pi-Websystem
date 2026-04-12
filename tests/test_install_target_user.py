@@ -74,3 +74,28 @@ def test_install_honours_target_user_override(tmp_path: Path) -> None:
     target_group = subprocess.check_output(["id", "-gn", "nobody"], text=True).strip()
     assert f"[Dry-Run] Primäre Gruppe wäre: {target_group} (GID" in combined_output
     assert "sudo usermod -aG netdev \"nobody\"" in combined_output
+
+
+def test_install_dry_run_reports_default_web_login(tmp_path: Path) -> None:
+    """Der Dry-Run soll die unattended Erstlogin-Daten sichtbar machen."""
+
+    script = _script_path()
+    env = _base_env(tmp_path)
+    env["INSTALL_TARGET_USER"] = "nobody"
+
+    result = subprocess.run(
+        ["/bin/bash", str(script), "--dry-run"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+        cwd=script.parent,
+        env=env,
+    )
+
+    combined_output = f"{result.stdout}{result.stderr}"
+
+    assert result.returncode == 0, combined_output
+    assert "Erstlogin Webinterface:" in combined_output
+    assert "Benutzer: admin" in combined_output
+    assert "Passwort: 12345678" in combined_output
