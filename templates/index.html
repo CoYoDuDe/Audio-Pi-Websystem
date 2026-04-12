@@ -101,6 +101,71 @@
     {% endif %}
         </article>
     </section>
+
+    <section id="quick-actions" class="dashboard-section dashboard-section--status">
+        <article class="dashboard-card stack-md">
+            <h3>Schnellzugriff</h3>
+            {% set quick_volume_raw = status['current_volume'] | default('50', true) %}
+            {% set quick_volume_digits = quick_volume_raw | replace('%', '') | replace(' ', '') | trim %}
+            {% set quick_volume_value = quick_volume_digits if quick_volume_digits.isdigit() else '50' %}
+            <div class="quick-actions-grid">
+                <form action="{{ url_for('set_volume') }}" method="POST" class="form-card stack-sm quick-action-card">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <label for="quick-volume" class="form-field">
+                        Lautstärke in %
+                        <input type="number" id="quick-volume" name="volume" min="0" max="100" value="{{ quick_volume_value }}">
+                    </label>
+                    <button type="submit" class="btn align-self-start">Lautstärke setzen</button>
+                </form>
+
+                <div class="form-card stack-sm quick-action-card">
+                    <span class="quick-action-title">Wiedergabe</span>
+                    <div class="action-row">
+                        <form action="{{ url_for('toggle_pause') }}" method="POST" class="inline-form">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn">Pause/Resume</button>
+                        </form>
+                        <form action="{{ url_for('stop_playback') }}" method="POST" class="inline-form">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn">Stopp</button>
+                        </form>
+                    </div>
+                    <button type="button" class="dashboard-sidebar__action" data-dashboard-target="group-audio">Zu Audio</button>
+                </div>
+
+                <div class="form-card stack-sm quick-action-card">
+                    <span class="quick-action-title">Endstufe</span>
+                    <div class="action-row">
+                        <form action="{{ url_for('activate_amp') }}" method="POST" class="inline-form">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn">Endstufe an</button>
+                        </form>
+                        <form action="{{ url_for('deactivate_amp') }}" method="POST" class="inline-form">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn">Endstufe aus</button>
+                        </form>
+                    </div>
+                    <form action="{{ url_for('set_relay_invert') }}" method="POST" class="inline-actions-tight">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <label class="choice-inline">
+                            <input type="checkbox" name="invert" value="1" {% if status['relay_invert'] %}checked{% endif %}>
+                            Relais umkehren
+                        </label>
+                        <button type="submit" class="btn">Speichern</button>
+                    </form>
+                </div>
+
+                <div class="form-card stack-sm quick-action-card">
+                    <span class="quick-action-title">Springen</span>
+                    <div class="action-row">
+                        <button type="button" class="dashboard-sidebar__action" data-dashboard-target="group-network">Netzwerk</button>
+                        <button type="button" class="dashboard-sidebar__action" data-dashboard-target="group-schedules">Zeitpläne</button>
+                        <button type="button" class="dashboard-sidebar__action" data-dashboard-target="group-system">System</button>
+                    </div>
+                </div>
+            </div>
+        </article>
+    </section>
 </div>
 
 {% set network_mode = (network_settings.mode | default('dhcp')) %}

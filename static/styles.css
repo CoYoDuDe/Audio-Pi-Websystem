@@ -282,6 +282,26 @@ nav form {
 .dashboard-section--system {
     grid-template-columns: minmax(0, 1fr);
 }
+
+.quick-actions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 1rem;
+}
+
+.quick-action-card {
+    min-height: 100%;
+}
+
+.quick-action-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #173042;
+}
+
+.quick-action-card .dashboard-sidebar__action {
+    justify-content: center;
+}
 .flashes {
     list-style: none;
     padding: 0;
