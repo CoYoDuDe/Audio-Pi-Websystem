@@ -38,6 +38,7 @@ Wichtige Optionen:
   --ap-dhcp-end VALUE             DHCP-Endadresse.
   --ap-dhcp-lease VALUE           DHCP-Lease-Zeit.
   --ap-wan VALUE                  Interface für den Internet-Uplink.
+  --interactive                   Aktiviert Rückfragen statt unattended Defaults.
   --non-interactive               Keine Dialoge – fehlende Pflichtwerte führen zum Abbruch.
   --dry-run                       Führt keine Änderungen durch und zeigt nur die Abschluss-Hinweise an.
   -h, --help                      Diese Hilfe anzeigen.
@@ -267,6 +268,8 @@ EOF_CONF
 print_post_install_instructions() {
     local flask_port="$1"
     local ap_configured="$2"
+    local initial_admin_user="$3"
+    local initial_admin_password="$4"
 
     echo ""
     echo "Setup abgeschlossen! Der systemd-Dienst 'audio-pi.service' wurde gestartet."
@@ -281,10 +284,10 @@ print_post_install_instructions() {
         echo "Öffne im Browser: http://<RaspberryPi-IP>:${flask_port}/"
     fi
     echo ""
-    echo "Beim ersten Start wird der Benutzer 'admin' automatisch angelegt."
-    echo "Setze optional INITIAL_ADMIN_PASSWORD, um das Startpasswort festzulegen."
-    echo "Ohne Vorgabe erzeugt die App ein zufälliges Passwort und speichert es als initial_admin_password.txt neben der Datenbank (0600-Rechte)."
-    echo "Bitte direkt nach der ersten Anmeldung über die Weboberfläche das Passwort ändern."
+    echo "Erstlogin Webinterface:"
+    echo "Benutzer: ${initial_admin_user}"
+    echo "Passwort: ${initial_admin_password}"
+    echo "Bitte das Passwort direkt nach der ersten Anmeldung ändern."
     echo ""
     if [ "$ap_configured" -eq 1 ]; then
         echo "Hinweis: WLAN-Access-Point ist aktiv."
@@ -330,6 +333,7 @@ ARG_LOG_FILE_MODE=""
 ARG_GENERATE_SECRET=0
 ARG_TARGET_USER=""
 FORCE_NONINTERACTIVE=0
+FORCE_INTERACTIVE=0
 INSTALL_DRY_RUN=${INSTALL_DRY_RUN:-0}
 
 while [ $# -gt 0 ]; do
@@ -476,6 +480,10 @@ while [ $# -gt 0 ]; do
             FORCE_NONINTERACTIVE=1
             shift
             ;;
+        --interactive)
+            FORCE_INTERACTIVE=1
+            shift
+            ;;
         --dry-run)
             INSTALL_DRY_RUN=1
             shift
@@ -497,8 +505,10 @@ echo "Starte als Root/Sudo empfohlen..."
 echo "Nutze ./install.sh --help für alle nicht-interaktiven Optionen."
 echo "APT-Ausgaben werden in ${APT_LOG_FILE} protokolliert (anpassbar via INSTALL_APT_LOG_FILE)."
 
-PROMPT_ALLOWED=1
-if [ ! -t 0 ]; then
+PROMPT_ALLOWED=0
+if [ "$FORCE_INTERACTIVE" -eq 1 ]; then
+    PROMPT_ALLOWED=1
+elif [ ! -t 0 ]; then
     PROMPT_ALLOWED=0
 fi
 if [ "$FORCE_NONINTERACTIVE" -eq 1 ]; then
@@ -586,6 +596,10 @@ else
         TARGET_USER_SOURCE="id -un (Fallback)"
     else
         TARGET_USER_SOURCE="SUDO_USER/USER (automatisch)"
+    fi
+    if [ "$TARGET_USER" = "root" ] && id -u pi >/dev/null 2>&1; then
+        TARGET_USER="pi"
+        TARGET_USER_SOURCE="Automatisch (pi-Fallback auf Raspberry Pi)"
     fi
 fi
 
@@ -1014,6 +1028,10 @@ if [ -n "$SECRET" ]; then
     fi
 fi
 
+if [ -z "$SECRET" ] && [ "$GENERATE_SECRET" -eq 0 ]; then
+    GENERATE_SECRET=1
+fi
+
 if [ -z "$SECRET" ] && [ "$GENERATE_SECRET" -eq 1 ]; then
     echo "Generiere automatischen Secret-Key via secrets.token_urlsafe(48)."
     if ! SECRET=$(generate_secret_value); then
@@ -1065,6 +1083,8 @@ AUDIO_PI_ENV_FILE="${INSTALL_ENV_FILE:-$AUDIO_PI_ENV_DIR/audio-pi.env}"
 # INSTALL_ENV_DIR/INSTALL_ENV_FILE/INSTALL_TARGET_HOME/INSTALL_PROFILE_FILE sind
 # optionale Hilfen für automatisierte Tests oder Spezial-Deployments.
 PROFILE_SOURCE_LINE="if [ -f \"${AUDIO_PI_ENV_FILE}\" ]; then . \"${AUDIO_PI_ENV_FILE}\"; fi"
+INITIAL_ADMIN_USER="admin"
+INITIAL_ADMIN_PASSWORD_VALUE="${INSTALL_INITIAL_ADMIN_PASSWORD:-${INITIAL_ADMIN_PASSWORD:-12345678}}"
 
 if [ -n "${INSTALL_TARGET_HOME:-}" ]; then
     TARGET_HOME="$INSTALL_TARGET_HOME"
@@ -1079,12 +1099,13 @@ if [ "$INSTALL_DRY_RUN" -eq 1 ]; then
     echo "[Dry-Run] Würde ${AUDIO_PI_ENV_DIR} (root:${TARGET_GROUP}, 0750) anlegen."
     echo "[Dry-Run] Würde Besitzrechte per 'sudo chown root:${TARGET_GROUP} ${AUDIO_PI_ENV_DIR}' sicherstellen."
     echo "[Dry-Run] Würde Secret in ${AUDIO_PI_ENV_FILE} (0640, root:${TARGET_GROUP}) speichern."
+    echo "[Dry-Run] Würde INITIAL_ADMIN_PASSWORD in ${AUDIO_PI_ENV_FILE} hinterlegen."
     echo "[Dry-Run] Würde ${PROFILE_FILE} so anpassen, dass ${PROFILE_SOURCE_LINE}."
 else
     sudo install -d -o root -g "$TARGET_GROUP" -m 0750 "$AUDIO_PI_ENV_DIR"
     sudo chown root:"$TARGET_GROUP" "$AUDIO_PI_ENV_DIR"
     tmp_env_file=$(mktemp)
-    printf 'FLASK_SECRET_KEY=%s\n' "$SECRET" >"$tmp_env_file"
+    printf 'FLASK_SECRET_KEY=%s\nINITIAL_ADMIN_PASSWORD=%s\n' "$SECRET" "$INITIAL_ADMIN_PASSWORD_VALUE" >"$tmp_env_file"
     sudo install -o root -g "$TARGET_GROUP" -m 0640 "$tmp_env_file" "$AUDIO_PI_ENV_FILE"
     rm -f "$tmp_env_file"
 
@@ -2049,5 +2070,5 @@ echo "Nach dem Pairing mit dem Handy kann Musik über den Pi abgespielt werden!"
 # Optional: Reboot nach RTC/Overlay nötig
 echo "Wenn RTC/I2C/Overlay neu eingerichtet wurden: Bitte RASPBERRY PI NEU STARTEN!"
 
-print_post_install_instructions "$CONFIGURED_FLASK_PORT" "$AP_CONFIGURED"
+print_post_install_instructions "$CONFIGURED_FLASK_PORT" "$AP_CONFIGURED" "$INITIAL_ADMIN_USER" "$INITIAL_ADMIN_PASSWORD_VALUE"
 echo ""

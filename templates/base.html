@@ -10,10 +10,10 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
-    {% if current_user.is_authenticated and request.path != '/' %}
+    {% if current_user.is_authenticated %}
     <nav class="topbar">
         <div class="topbar__section topbar__section--utility">
-            <span class="topbar__label">Aktionen</span>
+            <span class="topbar__label">System</span>
             <div class="topbar__group topbar__group--utility">
                 <a href="{{ url_for('index') }}">Start</a>
                 <a href="{{ url_for('logs') }}">Logs</a>

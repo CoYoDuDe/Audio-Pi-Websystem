@@ -16,35 +16,36 @@
 {% endfor %}
 
 <div class="dashboard-shell">
-    <aside class="dashboard-sidebar">
-        <div class="dashboard-sidebar__card">
-            <p class="dashboard-sidebar__eyebrow">Navigation</p>
-            <h2 class="dashboard-sidebar__title">Audio Pi</h2>
-            <p class="dashboard-sidebar__hint">Wähle links einen Bereich. Rechts wird nur der aktive Inhalt angezeigt.</p>
-            <nav class="dashboard-sidebar__nav" aria-label="Bereiche">
-                <button type="button" class="dashboard-sidebar__link is-active" data-dashboard-target="group-status">Systemstatus</button>
-                <button type="button" class="dashboard-sidebar__link" data-dashboard-target="group-network">Netzwerk</button>
-                <button type="button" class="dashboard-sidebar__link" data-dashboard-target="group-audio">Audio</button>
-                <button type="button" class="dashboard-sidebar__link" data-dashboard-target="group-schedules">Zeitpläne</button>
-                <button type="button" class="dashboard-sidebar__link" data-dashboard-target="group-system">System</button>
-            </nav>
-            <div class="dashboard-sidebar__secondary">
-                <a href="{{ url_for('logs') }}" class="dashboard-sidebar__action">Logs</a>
-                <a href="{{ url_for('change_password') }}" class="dashboard-sidebar__action">Passwort</a>
-                <a href="{{ url_for('set_time') }}" class="dashboard-sidebar__action">Zeit/Datum</a>
-                <form action="{{ url_for('update') }}" method="post" class="dashboard-sidebar__form">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="dashboard-sidebar__action dashboard-sidebar__action--button">Update</button>
-                </form>
-                <form action="{{ url_for('logout_route') }}" method="post" class="dashboard-sidebar__form">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="dashboard-sidebar__action dashboard-sidebar__action--button">Logout</button>
-                </form>
-            </div>
-        </div>
-    </aside>
-
     <div class="dashboard-panels">
+<section class="dashboard-toolbar dashboard-panel is-active" id="group-toolbar">
+    <div class="dashboard-toolbar__card">
+        <div class="dashboard-toolbar__intro">
+            <p class="dashboard-sidebar__eyebrow">Steuerung</p>
+            <h2 class="dashboard-sidebar__title">Alles Wichtige auf einer Seite</h2>
+            <p class="dashboard-sidebar__hint">Die Hauptfunktionen bleiben direkt hier. Zusätzliche Seiten liegen kompakt oben.</p>
+        </div>
+        <nav class="dashboard-toolbar__nav" aria-label="Bereiche">
+            <button type="button" class="dashboard-sidebar__link is-active" data-dashboard-target="group-status">Status</button>
+            <button type="button" class="dashboard-sidebar__link" data-dashboard-target="group-network">Netzwerk</button>
+            <button type="button" class="dashboard-sidebar__link" data-dashboard-target="group-audio">Audio</button>
+            <button type="button" class="dashboard-sidebar__link" data-dashboard-target="group-schedules">Zeitpläne</button>
+            <button type="button" class="dashboard-sidebar__link" data-dashboard-target="group-system">System</button>
+        </nav>
+        <div class="dashboard-toolbar__actions">
+            <a href="{{ url_for('logs') }}" class="dashboard-sidebar__action">Logs</a>
+            <a href="{{ url_for('change_password') }}" class="dashboard-sidebar__action">Passwort</a>
+            <a href="{{ url_for('set_time') }}" class="dashboard-sidebar__action">Zeit/Datum</a>
+            <form action="{{ url_for('update') }}" method="post" class="dashboard-sidebar__form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="dashboard-sidebar__action dashboard-sidebar__action--button">Update</button>
+            </form>
+            <form action="{{ url_for('logout_route') }}" method="post" class="dashboard-sidebar__form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="dashboard-sidebar__action dashboard-sidebar__action--button">Logout</button>
+            </form>
+        </div>
+    </div>
+</section>
 <div class="dashboard-group dashboard-panel is-active" id="group-status">
     <h2 class="dashboard-group-title">Systemstatus</h2>
     {% if flash_groups.general %}

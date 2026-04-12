@@ -40,10 +40,13 @@ def test_install_without_target_user_fails_for_root(tmp_path: Path) -> None:
     )
 
     combined_output = f"{result.stdout}{result.stderr}"
-
-    assert result.returncode != 0, combined_output
-    assert "Root-Dienstbenutzer" in combined_output
-    assert "--target-user" in combined_output
+    if "Dienstbenutzer wäre: pi" in combined_output:
+        assert result.returncode == 0, combined_output
+        assert "pi-Fallback" in combined_output
+    else:
+        assert result.returncode != 0, combined_output
+        assert "Root-Dienstbenutzer" in combined_output
+        assert "--target-user" in combined_output
 
 
 def test_install_honours_target_user_override(tmp_path: Path) -> None:

@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from .csrf_utils import csrf_post
+
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
@@ -56,3 +58,22 @@ def test_login_page_renders_base_layout(client):
     assert '<link rel="stylesheet" href="/static/vendor/simple.min.css"' in html
     assert '<link rel="stylesheet" href="/static/styles.css"' in html
     assert "Zum Login" not in html
+
+
+def test_index_hides_guest_login_notice_for_authenticated_user(client):
+    test_client, _ = client
+
+    response = csrf_post(
+        test_client,
+        "/login",
+        data={
+            "username": "admin",
+            "password": "password",
+        },
+        follow_redirects=True,
+        source_url="/login",
+    )
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "Bitte melden Sie sich an, um alle Funktionen zu nutzen." not in html
