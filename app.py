@@ -4857,11 +4857,15 @@ def _build_dashboard_context():
 
 @app.before_request
 def ensure_runtime_background_services():
-    if TESTING or _BACKGROUND_SERVICES_STARTED:
+    if TESTING:
         return
 
     try:
-        start_background_services()
+        services_running = _BACKGROUND_SERVICES_STARTED and bool(
+            getattr(scheduler, "running", False)
+        )
+        if not services_running:
+            start_background_services(force=_BACKGROUND_SERVICES_STARTED)
     except Exception:
         logging.exception(
             "Hintergrunddienste konnten beim Request-Start nicht initialisiert werden."
@@ -6394,7 +6398,10 @@ def add_schedule():
             ),
         )
         conn.commit()
-    load_schedules()
+    if getattr(scheduler, "running", False):
+        load_schedules()
+    else:
+        start_background_services(force=_BACKGROUND_SERVICES_STARTED)
     flash("Zeitplan hinzugefügt")
     return redirect(url_for("index"))
 
@@ -6405,7 +6412,10 @@ def delete_schedule(sch_id):
     with get_db_connection() as (conn, cursor):
         cursor.execute("DELETE FROM schedules WHERE id=?", (sch_id,))
         conn.commit()
-    load_schedules()
+    if getattr(scheduler, "running", False):
+        load_schedules()
+    else:
+        start_background_services(force=_BACKGROUND_SERVICES_STARTED)
     flash("Zeitplan gelöscht")
     return redirect(url_for("index"))
 
