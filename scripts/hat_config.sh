@@ -48,6 +48,51 @@ HAT_PROFILE_SINK_HINT[iqaudio_dacplus]="pattern:alsa_output.platform-*_sound.ste
 HAT_PROFILE_NOTES[iqaudio_dacplus]="Setzt den IQaudio DAC+ als I2S-DAC."
 HAT_PROFILE_DISABLE_ONBOARD[iqaudio_dacplus]=1
 
+hat__detect_active_profile() {
+    local config_file=""
+    for candidate in /boot/firmware/config.txt /boot/config.txt; do
+        if [[ -f "$candidate" ]]; then
+            config_file="$candidate"
+            break
+        fi
+    done
+
+    if [[ -n "$config_file" ]]; then
+        if grep -Eq '^dtoverlay=hifiberry-dacplus([[:space:]]|,|$)' "$config_file"; then
+            hat__assign_profile "hifiberry_dacplus"
+            HAT_SELECTED_NOTES="Automatisch aus ${config_file} erkannt."
+            return 0
+        fi
+        if grep -Eq '^dtoverlay=hifiberry-amp([[:space:]]|,|$)' "$config_file"; then
+            hat__assign_profile "hifiberry_amp2"
+            HAT_SELECTED_NOTES="Automatisch aus ${config_file} erkannt."
+            return 0
+        fi
+        if grep -Eq '^dtoverlay=iqaudio-dacplus([[:space:]]|,|$)' "$config_file"; then
+            hat__assign_profile "iqaudio_dacplus"
+            HAT_SELECTED_NOTES="Automatisch aus ${config_file} erkannt."
+            return 0
+        fi
+    fi
+
+    if command -v aplay >/dev/null 2>&1; then
+        local cards
+        cards=$(aplay -l 2>/dev/null || true)
+        if printf '%s\n' "$cards" | grep -Fq 'RPi DAC Pro'; then
+            HAT_SELECTED_KEY="autodetect_rpi_dac_pro"
+            HAT_SELECTED_LABEL="RPi DAC Pro"
+            HAT_SELECTED_OVERLAY=""
+            HAT_SELECTED_OPTIONS=""
+            HAT_SELECTED_SINK_HINT="pattern:alsa_output.platform-*_sound.stereo-fallback"
+            HAT_SELECTED_DISABLE_ONBOARD=0
+            HAT_SELECTED_NOTES="Automatisch über die aktive ALSA-Karte erkannt; keine zusätzliche dtoverlay-Änderung nötig."
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
 hat__print_menu() {
     echo ""
     echo "Audio-HAT-Auswahl"
@@ -206,6 +251,9 @@ hat_select_profile() {
     else
         local noninteractive="${HAT_NONINTERACTIVE:-}"
         if [[ "$noninteractive" =~ ^(1|true|yes|on)$ ]]; then
+            if hat__detect_active_profile; then
+                return 0
+            fi
             HAT_SELECTED_KEY="skip"
             HAT_SELECTED_LABEL="Keine Änderung"
             HAT_SELECTED_NOTES="Nicht-interaktiver Modus ohne Vorgaben."
@@ -230,4 +278,3 @@ hat_select_profile() {
     fi
     return 0
 }
-

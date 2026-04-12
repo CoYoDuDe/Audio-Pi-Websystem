@@ -2097,7 +2097,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable audio-pi.service
 sudo systemctl restart audio-pi.service
 echo "Aktuelle audio-pi.service Unit-Datei:"
-sudo systemctl cat audio-pi.service
+sudo systemctl cat --no-pager audio-pi.service
 echo "Journal-Einträge für audio-pi.service:"
 sudo journalctl -u audio-pi.service --no-pager | tail -n 20
 
