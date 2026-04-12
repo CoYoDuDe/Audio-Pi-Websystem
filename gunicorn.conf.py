@@ -48,21 +48,10 @@ def _configure_workers(cpu_count_func: Callable[[], int]) -> int:
     configured = _read_int_from_env("AUDIO_PI_GUNICORN_WORKERS", -1)
     if configured > 0:
         return configured
-
-    try:
-        cpu_count = cpu_count_func()
-    except NotImplementedError:
-        cpu_count = 1
-
-    if cpu_count < 1:
-        cpu_count = 1
-
-    # Konservative Voreinstellung für Raspberry-Pi-Boards
-    if cpu_count <= 2:
-        return 2
-    if cpu_count <= 4:
-        return 3
-    return min(6, cpu_count + 1)
+    # Die Anwendung steuert eine einzelne Audio-Hardware, verwendet pygame/PulseAudio
+    # und startet Singleton-Hintergrunddienste. Mehrere Gunicorn-Worker führen auf dem
+    # Raspberry Pi eher zu Konflikten als zu echten Vorteilen.
+    return 1
 
 
 bind_port = _read_int_from_env("FLASK_PORT", 80, minimum=1)
