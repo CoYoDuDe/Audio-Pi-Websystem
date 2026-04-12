@@ -530,6 +530,14 @@ def _parse_interface_block(block: Sequence[str]) -> Dict[str, str]:
     return result
 
 
+def _looks_like_access_point_block(block: Sequence[str]) -> bool:
+    for line in block:
+        stripped = line.strip().lower()
+        if stripped == "nohook wpa_supplicant":
+            return True
+    return False
+
+
 def load_network_settings(
     interface: str, dhcpcd_path: Path = Path("/etc/dhcpcd.conf")
 ) -> Dict[str, str]:
@@ -541,6 +549,8 @@ def load_network_settings(
     selected_block: Optional[List[str]] = None
     for name, block, inside_client in _iter_interface_blocks(lines):
         if name != interface:
+            continue
+        if _looks_like_access_point_block(block):
             continue
         if inside_client:
             selected_block = block

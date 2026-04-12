@@ -157,6 +157,53 @@ NETWORK_SETTING_KEY_MAP: Dict[str, str] = {
 }
 
 
+def _read_runtime_network_snapshot(interface: str) -> Dict[str, str]:
+    snapshot = {
+        "ipv4": "Unbekannt",
+        "gateway": "Unbekannt",
+        "mode": "Unbekannt",
+    }
+    if not interface:
+        return snapshot
+
+    try:
+        addr_result = subprocess.run(
+            ["ip", "-4", "addr", "show", "dev", interface],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except (FileNotFoundError, OSError):
+        addr_output = ""
+    else:
+        addr_output = addr_result.stdout or ""
+
+    match = re.search(r"\binet\s+(\d+\.\d+\.\d+\.\d+/\d+)", addr_output)
+    if match:
+        snapshot["ipv4"] = match.group(1)
+
+    try:
+        route_result = subprocess.run(
+            ["ip", "route", "show", "default", "dev", interface],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except (FileNotFoundError, OSError):
+        route_output = ""
+    else:
+        route_output = route_result.stdout or ""
+
+    gateway_match = re.search(r"\bvia\s+(\d+\.\d+\.\d+\.\d+)", route_output)
+    if gateway_match:
+        snapshot["gateway"] = gateway_match.group(1)
+
+    if snapshot["ipv4"] != "Unbekannt" and snapshot["gateway"] != "Unbekannt":
+        snapshot["mode"] = "DHCP"
+
+    return snapshot
+
+
 def _load_network_settings_for_template(interface: str) -> Dict[str, str]:
     """Lädt Netzwerkeinstellungen und wandelt sie für das Template auf."""
 
@@ -220,15 +267,6 @@ def _load_network_settings_for_template(interface: str) -> Dict[str, str]:
             result[key] = rendered
         else:
             result[key] = str(value)
-
-    for field, setting_key in NETWORK_SETTING_KEY_MAP.items():
-        try:
-            stored_value = get_setting(setting_key, None)
-        except Exception:
-            stored_value = None
-        if stored_value in (None, ""):
-            continue
-        result[field] = stored_value
 
     if not result.get("hostname"):
         try:
@@ -3302,6 +3340,8 @@ def gather_status():
         except Exception:  # pragma: no cover - defensiver Fallback
             hostname_value = socket.gethostname()
 
+    runtime_network = _read_runtime_network_snapshot(wifi_interface)
+
     return {
         "playing": is_playing,
         "bluetooth_status": "Verbunden" if is_bt_connected() else "Nicht verbunden",
@@ -3333,6 +3373,9 @@ def gather_status():
         "network_mode": network_mode,
         "network_ip": network_ip,
         "network_hostname": hostname_value,
+        "network_runtime_ip": runtime_network["ipv4"],
+        "network_runtime_gateway": runtime_network["gateway"],
+        "network_mode_label": runtime_network["mode"] if runtime_network["mode"] != "Unbekannt" else ("DHCP" if network_mode == "dhcp" else "Statisch"),
     }
 
 

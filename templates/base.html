@@ -10,22 +10,12 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
-    {% if current_user.is_authenticated %}
+    {% if current_user.is_authenticated and request.path != '/' %}
     <nav class="topbar">
-        <div class="topbar__section">
-            <span class="topbar__label">Bereiche</span>
-            <div class="topbar__group">
-                <a href="{{ url_for('index') }}">Start</a>
-                <a href="{{ url_for('index') }}#group-status">Status</a>
-                <a href="{{ url_for('index') }}#group-network">Netzwerk</a>
-                <a href="{{ url_for('index') }}#group-audio">Audio</a>
-                <a href="{{ url_for('index') }}#schedules">Zeitpläne</a>
-                <a href="{{ url_for('index') }}#group-system">System</a>
-            </div>
-        </div>
         <div class="topbar__section topbar__section--utility">
             <span class="topbar__label">Aktionen</span>
             <div class="topbar__group topbar__group--utility">
+                <a href="{{ url_for('index') }}">Start</a>
                 <a href="{{ url_for('logs') }}">Logs</a>
                 <a href="{{ url_for('change_password') }}">Passwort</a>
                 <a href="{{ url_for('set_time') }}">Zeit/Datum</a>

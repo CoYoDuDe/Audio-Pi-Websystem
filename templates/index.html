@@ -15,7 +15,37 @@
     {% endif %}
 {% endfor %}
 
-<div class="dashboard-group" id="group-status">
+<div class="dashboard-shell">
+    <aside class="dashboard-sidebar">
+        <div class="dashboard-sidebar__card">
+            <p class="dashboard-sidebar__eyebrow">Navigation</p>
+            <h2 class="dashboard-sidebar__title">Audio Pi</h2>
+            <p class="dashboard-sidebar__hint">Wähle links einen Bereich. Rechts wird nur der aktive Inhalt angezeigt.</p>
+            <nav class="dashboard-sidebar__nav" aria-label="Bereiche">
+                <button type="button" class="dashboard-sidebar__link is-active" data-dashboard-target="group-status">Systemstatus</button>
+                <button type="button" class="dashboard-sidebar__link" data-dashboard-target="group-network">Netzwerk</button>
+                <button type="button" class="dashboard-sidebar__link" data-dashboard-target="group-audio">Audio</button>
+                <button type="button" class="dashboard-sidebar__link" data-dashboard-target="group-schedules">Zeitpläne</button>
+                <button type="button" class="dashboard-sidebar__link" data-dashboard-target="group-system">System</button>
+            </nav>
+            <div class="dashboard-sidebar__secondary">
+                <a href="{{ url_for('logs') }}" class="dashboard-sidebar__action">Logs</a>
+                <a href="{{ url_for('change_password') }}" class="dashboard-sidebar__action">Passwort</a>
+                <a href="{{ url_for('set_time') }}" class="dashboard-sidebar__action">Zeit/Datum</a>
+                <form action="{{ url_for('update') }}" method="post" class="dashboard-sidebar__form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="dashboard-sidebar__action dashboard-sidebar__action--button">Update</button>
+                </form>
+                <form action="{{ url_for('logout_route') }}" method="post" class="dashboard-sidebar__form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="dashboard-sidebar__action dashboard-sidebar__action--button">Logout</button>
+                </form>
+            </div>
+        </div>
+    </aside>
+
+    <div class="dashboard-panels">
+<div class="dashboard-group dashboard-panel is-active" id="group-status">
     <h2 class="dashboard-group-title">Systemstatus</h2>
     {% if flash_groups.general %}
     <ul class="flashes">
@@ -76,11 +106,20 @@
 {% set manual_mode = (network_mode == 'manual') %}
 {% set manual_hidden_class = '' if manual_mode else 'is-hidden' %}
 
-<div class="dashboard-group" id="group-network">
+<div class="dashboard-group dashboard-panel" id="group-network">
     <h2 class="dashboard-group-title">Netzwerk</h2>
     <section id="network-settings" class="dashboard-section dashboard-section--network section-card">
         <article class="dashboard-card stack-lg">
             <h3>Netzwerkeinstellungen</h3>
+            <div class="dashboard-subsection stack-sm">
+                <h4>Aktiver Zustand</h4>
+                <ul>
+                    <li>Modus: {{ status.get('network_mode_label', 'Unbekannt') }}</li>
+                    <li>Aktuelle IPv4: {{ status.get('network_runtime_ip', 'Unbekannt') }}</li>
+                    <li>Gateway: {{ status.get('network_runtime_gateway', 'Unbekannt') }}</li>
+                    <li>Hostname: {{ status.get('network_hostname', 'Unbekannt') }}</li>
+                </ul>
+            </div>
             <form
                 id="network-settings-form"
                 action="{{ url_for('save_network_settings') }}"
@@ -218,7 +257,7 @@
     </section>
 </div>
 
-<div class="dashboard-group" id="group-audio">
+<div class="dashboard-group dashboard-panel" id="group-audio">
     <h2 class="dashboard-group-title">Audio &amp; Wiedergabe</h2>
     <section id="amplifier-settings" class="dashboard-section dashboard-section--audio section-card">
         <article class="dashboard-card stack-md">
@@ -655,6 +694,10 @@
         </article>
     </section>
 
+    </div>
+
+<div class="dashboard-group dashboard-panel" id="group-schedules">
+    <h2 class="dashboard-group-title">Zeitpläne</h2>
     <section id="schedules" class="dashboard-section dashboard-section--audio">
         <article class="dashboard-card stack-lg">
             <h3>Zeitpläne</h3>
@@ -856,6 +899,60 @@
 
     <script>
     document.addEventListener('DOMContentLoaded', function () {
+        const sidebarLinks = document.querySelectorAll('[data-dashboard-target]');
+        const dashboardPanels = document.querySelectorAll('.dashboard-panel');
+        const panelAliases = {
+            'group-status': 'group-status',
+            status: 'group-status',
+            'group-network': 'group-network',
+            'network-settings': 'group-network',
+            network: 'group-network',
+            'group-audio': 'group-audio',
+            playback: 'group-audio',
+            files: 'group-audio',
+            playlists: 'group-audio',
+            audio: 'group-audio',
+            'group-schedules': 'group-schedules',
+            schedules: 'group-schedules',
+            'group-system': 'group-system',
+            'auto-reboot': 'group-system',
+            system: 'group-system'
+        };
+
+        function activateDashboardPanel(panelId) {
+            const resolvedPanelId = panelAliases[panelId] || 'group-status';
+
+            dashboardPanels.forEach((panel) => {
+                if (!(panel instanceof HTMLElement)) {
+                    return;
+                }
+                panel.classList.toggle('is-active', panel.id === resolvedPanelId);
+            });
+
+            sidebarLinks.forEach((link) => {
+                if (!(link instanceof HTMLElement)) {
+                    return;
+                }
+                link.classList.toggle(
+                    'is-active',
+                    link.getAttribute('data-dashboard-target') === resolvedPanelId
+                );
+            });
+
+            if (window.location.hash !== `#${resolvedPanelId}`) {
+                window.history.replaceState(null, '', `#${resolvedPanelId}`);
+            }
+        }
+
+        sidebarLinks.forEach((link) => {
+            link.addEventListener('click', function () {
+                const targetPanel = link.getAttribute('data-dashboard-target');
+                activateDashboardPanel(targetPanel || 'group-status');
+            });
+        });
+
+        activateDashboardPanel(window.location.hash.replace('#', '') || 'group-status');
+
         const accordionDefaults = {
             status: true,
             'network-settings': true,
@@ -1196,7 +1293,7 @@
     </section>
 </div>
 
-<div class="dashboard-group" id="group-system">
+<div class="dashboard-group dashboard-panel" id="group-system">
     <h2 class="dashboard-group-title">System &amp; Wartung</h2>
     <section id="auto-reboot" class="dashboard-section dashboard-section--system section-card">
         <article class="dashboard-card stack-md">
@@ -1263,6 +1360,9 @@
             </div>
         </article>
     </section>
+</div>
+
+    </div>
 </div>
 
 {% endblock %}
