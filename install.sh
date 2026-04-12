@@ -77,8 +77,22 @@ if [ "${INSTALL_APT_DPKG_OPTIONS+x}" = x ]; then
 fi
 APT_LOG_FILE="${INSTALL_APT_LOG_FILE:-/tmp/audio-pi-install-apt.log}"
 APT_LOG_DIR="$(dirname "$APT_LOG_FILE")"
-mkdir -p "$APT_LOG_DIR"
-touch "$APT_LOG_FILE"
+
+ensure_apt_log_file() {
+    if ! mkdir -p "$APT_LOG_DIR" 2>/dev/null; then
+        sudo mkdir -p "$APT_LOG_DIR"
+    fi
+
+    if ! touch "$APT_LOG_FILE" 2>/dev/null; then
+        sudo touch "$APT_LOG_FILE"
+    fi
+
+    if [ ! -w "$APT_LOG_FILE" ]; then
+        sudo chmod 0666 "$APT_LOG_FILE"
+    fi
+}
+
+ensure_apt_log_file
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 POLKIT_RULE_TEMPLATE="$SCRIPT_DIR/scripts/polkit/49-audio-pi.rules"
@@ -111,6 +125,11 @@ apt_get() {
 
     local -a cmd
     cmd=(sudo env "DEBIAN_FRONTEND=${APT_FRONTEND}" apt-get)
+    local -a tee_cmd
+    tee_cmd=(tee -a "$APT_LOG_FILE")
+    if [ ! -w "$APT_LOG_FILE" ]; then
+        tee_cmd=(sudo tee -a "$APT_LOG_FILE")
+    fi
 
     case "$action" in
         install|upgrade|dist-upgrade|full-upgrade)
@@ -124,7 +143,7 @@ apt_get() {
 
     cmd+=("$action" "$@")
 
-    if ! "${cmd[@]}" 2>&1 | tee -a "$APT_LOG_FILE"; then
+    if ! "${cmd[@]}" 2>&1 | "${tee_cmd[@]}"; then
         echo "Fehler bei apt-get ${action}. Details siehe ${APT_LOG_FILE}" >&2
         exit 1
     fi
