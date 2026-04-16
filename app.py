@@ -725,6 +725,8 @@ HARDWARE_BUTTON_ACTIONS = [
     ("STOP", "Wiedergabe stoppen"),
     ("BT_ON", "Bluetooth aktivieren"),
     ("BT_OFF", "Bluetooth deaktivieren"),
+    ("REBOOT", "System neu starten"),
+    ("SHUTDOWN", "System herunterfahren"),
 ]
 HARDWARE_BUTTON_ACTION_LABELS = {key: label for key, label in HARDWARE_BUTTON_ACTIONS}
 
@@ -8152,6 +8154,35 @@ def _disable_bluetooth_via_button() -> None:
         )
 
 
+def _run_system_power_action_from_button(action: str, command: List[str]) -> None:
+    logging.warning("GPIO-Button-Monitor: Systemaktion per Taster angefordert: %s", action)
+    try:
+        subprocess.Popen(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except FileNotFoundError as exc:
+        logging.error("GPIO-Button-Monitor: Systemaktion %s fehlgeschlagen: %s", action, exc)
+    except Exception:
+        logging.exception("GPIO-Button-Monitor: Systemaktion %s konnte nicht gestartet werden", action)
+
+
+def _reboot_via_button() -> None:
+    _run_system_power_action_from_button(
+        "Neustart",
+        privileged_command("systemctl", "reboot"),
+    )
+
+
+def _shutdown_via_button() -> None:
+    _run_system_power_action_from_button(
+        "Herunterfahren",
+        privileged_command("systemctl", "poweroff"),
+    )
+
+
 def _build_button_assignments() -> List[ButtonAssignment]:
     if not GPIO_AVAILABLE:
         logging.info(
@@ -8330,6 +8361,26 @@ def _build_button_assignments() -> List[ButtonAssignment]:
             )
             continue
 
+        if action == "REBOOT":
+            _add_assignment(
+                "REBOOT",
+                entry.gpio_pin,
+                _reboot_via_button,
+                debounce_override=entry.debounce_ms,
+                source=source_label,
+            )
+            continue
+
+        if action == "SHUTDOWN":
+            _add_assignment(
+                "SHUTDOWN",
+                entry.gpio_pin,
+                _shutdown_via_button,
+                debounce_override=entry.debounce_ms,
+                source=source_label,
+            )
+            continue
+
         logging.warning(
             "GPIO-Button-Monitor: %s ignoriert – unbekannte Aktion '%s'",
             source_label,
@@ -8395,6 +8446,14 @@ def _build_button_assignments() -> List[ButtonAssignment]:
     bt_off_pin = _parse_int_env("GPIO_BUTTON_BT_OFF_PIN")
     if bt_off_pin is not None:
         _add_assignment("BT_OFF", bt_off_pin, _disable_bluetooth_via_button)
+
+    reboot_pin = _parse_int_env("GPIO_BUTTON_REBOOT_PIN")
+    if reboot_pin is not None:
+        _add_assignment("REBOOT", reboot_pin, _reboot_via_button)
+
+    shutdown_pin = _parse_int_env("GPIO_BUTTON_SHUTDOWN_PIN")
+    if shutdown_pin is not None:
+        _add_assignment("SHUTDOWN", shutdown_pin, _shutdown_via_button)
 
     return assignments
 
