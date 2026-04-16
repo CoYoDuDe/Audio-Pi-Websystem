@@ -3684,6 +3684,27 @@ def _prepare_audio_for_playback(file_path: str, temp_path: str) -> bool:
     return True
 
 
+def _wait_for_music_playback(duration_seconds) -> None:
+    """Wartet auf pygame, begrenzt aber Haenger im Audio-Backend."""
+
+    timeout_at = None
+    try:
+        duration_value = float(duration_seconds)
+    except (TypeError, ValueError):
+        duration_value = 0
+    if duration_value > 0:
+        timeout_at = time.monotonic() + max(duration_value + 5, duration_value * 1.25)
+
+    while pygame.mixer.music.get_busy():
+        if timeout_at is not None and time.monotonic() >= timeout_at:
+            logging.warning(
+                "Pygame meldet Wiedergabe laenger als erwartet als aktiv; stoppe Audio-Backend."
+            )
+            pygame.mixer.music.stop()
+            break
+        time.sleep(0.25)
+
+
 def play_item(item_id, item_type, delay, is_schedule=False, volume_percent=100):
     global is_paused
     if not pygame_available:
@@ -3742,8 +3763,7 @@ def play_item(item_id, item_type, delay, is_schedule=False, volume_percent=100):
                             "Spiele Datei %s (%.2f s)", filename, duration_seconds
                         )
                     is_paused = False
-                    while pygame.mixer.music.get_busy():
-                        time.sleep(1)
+                    _wait_for_music_playback(duration_seconds)
             elif item_type == "playlist":
                 with get_db_connection() as (conn, cursor):
                     cursor.execute(
@@ -3791,8 +3811,7 @@ def play_item(item_id, item_type, delay, is_schedule=False, volume_percent=100):
                                 duration_seconds,
                             )
                         is_paused = False
-                        while pygame.mixer.music.get_busy():
-                            time.sleep(1)
+                        _wait_for_music_playback(duration_seconds)
                 if not playback_started:
                     return False
             else:
