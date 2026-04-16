@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-# Verhindert, dass app.py während des Preloads eigenständig Hintergrunddienste startet.
+# Verhindert, dass app.py beim Hook-Import eigenständig Hintergrunddienste startet.
 os.environ.setdefault("AUDIO_PI_SUPPRESS_AUTOSTART", "1")
 
 
@@ -67,7 +67,10 @@ graceful_timeout = _read_int_from_env(
 )
 keepalive = _read_int_from_env("AUDIO_PI_GUNICORN_KEEPALIVE", 5, minimum=1)
 
-preload_app = True
+# Scheduler, GPIO-Monitor und Audio-Runtime muessen im Worker-Prozess entstehen.
+# Preloading im Gunicorn-Master kann diese Threads in einen Zustand bringen, in dem
+# Webrequests funktionieren, geplante Jobs aber nicht mehr feuern.
+preload_app = False
 capture_output = True
 errorlog = "-"
 accesslog = "-"
