@@ -47,15 +47,6 @@
             </article>
         </section>
 
-        <section class="dashboard-section dashboard-section--status section-card">
-            <article class="dashboard-card stack-md">
-                <h3>Netzwerk</h3>
-                <p class="dashboard-sidebar__hint mb-none">
-                    Hier werden IP, Hostname und WLAN nur bei Bedarf angepasst.
-                </p>
-            </article>
-        </section>
-
         <section id="network-settings" class="dashboard-section section-card">
             <article class="dashboard-card stack-lg">
                 <h3>Netzwerkeinstellungen</h3>
@@ -201,16 +192,7 @@
             </article>
         </section>
 
-        <section class="dashboard-section dashboard-section--status section-card" id="audio-settings">
-            <article class="dashboard-card stack-md">
-                <h3>Audio-Basis</h3>
-                <p class="dashboard-sidebar__hint mb-none">
-                    Standardwerte für Verstärker, Sink, Normalisierung und neue Zeitpläne.
-                </p>
-            </article>
-        </section>
-
-        <section id="amplifier-settings" class="dashboard-section section-card">
+        <section id="audio-settings" class="dashboard-section section-card">
             <article class="dashboard-card stack-md">
                 <h3>Verstärker-GPIO</h3>
                 {% set amplifier_source = status.get('amplifier_gpio_pin_source', 'default') %}
@@ -287,15 +269,6 @@
                     </small>
                     <button type="submit" class="btn align-self-start">Speichern</button>
                 </form>
-            </article>
-        </section>
-
-        <section class="dashboard-section dashboard-section--status section-card">
-            <article class="dashboard-card stack-md">
-                <h3>Hardware</h3>
-                <p class="dashboard-sidebar__hint mb-none">
-                    Taster-Zuordnungen nur dann anpassen, wenn zusätzliche Bedienung direkt am Gerät gebraucht wird.
-                </p>
             </article>
         </section>
 
