@@ -943,8 +943,12 @@ RTC_SUPPORTED_TYPES = {
         "label": "PCF8563 (0x51)",
         "default_addresses": (0x51,),
     },
+    "ds1307": {
+        "label": "DS1307 / Grove RTC (0x68)",
+        "default_addresses": (0x68,),
+    },
     "ds3231": {
-        "label": "DS3231 / DS1307 (0x68)",
+        "label": "DS3231 (0x68/0x57)",
         "default_addresses": (0x68, 0x57),
     },
 }
@@ -964,7 +968,7 @@ RTC_LAST_LOCAL_OFFSET_MINUTES: Optional[int] = None
 RTC_KNOWN_ADDRESS_TYPES = {
     0x51: "pcf85063",
     0x57: "ds3231",
-    0x68: "ds3231",
+    0x68: "ds1307",
     0x69: "ds3231",
     0x6F: "ds3231",
 }
@@ -982,7 +986,9 @@ def _infer_rtc_module_from_boot_overlay() -> Optional[str]:
                         return "pcf85063"
                     if ",pcf8563" in line:
                         return "pcf8563"
-                    if ",ds3231" in line or ",ds1307" in line:
+                    if ",ds1307" in line:
+                        return "ds1307"
+                    if ",ds3231" in line:
                         return "ds3231"
         except OSError:
             continue
@@ -1135,7 +1141,7 @@ def _determine_rtc_type(address: int) -> str:
 def _python_weekday_to_rtc(py_weekday: int, rtc_type: str) -> int:
     if rtc_type in {"pcf8563", "pcf85063"}:
         return (py_weekday + 1) % 7
-    if rtc_type == "ds3231":
+    if rtc_type in {"ds1307", "ds3231"}:
         return ((py_weekday + 1) % 7) + 1 or 1
     raise UnsupportedRTCError(f"RTC-Typ '{rtc_type}' nicht unterstützt")
 
@@ -1143,7 +1149,7 @@ def _python_weekday_to_rtc(py_weekday: int, rtc_type: str) -> int:
 def _rtc_weekday_to_python(raw_weekday: int, rtc_type: str) -> int:
     if rtc_type in {"pcf8563", "pcf85063"}:
         return (raw_weekday + 6) % 7
-    if rtc_type == "ds3231":
+    if rtc_type in {"ds1307", "ds3231"}:
         weekday = raw_weekday & 0x07
         if weekday == 0:
             weekday = 1
@@ -1228,7 +1234,7 @@ def read_rtc():
         month = bcd_to_dec(data[5] & 0x1F)
         year_offset = bcd_to_dec(data[6])
         century_offset = 2000
-    elif rtc_type == "ds3231":
+    elif rtc_type in {"ds1307", "ds3231"}:
         data = bus.read_i2c_block_data(address, 0x00, 7)
         second = bcd_to_dec(data[0] & 0x7F)
         minute = bcd_to_dec(data[1] & 0x7F)
@@ -1237,7 +1243,7 @@ def read_rtc():
         day = bcd_to_dec(data[4] & 0x3F)
         month_raw = data[5]
         month = bcd_to_dec(month_raw & 0x1F)
-        century_offset = 2100 if (month_raw & 0x80) else 2000
+        century_offset = 2100 if rtc_type == "ds3231" and (month_raw & 0x80) else 2000
         year_offset = bcd_to_dec(data[6])
     else:  # pragma: no cover - abgesichert durch _determine_rtc_type
         raise UnsupportedRTCError(f"RTC-Typ '{rtc_type}' nicht unterstützt")
@@ -1312,11 +1318,11 @@ def set_rtc(dt):
             year = dec_to_bcd(utc_dt.year - 2000)
             payload = [second, minute, hour, date, weekday_value, month, year]
             bus.write_i2c_block_data(address, 0x04, payload)
-        elif rtc_type == "ds3231":
+        elif rtc_type in {"ds1307", "ds3231"}:
             month_value = dec_to_bcd(utc_dt.month)
             year_value = utc_dt.year
             century_bit = 0
-            if year_value >= 2100:
+            if rtc_type == "ds3231" and year_value >= 2100:
                 century_bit = 0x80
                 year_value -= 100
             year = dec_to_bcd(year_value - 2000)
