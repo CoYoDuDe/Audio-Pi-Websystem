@@ -962,6 +962,8 @@ RTC_ADDRESS = RTC_DEFAULT_CANDIDATE_ADDRESSES[0]
 RTC_AVAILABLE = False
 RTC_DETECTED_ADDRESS: Optional[int] = None
 RTC_FORCED_TYPE: Optional[str] = None
+RTC_KERNEL_DEVICE: Optional[str] = None
+RTC_KERNEL_NAME: Optional[str] = None
 RTC_MISSING_FLAG = False
 RTC_SYNC_STATUS = {"success": None, "last_error": None}
 RTC_LAST_LOCAL_OFFSET_MINUTES: Optional[int] = None
@@ -992,6 +994,56 @@ def _infer_rtc_module_from_boot_overlay() -> Optional[str]:
                         return "ds3231"
         except OSError:
             continue
+    return None
+
+
+def _kernel_rtc_type_from_name(name: str) -> Optional[str]:
+    normalized = name.lower()
+    if "pcf85063" in normalized:
+        return "pcf85063"
+    if "pcf8563" in normalized:
+        return "pcf8563"
+    if "ds1307" in normalized:
+        return "ds1307"
+    if "ds3231" in normalized:
+        return "ds3231"
+    return None
+
+
+def _discover_kernel_rtc(
+    candidate_addresses: Iterable[int],
+) -> Optional[Tuple[int, str, str]]:
+    candidates = set(_normalize_rtc_addresses(candidate_addresses))
+    rtc_root = Path("/sys/class/rtc")
+    if not rtc_root.exists():
+        return None
+
+    for rtc_path in sorted(rtc_root.glob("rtc*")):
+        name_path = rtc_path / "name"
+        try:
+            name = name_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+
+        if "rpi-rtc" in name.lower():
+            continue
+
+        rtc_type = _kernel_rtc_type_from_name(name)
+        if rtc_type is None:
+            continue
+
+        address_match = re.search(r"\b\d+-00([0-9a-fA-F]{2})\b", name)
+        if address_match is None:
+            continue
+        address = int(address_match.group(1), 16)
+        if candidates and address not in candidates:
+            continue
+        if RTC_FORCED_TYPE and rtc_type != RTC_FORCED_TYPE:
+            continue
+
+        device_name = rtc_path.name
+        return address, f"/dev/{device_name}", name
+
     return None
 
 
@@ -1045,12 +1097,31 @@ def _set_rtc_candidate_addresses(addresses: Iterable[int]) -> Tuple[int, ...]:
 
 
 def refresh_rtc_detection(candidate_addresses: Optional[Iterable[int]] = None):
-    global RTC_AVAILABLE, RTC_DETECTED_ADDRESS, RTC_MISSING_FLAG, bus, RTC_ADDRESS
+    global RTC_AVAILABLE, RTC_DETECTED_ADDRESS, RTC_KERNEL_DEVICE, RTC_KERNEL_NAME
+    global RTC_MISSING_FLAG, bus, RTC_ADDRESS
 
     if candidate_addresses is None:
         candidate_addresses = RTC_CANDIDATE_ADDRESSES
 
     candidates = _set_rtc_candidate_addresses(candidate_addresses)
+    kernel_rtc = _discover_kernel_rtc(candidates)
+    if kernel_rtc is not None:
+        detected_address, device_path, device_name = kernel_rtc
+        RTC_ADDRESS = detected_address
+        RTC_DETECTED_ADDRESS = detected_address
+        RTC_KERNEL_DEVICE = device_path
+        RTC_KERNEL_NAME = device_name
+        RTC_AVAILABLE = True
+        RTC_MISSING_FLAG = False
+        logging.info(
+            "Kernel-RTC %s auf I²C-Adresse 0x%02X erkannt.",
+            device_name,
+            detected_address,
+        )
+        return
+
+    RTC_KERNEL_DEVICE = None
+    RTC_KERNEL_NAME = None
     if not candidates:
         RTC_ADDRESS = None
     if bus is None:
@@ -1209,9 +1280,80 @@ def _load_rtc_local_offset_minutes() -> Optional[int]:
     return RTC_LAST_LOCAL_OFFSET_MINUTES
 
 
+def _read_kernel_rtc():
+    if not RTC_KERNEL_DEVICE:
+        raise RTCUnavailableError("Kernel-RTC nicht initialisiert")
+
+    rtc_name = Path(RTC_KERNEL_DEVICE).name
+    rtc_path = Path("/sys/class/rtc") / rtc_name
+    try:
+        date_value = (rtc_path / "date").read_text(encoding="utf-8").strip()
+        time_value = (rtc_path / "time").read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise RTCUnavailableError("Kernel-RTC konnte nicht gelesen werden") from exc
+
+    try:
+        dt_value = datetime.strptime(
+            f"{date_value} {time_value}", "%Y-%m-%d %H:%M:%S"
+        ).replace(tzinfo=timezone.utc)
+    except ValueError as exc:
+        raise RTCUnavailableError("Kernel-RTC liefert keine gültige Zeit") from exc
+
+    target_tz = LOCAL_TZ
+    offset_minutes = _load_rtc_local_offset_minutes()
+    if target_tz is None and offset_minutes is not None:
+        target_tz = timezone(timedelta(minutes=offset_minutes))
+    if target_tz is None:
+        return dt_value
+    return dt_value.astimezone(target_tz)
+
+
+def _set_kernel_rtc(dt) -> None:
+    if not RTC_KERNEL_DEVICE:
+        raise RTCUnavailableError("Kernel-RTC nicht initialisiert")
+
+    local_dt = _ensure_local_timezone(dt)
+    if local_dt is None:
+        raise ValueError("Ungültiger Zeitstempel zum Setzen der RTC")
+
+    try:
+        utc_dt = local_dt.astimezone(timezone.utc)
+    except Exception as exc:
+        raise ValueError("RTC-Zeit konnte nicht nach UTC konvertiert werden") from exc
+
+    _persist_rtc_local_offset(local_dt.utcoffset())
+
+    command = privileged_command(
+        "hwclock",
+        "--set",
+        "--rtc",
+        RTC_KERNEL_DEVICE,
+        "--utc",
+        "--date",
+        utc_dt.strftime("%Y-%m-%d %H:%M:%S"),
+    )
+    result = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        raise RTCWriteError(
+            "Kernel-RTC konnte nicht gesetzt werden"
+            + (f": {detail}" if detail else "")
+        )
+
+
 def read_rtc():
     if bus is None or not RTC_AVAILABLE or RTC_ADDRESS is None:
+        if RTC_KERNEL_DEVICE and RTC_ADDRESS is not None:
+            return _read_kernel_rtc()
         raise RTCUnavailableError("RTC-Bus nicht initialisiert")
+    if RTC_KERNEL_DEVICE:
+        return _read_kernel_rtc()
     address = RTC_DETECTED_ADDRESS or RTC_ADDRESS
     rtc_type = _determine_rtc_type(address)
     if rtc_type == "pcf8563":
@@ -1284,7 +1426,13 @@ def read_rtc():
 
 def set_rtc(dt):
     if bus is None or not RTC_AVAILABLE or RTC_ADDRESS is None:
+        if RTC_KERNEL_DEVICE and RTC_ADDRESS is not None:
+            _set_kernel_rtc(dt)
+            return
         raise RTCUnavailableError("RTC-Bus nicht initialisiert")
+    if RTC_KERNEL_DEVICE:
+        _set_kernel_rtc(dt)
+        return
     address = RTC_DETECTED_ADDRESS or RTC_ADDRESS
     rtc_type = _determine_rtc_type(address)
 
