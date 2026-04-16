@@ -15,11 +15,11 @@ Wichtige Optionen:
   --flask-port VALUE              HTTP-Port für Gunicorn/Flask (Standard: 80; alternativ INSTALL_FLASK_PORT).
   --log-file-mode MODE            chmod-Modus für app.log (Standard: 666; alternativ INSTALL_LOG_FILE_MODE).
   --target-user VALUE             Dienstbenutzer explizit setzen (alternativ INSTALL_TARGET_USER).
-  --rtc-mode MODE                 RTC-Modus: auto, pcf8563, ds3231, skip.
+  --rtc-mode MODE                 RTC-Modus: auto, pcf85063, pcf8563, ds3231, skip.
   --rtc-addresses LIST            Kommagetrennte I²C-Adressen (z.B. 0x51,0x68).
   --rtc-overlay VALUE             dtoverlay-Wert für die RTC ("-" oder "none" deaktiviert die Änderung).
   --rtc-accept-detection VALUE    Vorgabe für Auto-Detect (yes/no) ohne Rückfrage.
-  --rtc-choice N                  Vorauswahl für das RTC-Menü (1=Auto,2=PCF8563,3=DS3231).
+  --rtc-choice N                  Vorauswahl für das RTC-Menü (1=Auto,2=PCF85063,3=PCF8563,4=DS3231).
   --hat-model KEY                 Voreinstellung für Audio-HAT (z.B. hifiberry_dacplus, manual, skip).
   --hat-dtoverlay VALUE           dtoverlay bei manuellem HAT-Modus.
   --hat-options VALUE             Zusätzliche dtoverlay-Optionen im manuellen Modus.
@@ -1261,9 +1261,9 @@ infer_rtc_from_addresses() {
         addr_lower=$(printf '%s' "$addr" | tr 'A-F' 'a-f')
         case "$addr_lower" in
             0x51)
-                RTC_AUTODETECT_MODULE="pcf8563"
-                RTC_AUTODETECT_LABEL="PCF8563 (0x51)"
-                RTC_AUTODETECT_OVERLAY="pcf8563"
+                RTC_AUTODETECT_MODULE="pcf85063"
+                RTC_AUTODETECT_LABEL="PCF85063 / Seeed High Precision RTC (0x51)"
+                RTC_AUTODETECT_OVERLAY="pcf85063"
                 return 0
                 ;;
         esac
@@ -1304,7 +1304,7 @@ echo ""
 echo "RTC-Konfiguration"
 
 RTC_MODULE="auto"
-RTC_OVERLAY_DEFAULT="pcf8563"
+RTC_OVERLAY_DEFAULT=""
 RTC_ADDRESS_INPUT=""
 RTC_AUTODETECT_ACCEPTED=0
 RTC_AUTODETECT_AVAILABLE=0
@@ -1336,8 +1336,12 @@ if [ -n "$RTC_MODE_INPUT" ]; then
                 RTC_AUTODETECT_ACCEPTED=1
             else
                 RTC_MODULE="auto"
-                RTC_OVERLAY_DEFAULT="pcf8563"
+                RTC_OVERLAY_DEFAULT=""
             fi
+            ;;
+        pcf85063)
+            RTC_MODULE="pcf85063"
+            RTC_OVERLAY_DEFAULT="pcf85063"
             ;;
         pcf8563)
             RTC_MODULE="pcf8563"
@@ -1352,7 +1356,7 @@ if [ -n "$RTC_MODE_INPUT" ]; then
             RTC_OVERLAY_DEFAULT=""
             ;;
         *)
-            echo "Fehler: Unbekannter RTC-Modus '$ARG_RTC_MODE'. Erlaubt sind auto, pcf8563, ds3231 oder skip." >&2
+            echo "Fehler: Unbekannter RTC-Modus '$ARG_RTC_MODE'. Erlaubt sind auto, pcf85063, pcf8563, ds3231 oder skip." >&2
             exit 1
             ;;
     esac
@@ -1399,28 +1403,33 @@ else
 
     if [ "$RTC_AUTODETECT_ACCEPTED" -eq 0 ]; then
         echo "1) Automatische Erkennung (Standard)"
-        echo "2) PCF8563 (0x51)"
-        echo "3) DS3231 / DS1307 (0x68)"
+        echo "2) PCF85063 / Seeed High Precision RTC (0x51)"
+        echo "3) PCF8563 (0x51)"
+        echo "4) DS3231 / DS1307 (0x68)"
         if [ -n "$ARG_RTC_CHOICE" ]; then
             RTC_CHOICE="$ARG_RTC_CHOICE"
         elif [ "$PROMPT_ALLOWED" -eq 1 ]; then
-            read -rp "Auswahl [1-3]: " RTC_CHOICE
+            read -rp "Auswahl [1-4]: " RTC_CHOICE
         else
             RTC_CHOICE="1"
         fi
 
         case "$RTC_CHOICE" in
             2)
+                RTC_MODULE="pcf85063"
+                RTC_OVERLAY_DEFAULT="pcf85063"
+                ;;
+            3)
                 RTC_MODULE="pcf8563"
                 RTC_OVERLAY_DEFAULT="pcf8563"
                 ;;
-            3)
+            4)
                 RTC_MODULE="ds3231"
                 RTC_OVERLAY_DEFAULT="ds3231"
                 ;;
             1|"" )
                 RTC_MODULE="auto"
-                RTC_OVERLAY_DEFAULT="pcf8563"
+                RTC_OVERLAY_DEFAULT=""
                 ;;
             *)
                 echo "Fehler: Ungültige RTC-Auswahl '$RTC_CHOICE'." >&2

@@ -935,6 +935,10 @@ RTC_SUPPORTED_TYPES = {
         "label": "Automatische Erkennung",
         "default_addresses": (0x51, 0x68, 0x57, 0x6F),
     },
+    "pcf85063": {
+        "label": "PCF85063 / Seeed High Precision RTC (0x51)",
+        "default_addresses": (0x51,),
+    },
     "pcf8563": {
         "label": "PCF8563 (0x51)",
         "default_addresses": (0x51,),
@@ -958,7 +962,7 @@ RTC_MISSING_FLAG = False
 RTC_SYNC_STATUS = {"success": None, "last_error": None}
 RTC_LAST_LOCAL_OFFSET_MINUTES: Optional[int] = None
 RTC_KNOWN_ADDRESS_TYPES = {
-    0x51: "pcf8563",
+    0x51: "pcf85063",
     0x57: "ds3231",
     0x68: "ds3231",
     0x69: "ds3231",
@@ -974,6 +978,8 @@ def _infer_rtc_module_from_boot_overlay() -> Optional[str]:
                     line = raw_line.strip().lower()
                     if not line.startswith("dtoverlay=i2c-rtc"):
                         continue
+                    if ",pcf85063" in line:
+                        return "pcf85063"
                     if ",pcf8563" in line:
                         return "pcf8563"
                     if ",ds3231" in line or ",ds1307" in line:
@@ -1127,7 +1133,7 @@ def _determine_rtc_type(address: int) -> str:
 
 
 def _python_weekday_to_rtc(py_weekday: int, rtc_type: str) -> int:
-    if rtc_type == "pcf8563":
+    if rtc_type in {"pcf8563", "pcf85063"}:
         return (py_weekday + 1) % 7
     if rtc_type == "ds3231":
         return ((py_weekday + 1) % 7) + 1 or 1
@@ -1135,7 +1141,7 @@ def _python_weekday_to_rtc(py_weekday: int, rtc_type: str) -> int:
 
 
 def _rtc_weekday_to_python(raw_weekday: int, rtc_type: str) -> int:
-    if rtc_type == "pcf8563":
+    if rtc_type in {"pcf8563", "pcf85063"}:
         return (raw_weekday + 6) % 7
     if rtc_type == "ds3231":
         weekday = raw_weekday & 0x07
@@ -1204,6 +1210,16 @@ def read_rtc():
     rtc_type = _determine_rtc_type(address)
     if rtc_type == "pcf8563":
         data = bus.read_i2c_block_data(address, 0x02, 7)
+        second = bcd_to_dec(data[0] & 0x7F)
+        minute = bcd_to_dec(data[1] & 0x7F)
+        hour = bcd_to_dec(data[2] & 0x3F)
+        day = bcd_to_dec(data[3] & 0x3F)
+        weekday_raw = data[4] & 0x07
+        month = bcd_to_dec(data[5] & 0x1F)
+        year_offset = bcd_to_dec(data[6])
+        century_offset = 2000
+    elif rtc_type == "pcf85063":
+        data = bus.read_i2c_block_data(address, 0x04, 7)
         second = bcd_to_dec(data[0] & 0x7F)
         minute = bcd_to_dec(data[1] & 0x7F)
         hour = bcd_to_dec(data[2] & 0x3F)
@@ -1291,6 +1307,11 @@ def set_rtc(dt):
             year = dec_to_bcd(utc_dt.year - 2000)
             payload = [second, minute, hour, date, weekday_value, month, year]
             bus.write_i2c_block_data(address, 0x02, payload)
+        elif rtc_type == "pcf85063":
+            month = dec_to_bcd(utc_dt.month)
+            year = dec_to_bcd(utc_dt.year - 2000)
+            payload = [second, minute, hour, date, weekday_value, month, year]
+            bus.write_i2c_block_data(address, 0x04, payload)
         elif rtc_type == "ds3231":
             month_value = dec_to_bcd(utc_dt.month)
             year_value = utc_dt.year
@@ -2610,6 +2631,7 @@ def load_rtc_configuration_from_settings():
         overlay_module_type = _infer_rtc_module_from_boot_overlay()
         if overlay_module_type in RTC_SUPPORTED_TYPES:
             effective_module_type = overlay_module_type
+            RTC_FORCED_TYPE = overlay_module_type
 
     if configured_addresses and (
         module_type != "auto" or known_configured_addresses
