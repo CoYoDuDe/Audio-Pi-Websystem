@@ -2194,7 +2194,7 @@ def refresh_local_timezone(*, reconfigure_scheduler: bool = True):
     else:
         logging.debug("Lokale Zeitzone unverändert: %s", new_tz)
 
-    if reconfigure_scheduler and scheduler is not None:
+    if reconfigure_scheduler and timezone_changed and scheduler is not None:
         try:
             scheduler.configure(timezone=LOCAL_TZ)
         except Exception:

@@ -194,3 +194,42 @@ def test_timezone_monitor_detects_external_change(monkeypatch, app_module):
 
     assert refresh_calls, "Der Zeitzonenmonitor muss refresh_local_timezone() aufrufen."
     assert app_module.LOCAL_TZ == new_tz
+
+
+def test_refresh_skips_scheduler_configure_when_timezone_unchanged(
+    monkeypatch, app_module
+):
+    current_tz = timezone.utc
+    app_module.LOCAL_TZ = current_tz
+
+    def fail_configure(**_kwargs):
+        raise AssertionError("Scheduler must not be reconfigured without TZ change")
+
+    monkeypatch.setattr(app_module.scheduler, "configure", fail_configure)
+
+    real_datetime = datetime
+
+    class _FakeNow:
+        tzinfo = current_tz
+
+        def astimezone(self, tz=None):
+            if tz is None:
+                return self
+            return real_datetime(2024, 1, 1, 12, 0, tzinfo=current_tz).astimezone(tz)
+
+    class DateTimeProxy:
+        def __call__(self, *args, **kwargs):
+            return real_datetime(*args, **kwargs)
+
+        def __getattr__(self, name):
+            return getattr(real_datetime, name)
+
+        @staticmethod
+        def now(tz=None):
+            if tz is not None:
+                return real_datetime.now(tz)
+            return _FakeNow()
+
+    monkeypatch.setattr(app_module, "datetime", DateTimeProxy())
+
+    assert app_module.refresh_local_timezone() == current_tz
