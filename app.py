@@ -1519,7 +1519,29 @@ def _update_rtc_sync_status(success: bool, error: Optional[str] = None) -> None:
     RTC_SYNC_STATUS["last_error"] = error
 
 
+def _system_clock_already_synchronized() -> bool:
+    status_command = privileged_command(
+        "timedatectl", "show", "-p", "NTPSynchronized", "--value"
+    )
+    try:
+        result = subprocess.run(
+            status_command,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        return False
+    return (result.stdout or "").strip().lower() == "yes"
+
+
 def sync_rtc_to_system() -> bool:
+    if not TESTING and _system_clock_already_synchronized():
+        logging.info("RTC-Sync übersprungen: Systemzeit ist bereits per NTP synchronisiert")
+        _update_rtc_sync_status(True, None)
+        return True
+
     try:
         rtc_time = read_rtc()
     except (ValueError, OSError, RTCUnavailableError, UnsupportedRTCError) as e:

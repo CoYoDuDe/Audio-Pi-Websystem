@@ -92,6 +92,36 @@ def test_sync_rtc_failure_does_not_raise_system_exit(app_module, monkeypatch):
     assert "Rückgabecode" in app_module.RTC_SYNC_STATUS["last_error"]
 
 
+def test_sync_rtc_skips_system_set_when_ntp_is_already_synced(
+    app_module, monkeypatch
+):
+    monkeypatch.setattr(app_module, "TESTING", False)
+    monkeypatch.setattr(
+        app_module,
+        "read_rtc",
+        lambda: pytest.fail("RTC must not be read when NTP is already synced"),
+    )
+
+    status_command = app_module.privileged_command(
+        "timedatectl", "show", "-p", "NTPSynchronized", "--value"
+    )
+    executed_commands = []
+
+    def fake_run(cmd, *args, **kwargs):
+        executed_commands.append((cmd, kwargs))
+        assert cmd == status_command
+        assert kwargs.get("check") is True
+        assert kwargs.get("capture_output") is True
+        assert kwargs.get("text") is True
+        return app_module.subprocess.CompletedProcess(cmd, 0, "yes\n", "")
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+
+    assert app_module.sync_rtc_to_system() is True
+    assert app_module.RTC_SYNC_STATUS["success"] is True
+    assert len(executed_commands) == 1
+
+
 def test_boot_rtc_sync_writes_rtc_after_confirmed_ntp(app_module, monkeypatch):
     berlin = ZoneInfo("Europe/Berlin")
     monkeypatch.setattr(app_module, "LOCAL_TZ", berlin)
