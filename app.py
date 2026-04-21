@@ -7229,22 +7229,25 @@ def _wait_for_system_clock_synchronization(
             _DEFAULT_TIMESYNC_POLL_INTERVAL_SECONDS,
             minimum=0.0,
         )
-    status_command = privileged_command(
-        "timedatectl", "show", "-p", "SystemClockSynchronized", "--value"
-    )
+    status_commands = [
+        privileged_command(
+            "timedatectl", "show", "-p", "SystemClockSynchronized", "--value"
+        ),
+        privileged_command("timedatectl", "show", "-p", "NTPSynchronized", "--value"),
+    ]
     last_warning: Optional[str] = None
-    start = time.monotonic()
 
-    while True:
+    def _query_clock_sync_status(command) -> Optional[Tuple[bool, Optional[str]]]:
+        nonlocal last_warning
         try:
             result = subprocess.run(
-                status_command,
+                command,
                 check=True,
                 capture_output=True,
                 text=True,
             )
         except FileNotFoundError as exc:
-            primary_command = exc.filename or _extract_primary_command(status_command)
+            primary_command = exc.filename or _extract_primary_command(command)
             message = (
                 f"Kommando '{primary_command}' nicht gefunden, Synchronisationsstatus konnte nicht geprüft werden"
             )
@@ -7254,7 +7257,7 @@ def _wait_for_system_clock_synchronization(
             stderr_text = exc.stderr if isinstance(exc.stderr, str) else ""
             stdout_text = exc.stdout if isinstance(exc.stdout, str) else ""
             if _command_not_found(stderr_text, stdout_text, exc.returncode):
-                primary_command = _extract_primary_command(exc.cmd or status_command)
+                primary_command = _extract_primary_command(exc.cmd or command)
                 message = (
                     f"Kommando '{primary_command}' nicht gefunden, Synchronisationsstatus konnte nicht geprüft werden"
                 )
@@ -7265,6 +7268,7 @@ def _wait_for_system_clock_synchronization(
                 exc.returncode,
             )
             last_warning = "Synchronisationsstatus konnte nicht abgefragt werden (Exit-Code)"
+            return None
         except Exception as exc:  # pragma: no cover - unerwartete Fehler
             logging.debug(
                 "Synchronisationsstatus konnte nicht abgefragt werden (unerwarteter Fehler): %s",
@@ -7272,17 +7276,30 @@ def _wait_for_system_clock_synchronization(
                 exc_info=True,
             )
             last_warning = "Synchronisationsstatus konnte nicht abgefragt werden (unerwarteter Fehler)"
-        else:
-            output = (result.stdout or "").strip()
-            if not output:
-                output = (result.stderr or "").strip()
-            normalized_output = output.lower()
-            if normalized_output == "yes":
-                return True, None
-            if normalized_output and normalized_output not in {"no"}:
-                last_warning = (
-                    f"Synchronisationsstatus lieferte unerwartete Antwort: '{output}'"
-                )
+            return None
+
+        output = (result.stdout or "").strip()
+        if not output:
+            output = (result.stderr or "").strip()
+        normalized_output = output.lower()
+        if normalized_output == "yes":
+            return True, None
+        if normalized_output == "no":
+            return None
+        if normalized_output:
+            last_warning = (
+                f"Synchronisationsstatus lieferte unerwartete Antwort: '{output}'"
+            )
+            return None
+        return None
+
+    start = time.monotonic()
+
+    while True:
+        for status_command in status_commands:
+            status_result = _query_clock_sync_status(status_command)
+            if status_result is not None:
+                return status_result
         now = time.monotonic()
         if now - start >= timeout_seconds:
             break

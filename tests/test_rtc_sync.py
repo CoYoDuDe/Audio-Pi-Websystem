@@ -151,6 +151,30 @@ def test_boot_rtc_sync_skips_when_ntp_not_confirmed(app_module, monkeypatch):
     assert app_module.sync_rtc_from_internet_after_boot() is False
 
 
+def test_clock_sync_wait_accepts_ntp_synchronized_fallback(app_module, monkeypatch):
+    system_clock_command = app_module.privileged_command(
+        "timedatectl", "show", "-p", "SystemClockSynchronized", "--value"
+    )
+    ntp_command = app_module.privileged_command(
+        "timedatectl", "show", "-p", "NTPSynchronized", "--value"
+    )
+    commands = []
+
+    def fake_run(cmd, *args, **kwargs):
+        commands.append(cmd)
+        assert kwargs.get("check") is True
+        if cmd == system_clock_command:
+            return app_module.subprocess.CompletedProcess(cmd, 0, "\n", "")
+        if cmd == ntp_command:
+            return app_module.subprocess.CompletedProcess(cmd, 0, "yes\n", "")
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+
+    assert app_module._wait_for_system_clock_synchronization() == (True, None)
+    assert commands == [system_clock_command, ntp_command]
+
+
 def test_set_rtc_stores_winter_offset(app_module, monkeypatch):
     berlin = ZoneInfo("Europe/Berlin")
     monkeypatch.setattr(app_module, "LOCAL_TZ", berlin)
