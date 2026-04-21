@@ -55,6 +55,7 @@ def _prepare_rtc_failure(app_module):
     app_module.RTC_AVAILABLE = True
     app_module.RTC_ADDRESS = 0x51
     app_module.RTC_DETECTED_ADDRESS = 0x51
+    app_module.RTC_KERNEL_DEVICE = None
     app_module.RTC_MISSING_FLAG = False
 
 

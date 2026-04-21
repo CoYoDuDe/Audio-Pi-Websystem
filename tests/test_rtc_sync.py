@@ -168,6 +168,7 @@ def test_set_rtc_stores_winter_offset(app_module, monkeypatch):
     app_module.RTC_AVAILABLE = True
     app_module.RTC_ADDRESS = 0x68
     app_module.RTC_DETECTED_ADDRESS = 0x68
+    app_module.RTC_KERNEL_DEVICE = None
 
     winter_dt = datetime(2024, 1, 2, 3, 4, 5, tzinfo=berlin)
     app_module.set_rtc(winter_dt)
@@ -195,6 +196,7 @@ def test_set_rtc_stores_summer_offset(app_module, monkeypatch):
     app_module.RTC_AVAILABLE = True
     app_module.RTC_ADDRESS = 0x68
     app_module.RTC_DETECTED_ADDRESS = 0x68
+    app_module.RTC_KERNEL_DEVICE = None
 
     summer_dt = datetime(2024, 7, 2, 3, 4, 5, tzinfo=berlin)
     app_module.set_rtc(summer_dt)
