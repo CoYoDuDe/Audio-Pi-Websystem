@@ -159,7 +159,7 @@ def test_ds3231_read_and_write_cycle(app_module):
     assert payload == [0x45, 0x34, 0x19, 0x06, 0x15, 0x03, 0x24]
 
 
-def test_pcf8563_read_and_write_cycle(app_module):
+def test_pcf85063_read_and_write_cycle(app_module):
     berlin = ZoneInfo("Europe/Berlin")
     app_module.LOCAL_TZ = berlin
     app_module.RTC_LAST_LOCAL_OFFSET_MINUTES = None
@@ -173,7 +173,7 @@ def test_pcf8563_read_and_write_cycle(app_module):
         def read_i2c_block_data(self, address, register, length):
             self.read_calls.append((address, register, length))
             assert address == 0x51
-            assert register == 0x02
+            assert register == 0x04
             assert length == 7
             return [0x12, 0x34, 0x04, 0x16, 0x00, 0x02, 0x25]
 
@@ -188,13 +188,13 @@ def test_pcf8563_read_and_write_cycle(app_module):
 
     dt = app_module.read_rtc()
     assert dt == datetime(2025, 2, 16, 5, 34, 12, tzinfo=berlin)
-    assert dummy_bus.read_calls == [(0x51, 0x02, 7)]
+    assert dummy_bus.read_calls == [(0x51, 0x04, 7)]
 
     app_module.set_rtc(dt)
     assert dummy_bus.write_calls, "Es wurde kein Schreibzugriff auf die RTC registriert"
     write_address, start_register, payload = dummy_bus.write_calls[-1]
     assert write_address == 0x51
-    assert start_register == 0x02
+    assert start_register == 0x04
     assert payload == [0x12, 0x34, 0x04, 0x16, 0x00, 0x02, 0x25]
 
 
