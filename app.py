@@ -1444,7 +1444,7 @@ def set_rtc(dt):
             _set_kernel_rtc(dt)
             return
         except RTCWriteError as exc:
-            logging.warning(
+            logging.info(
                 "Kernel-RTC konnte nicht gesetzt werden, direkter I²C-Fallback wird versucht: %s",
                 exc,
             )
