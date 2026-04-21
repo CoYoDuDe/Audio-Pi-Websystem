@@ -1427,6 +1427,13 @@ def read_rtc():
 
 
 def set_rtc(dt):
+    def _write_rtc_block(register: int, payload: List[int]) -> None:
+        force = bool(RTC_KERNEL_DEVICE)
+        try:
+            bus.write_i2c_block_data(address, register, payload, force=force)
+        except TypeError:
+            bus.write_i2c_block_data(address, register, payload)
+
     if bus is None or not RTC_AVAILABLE or RTC_ADDRESS is None:
         if RTC_KERNEL_DEVICE and RTC_ADDRESS is not None:
             _set_kernel_rtc(dt)
@@ -1468,12 +1475,12 @@ def set_rtc(dt):
             month = dec_to_bcd(utc_dt.month)
             year = dec_to_bcd(utc_dt.year - 2000)
             payload = [second, minute, hour, date, weekday_value, month, year]
-            bus.write_i2c_block_data(address, 0x02, payload)
+            _write_rtc_block(0x02, payload)
         elif rtc_type == "pcf85063":
             month = dec_to_bcd(utc_dt.month)
             year = dec_to_bcd(utc_dt.year - 2000)
             payload = [second, minute, hour, date, weekday_value, month, year]
-            bus.write_i2c_block_data(address, 0x04, payload)
+            _write_rtc_block(0x04, payload)
         elif rtc_type in {"ds1307", "ds3231"}:
             month_value = dec_to_bcd(utc_dt.month)
             year_value = utc_dt.year
@@ -1491,7 +1498,7 @@ def set_rtc(dt):
                 month_value | century_bit,
                 year,
             ]
-            bus.write_i2c_block_data(address, 0x00, payload)
+            _write_rtc_block(0x00, payload)
         else:  # pragma: no cover - abgesichert durch _determine_rtc_type
             raise UnsupportedRTCError(f"RTC-Typ '{rtc_type}' nicht unterstützt")
     except OSError as exc:
