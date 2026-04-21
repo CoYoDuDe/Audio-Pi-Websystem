@@ -26,6 +26,7 @@ import calendar
 import fnmatch
 import math
 import logging
+import shutil
 from collections import deque
 from dataclasses import dataclass, asdict, is_dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -202,6 +203,133 @@ def _read_runtime_network_snapshot(interface: str) -> Dict[str, str]:
         snapshot["mode"] = "DHCP"
 
     return snapshot
+
+
+def _format_bytes(value: Optional[int]) -> str:
+    if value is None or value < 0:
+        return "Unbekannt"
+    units = ("B", "KB", "MB", "GB", "TB")
+    amount = float(value)
+    unit = units[0]
+    for unit in units:
+        if amount < 1024 or unit == units[-1]:
+            break
+        amount /= 1024
+    if unit == "B":
+        return f"{int(amount)} {unit}"
+    return f"{amount:.1f} {unit}"
+
+
+def _format_percent(value: Optional[float]) -> str:
+    if value is None:
+        return "Unbekannt"
+    return f"{value:.0f}%"
+
+
+def _format_uptime(seconds: Optional[float]) -> str:
+    if seconds is None or seconds < 0:
+        return "Unbekannt"
+    total_minutes = int(seconds // 60)
+    days, remainder = divmod(total_minutes, 24 * 60)
+    hours, minutes = divmod(remainder, 60)
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours or days:
+        parts.append(f"{hours}h")
+    parts.append(f"{minutes}m")
+    return " ".join(parts)
+
+
+def _read_cpu_temperature_c() -> Optional[float]:
+    candidates = (
+        Path("/sys/class/thermal/thermal_zone0/temp"),
+        Path("/sys/class/hwmon/hwmon0/temp1_input"),
+    )
+    for path in candidates:
+        try:
+            raw_value = path.read_text(encoding="utf-8").strip()
+            value = float(raw_value)
+        except (OSError, ValueError):
+            continue
+        return value / 1000.0 if value > 1000 else value
+    return None
+
+
+def _read_memory_snapshot() -> Dict[str, Optional[int]]:
+    values: Dict[str, int] = {}
+    try:
+        lines = Path("/proc/meminfo").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        lines = []
+    for line in lines:
+        if ":" not in line:
+            continue
+        key, raw_value = line.split(":", 1)
+        match = re.search(r"\d+", raw_value)
+        if match:
+            values[key] = int(match.group(0)) * 1024
+    total = values.get("MemTotal")
+    available = values.get("MemAvailable")
+    used = total - available if total is not None and available is not None else None
+    return {"total": total, "available": available, "used": used}
+
+
+def _read_uptime_seconds() -> Optional[float]:
+    try:
+        raw_value = Path("/proc/uptime").read_text(encoding="utf-8").split()[0]
+        return float(raw_value)
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def gather_system_metrics() -> Dict[str, Any]:
+    temperature_c = _read_cpu_temperature_c()
+    memory = _read_memory_snapshot()
+    disk_usage = shutil.disk_usage("/")
+    cpu_count = os.cpu_count() or 1
+    try:
+        load_1, load_5, load_15 = os.getloadavg()
+    except OSError:
+        load_1 = load_5 = load_15 = None
+
+    memory_used_percent: Optional[float] = None
+    if memory["total"] and memory["used"] is not None:
+        memory_used_percent = (memory["used"] / memory["total"]) * 100
+
+    disk_used_percent = (disk_usage.used / disk_usage.total) * 100 if disk_usage.total else None
+    load_percent = (load_1 / cpu_count) * 100 if load_1 is not None else None
+
+    return {
+        "temperature_c": temperature_c,
+        "temperature_label": f"{temperature_c:.1f} °C" if temperature_c is not None else "Unbekannt",
+        "load_1": load_1,
+        "load_5": load_5,
+        "load_15": load_15,
+        "load_label": (
+            f"{load_1:.2f} / {load_5:.2f} / {load_15:.2f}"
+            if load_1 is not None and load_5 is not None and load_15 is not None
+            else "Unbekannt"
+        ),
+        "load_percent": load_percent,
+        "load_percent_label": _format_percent(load_percent),
+        "cpu_count": cpu_count,
+        "memory_total": memory["total"],
+        "memory_used": memory["used"],
+        "memory_used_percent": memory_used_percent,
+        "memory_label": (
+            f"{_format_bytes(memory['used'])} / {_format_bytes(memory['total'])}"
+            if memory["used"] is not None and memory["total"] is not None
+            else "Unbekannt"
+        ),
+        "memory_percent_label": _format_percent(memory_used_percent),
+        "disk_total": disk_usage.total,
+        "disk_used": disk_usage.used,
+        "disk_used_percent": disk_used_percent,
+        "disk_label": f"{_format_bytes(disk_usage.used)} / {_format_bytes(disk_usage.total)}",
+        "disk_percent_label": _format_percent(disk_used_percent),
+        "uptime_label": _format_uptime(_read_uptime_seconds()),
+    }
 
 
 def _load_network_settings_for_template(interface: str) -> Dict[str, str]:
@@ -3532,6 +3660,7 @@ def gather_status():
     else:
         wlan_ssid = wlan_output
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    system_metrics = gather_system_metrics()
 
     volume_output = _run_pactl_command("get-sink-volume", "@DEFAULT_SINK@")
     current_volume = "Unbekannt"
@@ -3618,6 +3747,7 @@ def gather_status():
         "network_runtime_ip": runtime_network["ipv4"],
         "network_runtime_gateway": runtime_network["gateway"],
         "network_mode_label": runtime_network["mode"] if runtime_network["mode"] != "Unbekannt" else ("DHCP" if network_mode == "dhcp" else "Statisch"),
+        "system_metrics": system_metrics,
     }
 
 

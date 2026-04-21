@@ -49,6 +49,12 @@
         <li>Lautstärke: {{ status['current_volume'] }}</li>
         <li>Audio-Sink: {{ status['current_sink'] }}</li>
         <li>Zeit: {{ status['current_time'] }}</li>
+        {% set metrics = status.get('system_metrics', {}) %}
+        <li>Temperatur: {{ metrics.get('temperature_label', 'Unbekannt') }}</li>
+        <li>CPU-Last: {{ metrics.get('load_percent_label', 'Unbekannt') }} (Load {{ metrics.get('load_label', 'Unbekannt') }})</li>
+        <li>RAM: {{ metrics.get('memory_percent_label', 'Unbekannt') }} belegt ({{ metrics.get('memory_label', 'Unbekannt') }})</li>
+        <li>Speicher: {{ metrics.get('disk_percent_label', 'Unbekannt') }} belegt ({{ metrics.get('disk_label', 'Unbekannt') }})</li>
+        <li>Laufzeit: {{ metrics.get('uptime_label', 'Unbekannt') }}</li>
         <li>
             RTC:
             {{ status['rtc_module_label'] }}
