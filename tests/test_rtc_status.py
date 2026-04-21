@@ -146,6 +146,7 @@ def test_ds3231_read_and_write_cycle(app_module):
     app_module.RTC_AVAILABLE = True
     app_module.RTC_ADDRESS = 0x68
     app_module.RTC_DETECTED_ADDRESS = 0x68
+    app_module.RTC_KERNEL_DEVICE = None
 
     dt = app_module.read_rtc()
     assert dt == datetime(2024, 3, 15, 20, 34, 45, tzinfo=berlin)
@@ -185,6 +186,7 @@ def test_pcf85063_read_and_write_cycle(app_module):
     app_module.RTC_AVAILABLE = True
     app_module.RTC_ADDRESS = 0x51
     app_module.RTC_DETECTED_ADDRESS = 0x51
+    app_module.RTC_KERNEL_DEVICE = None
 
     dt = app_module.read_rtc()
     assert dt == datetime(2025, 2, 16, 5, 34, 12, tzinfo=berlin)
