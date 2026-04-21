@@ -92,6 +92,65 @@ def test_sync_rtc_failure_does_not_raise_system_exit(app_module, monkeypatch):
     assert "Rückgabecode" in app_module.RTC_SYNC_STATUS["last_error"]
 
 
+def test_boot_rtc_sync_writes_rtc_after_confirmed_ntp(app_module, monkeypatch):
+    berlin = ZoneInfo("Europe/Berlin")
+    monkeypatch.setattr(app_module, "LOCAL_TZ", berlin)
+    monkeypatch.setattr(app_module, "RTC_AVAILABLE", True)
+    monkeypatch.setattr(app_module, "RTC_KERNEL_DEVICE", "/dev/rtc1")
+
+    wait_calls = []
+    refresh_calls = []
+    rtc_writes = []
+
+    def fake_wait(**kwargs):
+        wait_calls.append(kwargs)
+        return True, None
+
+    monkeypatch.setattr(
+        app_module, "_wait_for_system_clock_synchronization", fake_wait
+    )
+    monkeypatch.setattr(
+        app_module, "refresh_local_timezone", lambda: refresh_calls.append(True)
+    )
+    monkeypatch.setattr(app_module, "set_rtc", lambda dt: rtc_writes.append(dt))
+
+    assert app_module.sync_rtc_from_internet_after_boot() is True
+
+    assert wait_calls == [{"timeout_seconds": 180.0}]
+    assert refresh_calls == [True]
+    assert len(rtc_writes) == 1
+    assert rtc_writes[0].tzinfo is not None
+
+
+def test_boot_rtc_sync_skips_without_rtc(app_module, monkeypatch):
+    monkeypatch.setattr(app_module, "RTC_AVAILABLE", False)
+    monkeypatch.setattr(app_module, "RTC_KERNEL_DEVICE", None)
+    monkeypatch.setattr(
+        app_module,
+        "_wait_for_system_clock_synchronization",
+        lambda **_kwargs: pytest.fail("NTP wait must not run without RTC"),
+    )
+
+    assert app_module.sync_rtc_from_internet_after_boot() is False
+
+
+def test_boot_rtc_sync_skips_when_ntp_not_confirmed(app_module, monkeypatch):
+    monkeypatch.setattr(app_module, "RTC_AVAILABLE", True)
+    monkeypatch.setattr(app_module, "RTC_KERNEL_DEVICE", "/dev/rtc1")
+    monkeypatch.setattr(
+        app_module,
+        "_wait_for_system_clock_synchronization",
+        lambda **_kwargs: (False, "timeout"),
+    )
+    monkeypatch.setattr(
+        app_module,
+        "set_rtc",
+        lambda _dt: pytest.fail("RTC must not be written without NTP sync"),
+    )
+
+    assert app_module.sync_rtc_from_internet_after_boot() is False
+
+
 def test_set_rtc_stores_winter_offset(app_module, monkeypatch):
     berlin = ZoneInfo("Europe/Berlin")
     monkeypatch.setattr(app_module, "LOCAL_TZ", berlin)

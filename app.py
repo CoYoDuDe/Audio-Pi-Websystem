@@ -4270,6 +4270,7 @@ def start_background_services(*, force: bool = False) -> bool:
         _timezone_monitor.start()
 
     if start_helpers and not TESTING:
+        _start_boot_rtc_sync_thread()
         if force:
             _stop_bt_audio_monitor_thread()
             _stop_button_monitor()
@@ -7190,8 +7191,14 @@ TIME_SYNC_INTERNET_SETTING_KEY = "time_sync_internet_default"
 
 _DEFAULT_TIMESYNC_TIMEOUT_SECONDS = 30.0
 _DEFAULT_TIMESYNC_POLL_INTERVAL_SECONDS = 1.0
+_DEFAULT_BOOT_RTC_SYNC_TIMEOUT_SECONDS = 180.0
 _TIMESYNC_TIMEOUT_ENV = "AUDIO_PI_TIMESYNC_TIMEOUT_SECONDS"
 _TIMESYNC_POLL_INTERVAL_ENV = "AUDIO_PI_TIMESYNC_POLL_INTERVAL_SECONDS"
+_BOOT_RTC_SYNC_TIMEOUT_ENV = "AUDIO_PI_BOOT_RTC_SYNC_TIMEOUT_SECONDS"
+_BOOT_RTC_SYNC_ENABLED_ENV = "AUDIO_PI_BOOT_RTC_SYNC"
+_BOOT_RTC_SYNC_LOCK = threading.Lock()
+_BOOT_RTC_SYNC_STARTED = False
+_BOOT_RTC_SYNC_THREAD: Optional[threading.Thread] = None
 
 
 def _parse_float_env_with_min(env_name: str, default: float, *, minimum: float = 0.0) -> float:
@@ -7207,15 +7214,21 @@ def _parse_float_env_with_min(env_name: str, default: float, *, minimum: float =
     return parsed
 
 
-def _wait_for_system_clock_synchronization() -> Tuple[bool, Optional[str]]:
-    timeout_seconds = _parse_float_env_with_min(
-        _TIMESYNC_TIMEOUT_ENV, _DEFAULT_TIMESYNC_TIMEOUT_SECONDS, minimum=0.0
-    )
-    poll_interval_seconds = _parse_float_env_with_min(
-        _TIMESYNC_POLL_INTERVAL_ENV,
-        _DEFAULT_TIMESYNC_POLL_INTERVAL_SECONDS,
-        minimum=0.0,
-    )
+def _wait_for_system_clock_synchronization(
+    *,
+    timeout_seconds: Optional[float] = None,
+    poll_interval_seconds: Optional[float] = None,
+) -> Tuple[bool, Optional[str]]:
+    if timeout_seconds is None:
+        timeout_seconds = _parse_float_env_with_min(
+            _TIMESYNC_TIMEOUT_ENV, _DEFAULT_TIMESYNC_TIMEOUT_SECONDS, minimum=0.0
+        )
+    if poll_interval_seconds is None:
+        poll_interval_seconds = _parse_float_env_with_min(
+            _TIMESYNC_POLL_INTERVAL_ENV,
+            _DEFAULT_TIMESYNC_POLL_INTERVAL_SECONDS,
+            minimum=0.0,
+        )
     status_command = privileged_command(
         "timedatectl", "show", "-p", "SystemClockSynchronized", "--value"
     )
@@ -7285,6 +7298,83 @@ def _wait_for_system_clock_synchronization() -> Tuple[bool, Optional[str]]:
     )
     logging.warning("%s", timeout_message)
     return False, timeout_message
+
+
+def _boot_rtc_sync_enabled() -> bool:
+    raw_value = os.environ.get(_BOOT_RTC_SYNC_ENABLED_ENV)
+    if raw_value is None:
+        return True
+    return _env_to_bool(raw_value)
+
+
+def sync_rtc_from_internet_after_boot() -> bool:
+    """Schreibt nach bestätigtem NTP-Sync einmalig die Systemzeit in die RTC."""
+
+    if not RTC_AVAILABLE and not RTC_KERNEL_DEVICE:
+        logging.info("Boot-RTC-Sync übersprungen: keine RTC erkannt.")
+        return False
+
+    timeout_seconds = _parse_float_env_with_min(
+        _BOOT_RTC_SYNC_TIMEOUT_ENV,
+        _DEFAULT_BOOT_RTC_SYNC_TIMEOUT_SECONDS,
+        minimum=0.0,
+    )
+    sync_confirmed, message = _wait_for_system_clock_synchronization(
+        timeout_seconds=timeout_seconds
+    )
+    if not sync_confirmed:
+        detail = f": {message}" if message else ""
+        logging.warning(
+            "Boot-RTC-Sync übersprungen, Systemzeit nicht synchronisiert%s",
+            detail,
+        )
+        return False
+
+    refresh_local_timezone()
+    try:
+        current_local_time = (
+            datetime.now(LOCAL_TZ)
+            if LOCAL_TZ is not None
+            else datetime.now().astimezone()
+        )
+        set_rtc(current_local_time)
+    except (RTCWriteError, RTCUnavailableError, UnsupportedRTCError, ValueError) as exc:
+        logging.warning("Boot-RTC-Sync konnte RTC nicht schreiben: %s", exc)
+        return False
+    except Exception as exc:  # pragma: no cover - unerwartete Fehler
+        logging.exception("Boot-RTC-Sync fehlgeschlagen: %s", exc)
+        return False
+
+    logging.info(
+        "Boot-RTC-Sync abgeschlossen: RTC aus synchronisierter Systemzeit gesetzt."
+    )
+    return True
+
+
+def _start_boot_rtc_sync_thread(*, force: bool = False) -> bool:
+    global _BOOT_RTC_SYNC_STARTED, _BOOT_RTC_SYNC_THREAD
+
+    if TESTING or not _boot_rtc_sync_enabled():
+        return False
+
+    with _BOOT_RTC_SYNC_LOCK:
+        if _BOOT_RTC_SYNC_STARTED and not force:
+            return False
+        if (
+            _BOOT_RTC_SYNC_THREAD is not None
+            and _BOOT_RTC_SYNC_THREAD.is_alive()
+            and not force
+        ):
+            return False
+        _BOOT_RTC_SYNC_STARTED = True
+        _BOOT_RTC_SYNC_THREAD = threading.Thread(
+            target=sync_rtc_from_internet_after_boot,
+            name="boot-rtc-sync",
+            daemon=True,
+        )
+        _BOOT_RTC_SYNC_THREAD.start()
+        logging.info("Boot-RTC-Sync-Thread gestartet.")
+        return True
 
 
 def perform_internet_time_sync():
