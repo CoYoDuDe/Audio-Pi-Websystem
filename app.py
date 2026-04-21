@@ -1433,8 +1433,14 @@ def set_rtc(dt):
             return
         raise RTCUnavailableError("RTC-Bus nicht initialisiert")
     if RTC_KERNEL_DEVICE:
-        _set_kernel_rtc(dt)
-        return
+        try:
+            _set_kernel_rtc(dt)
+            return
+        except RTCWriteError as exc:
+            logging.warning(
+                "Kernel-RTC konnte nicht gesetzt werden, direkter I²C-Fallback wird versucht: %s",
+                exc,
+            )
     address = RTC_DETECTED_ADDRESS or RTC_ADDRESS
     rtc_type = _determine_rtc_type(address)
 
@@ -3634,7 +3640,7 @@ def run_auto_reboot_job():
 
 
 def update_auto_reboot_job():
-    refresh_local_timezone()
+    refresh_local_timezone(reconfigure_scheduler=False)
     enabled = get_setting("auto_reboot_enabled") == "1"
     try:
         job = scheduler.get_job(AUTO_REBOOT_JOB_ID)

@@ -229,3 +229,35 @@ def test_set_rtc_stores_summer_offset(app_module, monkeypatch):
     _, _, payload = dummy_bus.write_calls[-1]
     assert payload[2] == app_module.dec_to_bcd(1)
     assert app_module.get_setting(app_module.RTC_LOCAL_OFFSET_SETTING_KEY) == "120"
+
+
+def test_set_rtc_falls_back_to_i2c_when_kernel_write_fails(app_module, monkeypatch):
+    berlin = ZoneInfo("Europe/Berlin")
+    monkeypatch.setattr(app_module, "LOCAL_TZ", berlin)
+
+    class DummyBus:
+        def __init__(self):
+            self.write_calls = []
+
+        def write_i2c_block_data(self, address, register, data):
+            self.write_calls.append((address, register, data))
+
+    dummy_bus = DummyBus()
+    app_module.bus = dummy_bus
+    app_module.RTC_AVAILABLE = True
+    app_module.RTC_ADDRESS = 0x51
+    app_module.RTC_DETECTED_ADDRESS = 0x51
+    app_module.RTC_KERNEL_DEVICE = "/dev/rtc1"
+    monkeypatch.setattr(
+        app_module,
+        "_set_kernel_rtc",
+        lambda _dt: (_ for _ in ()).throw(app_module.RTCWriteError("hwclock")),
+    )
+
+    app_module.set_rtc(datetime(2026, 4, 21, 18, 5, 0, tzinfo=berlin))
+
+    assert dummy_bus.write_calls
+    address, register, payload = dummy_bus.write_calls[-1]
+    assert address == 0x51
+    assert register == 0x04
+    assert payload[1] == app_module.dec_to_bcd(5)
