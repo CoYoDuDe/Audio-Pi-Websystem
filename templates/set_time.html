@@ -6,7 +6,8 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="form-group">
         <label for="datetime">Datum/Uhrzeit:</label>
-        <input type="datetime-local" id="datetime" name="datetime" required>
+        <input type="datetime-local" id="datetime" name="datetime">
+        <small class="hint">Nur nötig, wenn die Zeit manuell gesetzt werden soll.</small>
     </div>
     <div class="form-group checkbox-group">
         <input
@@ -16,12 +17,12 @@
             value="1"
             {% if sync_internet_default %}checked{% endif %}
         >
-        <label for="sync_internet">Zeit über Internet synchronisieren</label>
+        <label for="sync_internet">Beim Speichern Zeit über Internet synchronisieren</label>
     </div>
     <div class="button-group">
-        <button type="submit" class="btn btn-primary">Setzen</button>
-        <button type="submit" class="btn btn-secondary" name="sync_internet_action" value="1">
-            Setzen &amp; Internet-Sync
+        <button type="submit" class="btn btn-primary">Speichern</button>
+        <button type="submit" class="btn btn-secondary" name="sync_internet_action" value="1" formnovalidate>
+            Jetzt Internet-Sync
         </button>
     </div>
 </form>
