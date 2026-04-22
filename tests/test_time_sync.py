@@ -331,6 +331,8 @@ def test_sync_time_from_internet_reports_timeout(monkeypatch, client):
     set_rtc_called = False
 
     def fake_run(cmd, *args, **kwargs):
+        if kwargs.get("check") is False:
+            return app_module.subprocess.CompletedProcess(cmd, 0, "", "")
         assert kwargs.get("check") is True
         assert kwargs.get("capture_output") is True
         assert kwargs.get("text") is True
