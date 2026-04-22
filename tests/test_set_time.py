@@ -110,12 +110,14 @@ def test_set_time_redirects_to_index_on_success(monkeypatch, client):
     _login(client)
 
     set_rtc_called = False
+    commands = []
 
     def fake_set_rtc(dt):
         nonlocal set_rtc_called
         set_rtc_called = True
 
     def fake_run(cmd, *args, **kwargs):
+        commands.append(list(cmd))
         if isinstance(cmd, (list, tuple)) and list(cmd)[:2] == [
             "timedatectl",
             "set-time",
@@ -137,6 +139,8 @@ def test_set_time_redirects_to_index_on_success(monkeypatch, client):
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/")
     assert set_rtc_called is True
+    assert ["timedatectl", "set-ntp", "false"] in commands
+    assert ["timedatectl", "set-time", "2024-01-01 12:00:00"] in commands
 
 
 def test_set_time_failed_internet_sync_stays_on_form(monkeypatch, client):
@@ -173,6 +177,40 @@ def test_set_time_failed_internet_sync_stays_on_form(monkeypatch, client):
 
     assert b"Fehler bei der Synchronisation" in response.data
     assert response.request.path == "/set_time"
+
+
+def test_set_time_internet_sync_skips_manual_set_time(monkeypatch, client):
+    client, app_module = client
+    _login(client)
+
+    run_calls = []
+    sync_called = {"value": False}
+
+    def fake_run(cmd, *args, **kwargs):
+        run_calls.append(list(cmd))
+        return app_module.subprocess.CompletedProcess(cmd, 0)
+
+    def fake_sync():
+        sync_called["value"] = True
+        return True, ["Zeit vom Internet synchronisiert"]
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(app_module, "perform_internet_time_sync", fake_sync)
+
+    response = csrf_post(
+        client,
+        "/set_time",
+        data={
+            "datetime": "2024-01-01T12:00:00",
+            "sync_internet": "1",
+        },
+        follow_redirects=True,
+        source_url="/set_time",
+    )
+
+    assert sync_called["value"] is True
+    assert b"Zeit vom Internet synchronisiert" in response.data
+    assert not any(call[:2] == ["timedatectl", "set-time"] for call in run_calls)
 
 
 def test_set_time_missing_rtc_warns_but_redirects(monkeypatch, client):

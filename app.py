@@ -7840,6 +7840,89 @@ def _is_checked(value):
     return value.lower() in {"1", "true", "yes", "on"}
 
 
+def _format_command_for_flash(command: Sequence[Any]) -> str:
+    return " ".join(map(str, command))
+
+
+def _flash_system_time_command_failure(
+    exc: subprocess.CalledProcessError,
+    fallback_command: Sequence[Any],
+) -> None:
+    failing_command = exc.cmd if exc.cmd else fallback_command
+    primary_command = _extract_primary_command(failing_command or [])
+    stderr_text = exc.stderr if isinstance(exc.stderr, str) else ""
+    stdout_text = exc.stdout if isinstance(exc.stdout, str) else ""
+    if _command_not_found(stderr_text, stdout_text, exc.returncode):
+        logging.error(
+            "timedatectl zum Setzen der Systemzeit nicht gefunden (%s): %s",
+            primary_command,
+            stderr_text or exc,
+        )
+        flash(
+            f"Kommando '{primary_command}' wurde nicht gefunden. Systemzeit konnte nicht gesetzt werden."
+        )
+        return
+
+    logging.error("Systemzeit setzen fehlgeschlagen (%s): %s", failing_command, exc)
+    executed_command = (
+        _format_command_for_flash(failing_command)
+        if isinstance(failing_command, (list, tuple))
+        else str(failing_command)
+    )
+    detail = (stderr_text or stdout_text or "").strip()
+    if detail:
+        flash(
+            f"Ausführung von '{executed_command}' ist fehlgeschlagen: {detail}. "
+            "Systemzeit konnte nicht gesetzt werden."
+        )
+        return
+    flash(
+        f"Ausführung von '{executed_command}' ist fehlgeschlagen. "
+        "Systemzeit konnte nicht gesetzt werden."
+    )
+
+
+def _set_system_time_manually(time_value: str) -> bool:
+    disable_ntp_command = privileged_command("timedatectl", "set-ntp", "false")
+    set_time_command = privileged_command("timedatectl", "set-time", time_value)
+    try:
+        subprocess.run(
+            disable_ntp_command,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            set_time_command,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        primary_command = exc.filename or _extract_primary_command(set_time_command)
+        logging.error(
+            "timedatectl zum Setzen der Systemzeit nicht gefunden (%s): %s",
+            primary_command,
+            exc,
+        )
+        flash(
+            f"Kommando '{primary_command}' wurde nicht gefunden. Systemzeit konnte nicht gesetzt werden."
+        )
+        return False
+    except subprocess.CalledProcessError as exc:
+        _flash_system_time_command_failure(exc, set_time_command)
+        return False
+    except Exception as exc:  # Fallback, um unerwartete Fehler abzufangen
+        logging.exception(
+            "Unerwarteter Fehler beim Setzen der Systemzeit (%s): %s",
+            set_time_command,
+            exc,
+        )
+        flash("Unerwarteter Fehler beim Setzen der Systemzeit.")
+        return False
+    return True
+
+
 @app.route("/set_time", methods=["GET", "POST"])
 @login_required
 def set_time():
@@ -7848,7 +7931,15 @@ def set_time():
     if request.method == "POST":
         time_str = request.form.get("datetime")
         sync_checkbox = _is_checked(request.form.get("sync_internet"))
+        sync_requested = sync_checkbox or bool(request.form.get("sync_internet_action"))
         set_setting(TIME_SYNC_INTERNET_SETTING_KEY, "1" if sync_checkbox else "0")
+        if sync_requested:
+            sync_success, messages = perform_internet_time_sync()
+            for message in messages:
+                flash(message)
+            if not sync_success:
+                return redirect(url_for("set_time"))
+            return redirect(url_for("index"))
         if not time_str:
             flash("Ungültiges Datums-/Zeitformat")
             return redirect(url_for("set_time"))
@@ -7874,82 +7965,21 @@ def set_time():
                 local_dt = local_dt.astimezone()
 
             time_value = local_dt.strftime("%Y-%m-%d %H:%M:%S")
-            command = privileged_command("timedatectl", "set-time", time_value)
+            if not _set_system_time_manually(time_value):
+                return redirect(url_for("set_time"))
             try:
-                subprocess.run(
-                    command,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
-            except FileNotFoundError as exc:
-                primary_command = exc.filename or _extract_primary_command(command)
-                logging.error(
-                    "timedatectl zum Setzen der Systemzeit nicht gefunden (%s): %s",
-                    primary_command,
-                    exc,
-                )
+                set_rtc(local_dt)
+            except RTCWriteError as exc:
+                logging.error("RTC konnte nicht geschrieben werden: %s", exc)
+                flash("RTC konnte nicht gesetzt werden (I²C-Schreibfehler)")
+                return redirect(url_for("set_time"))
+            except (RTCUnavailableError, UnsupportedRTCError) as exc:
+                logging.warning("RTC konnte nicht gesetzt werden: %s", exc)
                 flash(
-                    f"Kommando '{primary_command}' wurde nicht gefunden. Systemzeit konnte nicht gesetzt werden."
+                    "Warnung: RTC nicht verfügbar oder wird nicht unterstützt. Systemzeit wurde gesetzt, aber nicht auf die RTC geschrieben."
                 )
-                return redirect(url_for("set_time"))
-            except subprocess.CalledProcessError as exc:
-                failing_command = exc.cmd if exc.cmd else command
-                primary_command = _extract_primary_command(failing_command or [])
-                stderr_text = exc.stderr if isinstance(exc.stderr, str) else ""
-                stdout_text = exc.stdout if isinstance(exc.stdout, str) else ""
-                if _command_not_found(stderr_text, stdout_text, exc.returncode):
-                    logging.error(
-                        "timedatectl zum Setzen der Systemzeit nicht gefunden (%s): %s",
-                        primary_command,
-                        stderr_text or exc,
-                    )
-                    flash(
-                        f"Kommando '{primary_command}' wurde nicht gefunden. Systemzeit konnte nicht gesetzt werden."
-                    )
-                else:
-                    logging.error(
-                        "Systemzeit setzen fehlgeschlagen (%s): %s",
-                        failing_command,
-                        exc,
-                    )
-                    executed_command = (
-                        " ".join(map(str, failing_command))
-                        if isinstance(failing_command, (list, tuple))
-                        else str(failing_command)
-                    )
-                    flash(
-                        f"Ausführung von '{executed_command}' ist fehlgeschlagen. Systemzeit konnte nicht gesetzt werden."
-                    )
-                return redirect(url_for("set_time"))
-            except Exception as exc:  # Fallback, um unerwartete Fehler abzufangen
-                logging.exception(
-                    "Unerwarteter Fehler beim Setzen der Systemzeit (%s): %s",
-                    command,
-                    exc,
-                )
-                flash("Unerwarteter Fehler beim Setzen der Systemzeit.")
-                return redirect(url_for("set_time"))
-            else:
-                try:
-                    set_rtc(local_dt)
-                except RTCWriteError as exc:
-                    logging.error("RTC konnte nicht geschrieben werden: %s", exc)
-                    flash("RTC konnte nicht gesetzt werden (I²C-Schreibfehler)")
-                    return redirect(url_for("set_time"))
-                except (RTCUnavailableError, UnsupportedRTCError) as exc:
-                    logging.warning("RTC konnte nicht gesetzt werden: %s", exc)
-                    flash(
-                        "Warnung: RTC nicht verfügbar oder wird nicht unterstützt. Systemzeit wurde gesetzt, aber nicht auf die RTC geschrieben."
-                    )
-                refresh_local_timezone()
-                flash("Datum und Uhrzeit gesetzt")
-                if sync_checkbox or request.form.get("sync_internet_action"):
-                    sync_success, messages = perform_internet_time_sync()
-                    for message in messages:
-                        flash(message)
-                    if not sync_success:
-                        return redirect(url_for("set_time"))
+            refresh_local_timezone()
+            flash("Datum und Uhrzeit gesetzt")
         return redirect(url_for("index"))
     return render_template(
         "set_time.html",
