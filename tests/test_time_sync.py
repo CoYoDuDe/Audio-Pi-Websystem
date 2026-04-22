@@ -156,6 +156,8 @@ def test_sync_time_handles_timesyncd_failure(monkeypatch, client):
     )
 
     def fake_run(cmd, *args, **kwargs):
+        if kwargs.get("check") is False:
+            return app_module.subprocess.CompletedProcess(cmd, 0, "", "")
         assert kwargs.get("check") is True
         assert kwargs.get("capture_output") is True
         assert kwargs.get("text") is True
@@ -214,6 +216,8 @@ def test_sync_time_succeeds_without_rtc(monkeypatch, client):
     )
 
     def fake_run(cmd, *args, **kwargs):
+        if kwargs.get("check") is False:
+            return app_module.subprocess.CompletedProcess(cmd, 0, "", "")
         assert kwargs.get("check") is True
         assert kwargs.get("capture_output") is True
         assert kwargs.get("text") is True
@@ -280,6 +284,8 @@ def test_sync_time_does_not_flash_success_on_restart_failure(monkeypatch, client
     )
 
     def fake_run(cmd, *args, **kwargs):
+        if kwargs.get("check") is False:
+            return app_module.subprocess.CompletedProcess(cmd, 0, "", "")
         assert kwargs.get("check") is True
         assert kwargs.get("capture_output") is True
         assert kwargs.get("text") is True
