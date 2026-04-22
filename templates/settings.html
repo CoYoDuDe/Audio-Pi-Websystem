@@ -341,6 +341,9 @@
                                     <label class="form-field min-w-12">
                                         Aktion
                                         <select name="action" required>
+                                            {% if button['action'] not in hardware_button_action_values %}
+                                            <option value="{{ button['action'] }}" selected>{{ hardware_button_action_labels.get(button['action'], button['action']) }}</option>
+                                            {% endif %}
                                             {% for value, label in hardware_button_actions %}
                                             <option value="{{ value }}" {% if button['action'] == value %}selected{% endif %}>{{ label }}</option>
                                             {% endfor %}

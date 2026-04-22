@@ -851,12 +851,21 @@ PLAY_NOW_ALLOWED_TYPES = {"file", "playlist"}
 HARDWARE_BUTTON_ACTIONS = [
     ("PLAY", "Wiedergabe (Datei/Playlist)"),
     ("STOP", "Wiedergabe stoppen"),
-    ("BT_ON", "Bluetooth aktivieren"),
-    ("BT_OFF", "Bluetooth deaktivieren"),
+    ("BT_TOGGLE", "Bluetooth an/aus"),
     ("REBOOT", "System neu starten"),
     ("SHUTDOWN", "System herunterfahren"),
 ]
-HARDWARE_BUTTON_ACTION_LABELS = {key: label for key, label in HARDWARE_BUTTON_ACTIONS}
+HARDWARE_BUTTON_LEGACY_ACTION_LABELS = {
+    "BT_ON": "Bluetooth aktivieren (Alt)",
+    "BT_OFF": "Bluetooth deaktivieren (Alt)",
+}
+HARDWARE_BUTTON_ACTION_LABELS = {
+    key: label
+    for key, label in [
+        *HARDWARE_BUTTON_ACTIONS,
+        *HARDWARE_BUTTON_LEGACY_ACTION_LABELS.items(),
+    ]
+}
 
 PAGE_SIZE_DEFAULT = 10
 PAGE_SIZE_ALLOWED = {10, 25, 50}
@@ -5240,6 +5249,7 @@ def _build_dashboard_context():
         default_schedule_delay=default_schedule_delay,
         hardware_buttons=hardware_buttons,
         hardware_button_actions=HARDWARE_BUTTON_ACTIONS,
+        hardware_button_action_values={value for value, _label in HARDWARE_BUTTON_ACTIONS},
         hardware_button_action_labels=HARDWARE_BUTTON_ACTION_LABELS,
         default_button_debounce_ms=DEFAULT_BUTTON_DEBOUNCE_MS,
         detected_hardware_gpio_pin=(request.args.get("detected_gpio_pin") or "").strip(),
@@ -8121,6 +8131,68 @@ def disable_bluetooth() -> BluetoothActionResult:
     return "success"
 
 
+def get_bluetooth_power_state() -> Optional[bool]:
+    """Return adapter power state from bluetoothctl, or None if it cannot be read."""
+    command = privileged_command("bluetoothctl", "show")
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except FileNotFoundError as exc:
+        _handle_missing_bluetooth_command(exc)
+        return None
+    except subprocess.TimeoutExpired:
+        logging.warning("Bluetooth-Statusabfrage per bluetoothctl show lief in Timeout")
+        return None
+    except Exception:
+        logging.exception("Bluetooth-Statusabfrage per bluetoothctl show fehlgeschlagen")
+        return None
+
+    stdout = result.stdout or ""
+    stderr = result.stderr or ""
+    if _missing_command_from_outputs(stdout, stderr):
+        primary_command = _extract_primary_command(command)
+        error = _create_missing_command_error(primary_command, stderr, stdout)
+        _handle_missing_bluetooth_command(error)
+        return None
+
+    if result.returncode != 0:
+        logging.warning(
+            "Bluetooth-Statusabfrage fehlgeschlagen (Exit-Code %s): %s",
+            result.returncode,
+            (stderr or stdout or "Keine Ausgabe").strip(),
+        )
+        return None
+
+    for line in stdout.splitlines():
+        if line.strip().lower().startswith("powered:"):
+            value = line.split(":", 1)[1].strip().lower()
+            if value in {"yes", "on", "true", "1"}:
+                return True
+            if value in {"no", "off", "false", "0"}:
+                return False
+
+    logging.warning("Bluetooth-Statusabfrage lieferte keinen Powered-Wert")
+    return None
+
+
+def toggle_bluetooth() -> BluetoothActionResult:
+    powered = get_bluetooth_power_state()
+    if powered is None:
+        powered = is_bt_connected()
+        logging.info(
+            "Bluetooth-Power-Status unbekannt, nutze Verbindungsstatus als Fallback: %s",
+            powered,
+        )
+    if powered:
+        return disable_bluetooth()
+    return enable_bluetooth()
+
+
 @app.route("/bluetooth_on", methods=["POST"])
 @login_required
 def bluetooth_on():
@@ -8426,6 +8498,28 @@ def _disable_bluetooth_via_button() -> None:
         )
 
 
+def _toggle_bluetooth_via_button() -> None:
+    try:
+        result = toggle_bluetooth()
+    except FileNotFoundError as exc:
+        _handle_missing_bluetooth_command(exc, flash_user=False)
+        return
+    except subprocess.CalledProcessError as exc:
+        logging.error("GPIO-Button-Monitor: Bluetooth-Umschaltung fehlgeschlagen: %s", exc)
+        return
+
+    if result == "success":
+        logging.info("GPIO-Button-Monitor: Bluetooth per Taster umgeschaltet")
+    elif result == "missing_cli":
+        logging.warning(
+            "GPIO-Button-Monitor: Bluetooth-Taster – benötigte Tools nicht verfügbar"
+        )
+    else:
+        logging.error(
+            "GPIO-Button-Monitor: Bluetooth konnte per Taster nicht vollständig umgeschaltet werden"
+        )
+
+
 def _run_system_power_action_from_button(action: str, command: List[str]) -> None:
     logging.warning("GPIO-Button-Monitor: Systemaktion per Taster angefordert: %s", action)
     try:
@@ -8633,6 +8727,16 @@ def _build_button_assignments() -> List[ButtonAssignment]:
             )
             continue
 
+        if action == "BT_TOGGLE":
+            _add_assignment(
+                "BT_TOGGLE",
+                entry.gpio_pin,
+                _toggle_bluetooth_via_button,
+                debounce_override=entry.debounce_ms,
+                source=source_label,
+            )
+            continue
+
         if action == "REBOOT":
             _add_assignment(
                 "REBOOT",
@@ -8718,6 +8822,10 @@ def _build_button_assignments() -> List[ButtonAssignment]:
     bt_off_pin = _parse_int_env("GPIO_BUTTON_BT_OFF_PIN")
     if bt_off_pin is not None:
         _add_assignment("BT_OFF", bt_off_pin, _disable_bluetooth_via_button)
+
+    bt_toggle_pin = _parse_int_env("GPIO_BUTTON_BT_TOGGLE_PIN")
+    if bt_toggle_pin is not None:
+        _add_assignment("BT_TOGGLE", bt_toggle_pin, _toggle_bluetooth_via_button)
 
     reboot_pin = _parse_int_env("GPIO_BUTTON_REBOOT_PIN")
     if reboot_pin is not None:
