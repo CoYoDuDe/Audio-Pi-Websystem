@@ -46,3 +46,13 @@ python app.py
 ## Hinweis
 
 Benutzerdaten wie Datenbank, Uploads und Logs gehoeren nicht ins Repository.
+
+## Unterstützung
+
+Dieses Projekt wird unabhängig und privat entwickelt und kostenlos bereitgestellt. Freiwillige Unterstützung hilft bei Infrastruktur, Servern, Domains, Tests, Wartung und Weiterentwicklung.
+
+- [PayPal](https://paypal.me/CoYoDuDe)
+- [Buy Me a Coffee](https://www.buymeacoffee.com/CoYoDuDe)
+- [Weitere Projekte und Informationen](https://dnsmith.net/)
+
+Unterstützung ist freiwillig. Es gibt keinen Abo-Zwang und daraus entsteht kein Anspruch auf bestimmte Funktionen oder persönlichen Support.
